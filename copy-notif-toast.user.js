@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Universal Copy Success Toast
 // @namespace    https://github.com/myouisaur/Universal
-// @version      4.0
+// @version      4.2
 // @description  Toast notification on successful copy action.
 // @author       Xiv
 // @match        *://*/*
@@ -68,8 +68,8 @@
             osc.frequency.setValueAtTime(800, audioCtx.currentTime);
             osc.frequency.exponentialRampToValueAtTime(1200, audioCtx.currentTime + 0.1);
 
-            gainNode.gain.setValueAtTime(0.05, audioCtx.currentTime);
-            gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.1);
+            gainNode.gain.setValueAtTime(0.2, audioCtx.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.2);
 
             osc.connect(gainNode);
             gainNode.connect(audioCtx.destination);
