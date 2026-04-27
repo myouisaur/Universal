@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Universal Copy Success Toast
 // @namespace    https://github.com/myouisaur/Universal
-// @version      4.2
+// @version      4.3
 // @description  Toast notification on successful copy action.
 // @author       Xiv
 // @match        *://*/*
@@ -9,7 +9,7 @@
 // @grant        GM_addStyle
 // @run-at       document-idle
 // @updateURL    https://myouisaur.github.io/Universal/copy-notif-toast.user.js
-// @downloadURL  https://myouisaur.github.io/Facebook/copy-notif-toast.user.js
+// @downloadURL  https://myouisaur.github.io/Universal/copy-notif-toast.user.js
 // ==/UserScript==
 
 (function() {
