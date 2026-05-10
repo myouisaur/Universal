@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Universal Copy Success Toast
+// @name         [Universal] Copy Success Toast
 // @namespace    https://github.com/myouisaur/Universal
-// @version      4.3
+// @version      4.4
 // @description  Toast notification on successful copy action.
 // @author       Xiv
 // @match        *://*/*
