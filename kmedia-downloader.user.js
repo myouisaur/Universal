@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         [Universal] K-Media Downloader
 // @namespace    https://github.com/myouisaur/Universal
-// @version      5.2
+// @version      5.3
 // @description  Provides a centralized UI, shortcuts, and tracking for saving categorized K-Pop media.
 // @author       Xiv
 // @match        *://*/*
@@ -22,7 +22,7 @@
     // CONFIGURATION
     // =========================================================
     const CONFIG = {
-        NAMING_FORMAT: '[{group}] {member} {random}.{ext}', // Allowed vars: {group}, {member}, {random}, {ext}
+        NAMING_FORMAT: '{group}-{member}-{random}.{ext}', // Allowed vars: {group}, {member}, {random}, {ext}
         RANDOM_STRING_LENGTH: 15,
         UI_PREFIX: 'tm-kpop-dl',
         STORAGE_KEY: 'tm_kpop_dl_history',
