@@ -1,10 +1,14 @@
 // ==UserScript==
 // @name         [Universal] Quick Link Copier
 // @namespace    https://github.com/myouisaur/Universal
-// @version      2.7
-// @description  Displays a permanent ghost outline on links and injects a persistent inline copy icon next to the text.
+// @version      2.8
+// @description  Displays a toggleable ghost outline on links and injects a persistent inline copy icon next to the text.
 // @author       Xiv
 // @match        *://*/*
+// @grant        GM_getValue
+// @grant        GM_setValue
+// @grant        GM_registerMenuCommand
+// @grant        GM_unregisterMenuCommand
 // @updateURL    https://myouisaur.github.io/Universal/inline-link-copier.user.js
 // @downloadURL  https://myouisaur.github.io/Universal/inline-link-copier.user.js
 // ==/UserScript==
@@ -46,6 +50,52 @@
         hideTimer: null
     };
 
+    // --- Settings & Persistence ---
+    const Settings = {
+        menuCommandId: null,
+        outlinesEnabled: true,
+
+        init() {
+            // Load saved preference, default to true
+            this.outlinesEnabled = GM_getValue('outlinesEnabled', true);
+            this.applyState();
+            this.updateMenu();
+        },
+
+        toggle() {
+            this.outlinesEnabled = !this.outlinesEnabled;
+            GM_setValue('outlinesEnabled', this.outlinesEnabled);
+            this.applyState();
+            this.updateMenu();
+            Logger.info(`Ghost outlines ${this.outlinesEnabled ? 'enabled' : 'disabled'}.`);
+        },
+
+        applyState() {
+            if (!document.body) return;
+            if (this.outlinesEnabled) {
+                document.body.classList.add('tm-qlc-outlines-active');
+            } else {
+                document.body.classList.remove('tm-qlc-outlines-active');
+            }
+        },
+
+        updateMenu() {
+            if (typeof GM_registerMenuCommand === 'undefined') return;
+
+            // Remove previous menu command to prevent stacking
+            if (this.menuCommandId !== null && typeof GM_unregisterMenuCommand !== 'undefined') {
+                GM_unregisterMenuCommand(this.menuCommandId);
+            }
+
+            const stateIcon = this.outlinesEnabled ? "🔴" : "⭕";
+            const stateText = this.outlinesEnabled ? "Disable Outlines" : "Enable Outlines";
+
+            this.menuCommandId = GM_registerMenuCommand(`${stateIcon} ${stateText}`, () => {
+                this.toggle();
+            });
+        }
+    };
+
     // --- UI Module ---
     const UI = {
         toastElement: null,
@@ -60,13 +110,13 @@
         injectCSS() {
             const style = document.createElement('style');
             style.textContent = `
-                /* 1. Permanent Ghost Outline */
-                body a[href] {
+                /* 1. Toggleable Ghost Outline */
+                body.tm-qlc-outlines-active a[href] {
                     outline: 1px dashed rgba(255, 71, 87, 0.4) !important;
                     outline-offset: 2px !important;
                     transition: outline-color 0.15s ease !important;
                 }
-                body a[href]:hover {
+                body.tm-qlc-outlines-active a[href]:hover {
                     outline: 1px dashed rgba(255, 71, 87, 1) !important;
                 }
 
@@ -191,6 +241,7 @@
 
         showToast() {
             if (!this.toastElement) return;
+
             clearTimeout(State.toastTimer);
             this.toastElement.classList.add('tm-qlc-visible');
             State.toastTimer = setTimeout(() => {
@@ -200,6 +251,7 @@
 
         triggerIconMorph() {
             if (!this.singletonIcon) return;
+
             this.singletonIcon.innerHTML = CONFIG.ICON_CHECK;
             setTimeout(() => {
                 if (this.singletonIcon) {
@@ -213,6 +265,7 @@
     const ClipboardUtils = {
         async copy(text) {
             if (!text) return;
+
             try {
                 if (navigator.clipboard && window.isSecureContext) {
                     await navigator.clipboard.writeText(text);
@@ -226,6 +279,7 @@
 
         fallbackCopy(text) {
             if (!document.body) return;
+
             const textArea = document.createElement("textarea");
             textArea.value = text;
             textArea.style.top = "0";
@@ -269,7 +323,7 @@
 
                     clearTimeout(State.hideTimer);
 
-                    // CRITICAL FIX: Grab the fully resolved absolute URL property instead of the attribute
+                    // Grab the fully resolved absolute URL property instead of the attribute
                     State.activeLink = link.href;
 
                     const rect = link.getBoundingClientRect();
@@ -327,6 +381,7 @@
     const App = {
         init() {
             try {
+                Settings.init();
                 UI.init();
                 Events.init();
                 Logger.info("Singleton Architecture initialized.");
