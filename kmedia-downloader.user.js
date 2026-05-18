@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         [Universal] K-Media Downloader
 // @namespace    https://github.com/myouisaur/Universal
-// @version      5.3
+// @version      5.4
 // @description  Provides a centralized UI, shortcuts, and tracking for saving categorized K-Pop media.
 // @author       Xiv
 // @match        *://*/*
@@ -11,6 +11,7 @@
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @connect      raw.githubusercontent.com
+// @connect      *
 // @updateURL    https://myouisaur.github.io/Universal/kmedia-downloader.user.js
 // @downloadURL  https://myouisaur.github.io/Universal/kmedia-downloader.user.js
 // ==/UserScript==
@@ -23,7 +24,7 @@
     // =========================================================
     const CONFIG = {
         NAMING_FORMAT: '{group}-{member}-{random}.{ext}', // Allowed vars: {group}, {member}, {random}, {ext}
-        RANDOM_STRING_LENGTH: 15,
+        RANDOM_STRING_LENGTH: 8,
         UI_PREFIX: 'tm-kpop-dl',
         STORAGE_KEY: 'tm_kpop_dl_history',
         HISTORY_MAX_DAYS: 30,
@@ -93,7 +94,6 @@
                 const cacheObj = JSON.parse(cacheStr);
                 // Validate TTL
                 if (Date.now() - cacheObj.timestamp > CONFIG.DB_CACHE_TTL_MS) return null;
-
                 return cacheObj.data;
             } catch (e) {
                 return null;
@@ -185,7 +185,6 @@
             this._saveDebounced = debounce(() => {
                 GM_setValue(CONFIG.STORAGE_KEY, JSON.stringify(this._cache));
             }, CONFIG.SAVE_DEBOUNCE_MS);
-
             this.clean();
         },
 
@@ -196,7 +195,6 @@
             this._cache = this._cache
                 .filter(item => item.t >= cutoffDate)
                 .slice(-CONFIG.HISTORY_MAX_ENTRIES);
-
             if (this._cache.length !== initialLength) {
                 this._saveDebounced();
             }
@@ -235,7 +233,6 @@
                 }
                 frequencies[identifier].count++;
             });
-
             return Object.values(frequencies)
                 .sort((a, b) => b.count - a.count)
                 .slice(0, 10);
@@ -254,7 +251,26 @@
         },
 
         getExtension() {
-            return window.location.pathname.split('.').pop().split(/[?#]/)[0] || 'jpg';
+            try {
+                const url = new URL(window.location.href);
+
+                // 1. Check query parameters (e.g., Twitter ?format=jpg)
+                const format = url.searchParams.get('format');
+                if (format) return format.toLowerCase();
+
+                // 2. Check pathname extension
+                const match = url.pathname.match(/\.([a-zA-Z0-9]+)$/);
+                if (match) return match[1].toLowerCase();
+
+                // 3. Document Content-Type heuristic
+                const type = document.contentType || '';
+                if (type.startsWith('image/')) return type.split('/')[1].toLowerCase();
+                if (type.startsWith('video/')) return type.split('/')[1].toLowerCase();
+
+                return 'jpg';
+            } catch (e) {
+                return 'jpg';
+            }
         },
 
         generateFileName(group, member) {
@@ -280,19 +296,31 @@
         },
 
         triggerDownload(url, name, groupContext, nameContext) {
-            if (typeof GM_download === 'function') {
-                GM_download({
-                    url: url,
-                    name: name,
-                    saveAs: true,
-                    onload: () => {
-                        if (groupContext && nameContext) Storage.recordSuccess(groupContext, nameContext);
-                    },
-                    onerror: () => this.fallbackDownload(url, name, groupContext, nameContext)
-                });
+            let hasPathExtension = false;
+            try {
+                hasPathExtension = !!new URL(url).pathname.match(/\.[a-zA-Z0-9]+$/);
+            } catch (e) {}
+
+            // If it's a standard URL with an extension, native download is fine.
+            if (hasPathExtension && typeof GM_download === 'function') {
+                this._executeGMDownload(url, name, groupContext, nameContext);
             } else {
+                // If the URL has no extension (like Twitter), force a Blob XHR fetch first.
+                // This embeds the MIME type into the object so the OS "Save As" doesn't default to "All Files".
                 this.fallbackDownload(url, name, groupContext, nameContext);
             }
+        },
+
+        _executeGMDownload(url, name, groupContext, nameContext) {
+            GM_download({
+                url: url,
+                name: name,
+                saveAs: true,
+                onload: () => {
+                    if (groupContext && nameContext) Storage.recordSuccess(groupContext, nameContext);
+                },
+                onerror: () => this.fallbackDownload(url, name, groupContext, nameContext)
+            });
         },
 
         fallbackDownload(url, name, groupContext, nameContext) {
@@ -362,8 +390,7 @@
                     background: #0d0d0d; border-radius: 1.5rem;
                     padding: 1.5rem; border: 1px solid #222;
                     box-shadow: 0 2rem 4rem rgba(0,0,0,0.8); color: #fff;
-                    display: flex; flex-direction: column;
-                    box-sizing: border-box; overflow: hidden;
+                    display: flex; flex-direction: column; box-sizing: border-box; overflow: hidden;
                 }
                 .${CONFIG.UI_PREFIX}-main { width: 25rem; height: 80vh; order: 2; position: relative; }
                 .${CONFIG.UI_PREFIX}-side { width: 20rem; height: 80vh; background: #0a0a0a; }
@@ -432,11 +459,9 @@
                 /* Responsive Design - FIX APPLIED HERE */
                 @media (max-width: 1100px) {
                     .${CONFIG.UI_PREFIX}-layout {
-                        flex-direction: column;
-                        align-items: center;
+                        flex-direction: column; align-items: center;
                         justify-content: flex-start; /* Fixes top content being unreachable */
-                        overflow-y: auto;
-                        height: 100vh;
+                        overflow-y: auto; height: 100vh;
                         max-height: 100vh;
                         width: 100%;
                         padding: 2rem 0 4rem 0; /* Padding bottom to prevent flush sticking */
@@ -528,7 +553,6 @@
             searchInput.placeholder = "Search idols or groups...";
             searchContainer.appendChild(searchInput);
             panel.appendChild(searchContainer);
-
             // List
             const list = document.createElement('div');
             list.className = `${CONFIG.UI_PREFIX}-list`;
@@ -574,7 +598,6 @@
                     items[this.activeIndex].scrollIntoView({ block: 'nearest' });
                 }
             };
-
             searchInput.addEventListener('keydown', (e) => {
                 const visibleItems = Array.from(list.querySelectorAll(`.${CONFIG.UI_PREFIX}-item`)).filter(el => el.style.display !== 'none');
 
@@ -593,7 +616,6 @@
                     }
                 }
             });
-
             // Debounced Search Logic
             searchInput.oninput = debounce((e) => {
                 const val = e.target.value.toLowerCase().trim();
@@ -611,7 +633,6 @@
                     }
                 });
             }, 150);
-
             // Footer
             const footer = document.createElement('div');
             footer.className = `${CONFIG.UI_PREFIX}-footer`;
@@ -633,17 +654,16 @@
             if (this.overlay) this.overlay.remove();
             this.overlay = document.createElement('div');
             this.overlay.id = `${CONFIG.UI_PREFIX}-overlay`;
-            this.overlay.onclick = (e) => { if (e.target === this.overlay || e.target.className === `${CONFIG.UI_PREFIX}-layout`) this.closeMenu(); };
+            this.overlay.onclick = (e) => { if (e.target === this.overlay || e.target.className === `${CONFIG.UI_PREFIX}-layout`) this.closeMenu();
+            };
 
             // Trap Focus / Prevent page scroll
             document.body.style.overflow = 'hidden';
-
             const layoutWrapper = document.createElement('div');
             layoutWrapper.className = `${CONFIG.UI_PREFIX}-layout`;
 
             const recentData = Storage.getRecentStats();
             const flavorData = Storage.getFlavorStats();
-
             layoutWrapper.appendChild(this.createSidePanel('🕒 Recent Saves', 'left', recentData, 'No recent saves.', false));
             layoutWrapper.appendChild(this.createMainPanel());
             layoutWrapper.appendChild(this.createSidePanel('❤️‍🔥 Flavor of the Month', 'right', flavorData, 'No data for this month.', true));
@@ -654,7 +674,6 @@
 
         async showMenu() {
             if (this.overlay) return;
-
             // Defensively wait for Database if user clicks instantly on load
             if (!Database.isLoaded) {
                 document.body.style.cursor = 'wait';
@@ -675,7 +694,6 @@
             }
         }
     };
-
     // =========================================================
     // CORE APPLICATION MODULE
     // =========================================================
@@ -692,8 +710,7 @@
             Database.init().then(() => {
                 UI.injectFAB();
             });
-
-            Logger.info('Initialized K-Pop Media Downloader v5.2');
+            Logger.info('Initialized K-Pop Media Downloader v5.4');
         },
 
         isDirectMediaPage() {
@@ -712,7 +729,8 @@
                 if (e.key === 'Escape' && UI.overlay) {
                     UI.closeMenu();
                 }
-            }, true);
+            },
+            true);
         }
     };
 
