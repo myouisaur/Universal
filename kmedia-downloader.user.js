@@ -2,7 +2,7 @@
 // @name         [Universal] K-Media Downloader
 // @namespace    https://github.com/myouisaur/Universal
 // @icon         data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23FF4081'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 11h3l-4 4-4-4h3V8h2v5z'/%3E%3C/svg%3E
-// @version      6.10
+// @version      6.14
 // @description  Organizes, tracks, and saves categorized K-Pop media files through a centralized overlay.
 // @author       Xiv
 // @match        *://*/*
@@ -297,6 +297,15 @@
             return true;
         },
 
+        renameGroup(oldName, newName) {
+            const normalized = newName.trim();
+            if (!normalized || this.data[normalized] || !this.data[oldName]) return false;
+            this.data[normalized] = this.data[oldName];
+            delete this.data[oldName];
+            this.processData(this.data);
+            return true;
+        },
+
         addMember(groupName, memberName) {
             const normalized = memberName.trim();
             if (!this.data[groupName] || !normalized || this.data[groupName].includes(normalized)) return false;
@@ -310,6 +319,16 @@
             const index = this.data[groupName].indexOf(memberName);
             if (index === -1) return false;
             this.data[groupName].splice(index, 1);
+            return true;
+        },
+
+        renameMember(groupName, oldName, newName) {
+            const normalized = newName.trim();
+            if (!this.data[groupName] || !normalized || this.data[groupName].includes(normalized)) return false;
+            const index = this.data[groupName].indexOf(oldName);
+            if (index === -1) return false;
+            this.data[groupName][index] = normalized;
+            this.data[groupName].sort((a, b) => a.localeCompare(b));
             return true;
         }
     };
@@ -398,7 +417,7 @@
                     const isChanged = newCache.length !== this._cache.length ||
                                       (newCache.length > 0 && this._cache.length > 0 && newCache[newCache.length - 1].t !== this._cache[this._cache.length - 1].t);
 
-                    if (isChanged) {
+                    if (isChanged || force) {
                         this._cache = newCache;
                         this.clean();
                         this._saveLocalDebounced();
@@ -429,6 +448,36 @@
 
             this._saveLocalDebounced();
             this._saveCloudDebounced();
+        },
+
+        renameGroupHistory(oldName, newName) {
+            let changed = false;
+            this._cache.forEach(item => {
+                if (item.g === oldName) {
+                    item.g = newName;
+                    changed = true;
+                }
+            });
+            if (changed) {
+                this._saveLocalDebounced();
+                this._saveCloudDebounced();
+                if (UI.overlay) UI.refreshSidePanels();
+            }
+        },
+
+        renameMemberHistory(groupName, oldName, newName) {
+            let changed = false;
+            this._cache.forEach(item => {
+                if (item.g === groupName && item.n === oldName) {
+                    item.n = newName;
+                    changed = true;
+                }
+            });
+            if (changed) {
+                this._saveLocalDebounced();
+                this._saveCloudDebounced();
+                if (UI.overlay) UI.refreshSidePanels();
+            }
         },
 
         getRecentStats() {
@@ -499,7 +548,7 @@
             const url = window.location.href;
             const originalName = url.substring(url.lastIndexOf('/') + 1).split(/[?#]/)[0] || 'download';
             UI.closeMenu();
-            this.triggerDownload(url, originalName, null, null, true); // true = force prompt
+            this.triggerDownload(url, originalName, null, null, true);
         },
 
         executeCustomSave(customName) {
@@ -510,16 +559,14 @@
                 .replace('{random}', this.generateRandomString(CONFIG.RANDOM_STRING_LENGTH))
                 .replace('{ext}', ext);
             UI.closeMenu();
-            this.triggerDownload(window.location.href, fileName, null, null, true); // true = force prompt
+            this.triggerDownload(window.location.href, fileName, null, null, true);
         },
 
         executeIdolSave(group, name) {
             const fileName = this.generateFileName(group, name);
             let finalName = fileName;
 
-            // Auto-routing logic for Idol database clicks only
             if (CONFIG.IDOL_SUBFOLDER) {
-                // Ensure slashes are correct and prevent trailing slashes duplicating
                 const cleanFolder = CONFIG.IDOL_SUBFOLDER.replace(/\\/g, '/').replace(/\/$/, '');
                 if (cleanFolder) {
                     finalName = `${cleanFolder}/${fileName}`;
@@ -567,7 +614,6 @@
         },
 
         fallbackDownload(url, name, groupContext, nameContext, toastObj) {
-            // Note: The blob/fallback method cannot route to subfolders natively via the a.download attribute.
             Logger.info('Using fallback XHR download method...');
             if (typeof GM_xmlhttpRequest === 'function') {
                 GM_xmlhttpRequest({
@@ -583,7 +629,6 @@
                             const a = document.createElement('a');
                             a.href = blobUrl;
 
-                            // Browser security strips folder slashes in a.download; only filenames pass through.
                             const finalFileName = name.substring(name.lastIndexOf('/') + 1);
                             a.download = finalFileName;
 
@@ -618,6 +663,7 @@
         selectedGroup: null,
         activeIndex: -1,
         deleteBtnTemplate: null,
+        editItemBtnTemplate: null,
         syncInterval: null,
 
         currentListData: [],
@@ -643,6 +689,11 @@
             this.deleteBtnTemplate.className = `${CONFIG.UI_PREFIX}-delete-btn`;
             this.deleteBtnTemplate.title = "Delete Entry";
             this.deleteBtnTemplate.appendChild(this._createSVG('0 0 24 24', 'M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z'));
+
+            this.editItemBtnTemplate = document.createElement('button');
+            this.editItemBtnTemplate.className = `${CONFIG.UI_PREFIX}-edit-item-btn`;
+            this.editItemBtnTemplate.title = "Rename Entry";
+            this.editItemBtnTemplate.appendChild(this._createSVG('0 0 24 24', 'M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z'));
         },
 
         _createSVG(viewBox, pathD) {
@@ -725,6 +776,10 @@
                 .${CONFIG.UI_PREFIX}-icon-btn:hover { background: #222; border-color: #555; }
                 .${CONFIG.UI_PREFIX}-icon-btn svg { width: 1.1rem; height: 1.1rem; fill: #fff; }
 
+                /* Spin Animation for Sync Button */
+                @keyframes tmSpin { 100% { transform: rotate(360deg); } }
+                .${CONFIG.UI_PREFIX}-spin svg { animation: tmSpin 1s linear infinite; }
+
                 /* Configuration Notification Dot */
                 .${CONFIG.UI_PREFIX}-notification-dot {
                     position: absolute; top: -2px; right: -2px; width: 10px; height: 10px;
@@ -786,8 +841,15 @@
                 .${CONFIG.UI_PREFIX}-item:hover, .${CONFIG.UI_PREFIX}-item.active-focus { background: #1c1c1c; border-color: #555; }
                 .${CONFIG.UI_PREFIX}-static-item { position: relative; margin-bottom: 0.5rem; }
 
-                .${CONFIG.UI_PREFIX}-badge { font-size: 0.7rem; color: #888; background: #1a1a1a; padding: 0.2rem 0.5rem; border-radius: 0.4rem; border: 1px solid #252525; font-weight: 500; }
+                .${CONFIG.UI_PREFIX}-badge {
+                    font-size: 0.7rem; color: #888; background: #1a1a1a; padding: 0.2rem 0.5rem;
+                    border-radius: 0.4rem; border: 1px solid #252525; font-weight: 500; transition: 0.2s;
+                }
                 .${CONFIG.UI_PREFIX}-badge.accent { color: #aaa; border-color: #444; background: #222; }
+
+                /* Actionable Hover states for Badges */
+                .${CONFIG.UI_PREFIX}-badge-actionable:hover { background: #2a2a2a; border-color: #555; color: #fff; cursor: pointer; }
+                .${CONFIG.UI_PREFIX}-badge-actionable.accent:hover { background: #333; border-color: #666; color: #fff; }
 
                 /* Footer & Actions */
                 .${CONFIG.UI_PREFIX}-footer { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #222; flex-shrink: 0; display: flex; flex-direction: column; gap: 0.5rem; }
@@ -814,9 +876,19 @@
                 .${CONFIG.UI_PREFIX}-crud-add-btn { background: #222; color: #fff; border: 1px solid #333; border-radius: 0.6rem; padding: 0.7rem 1rem; font-size: 0.85rem; cursor: pointer; white-space: nowrap; transition: 0.2s; }
                 .${CONFIG.UI_PREFIX}-crud-add-btn:hover:not(:disabled) { background: #333; border-color: #555; }
 
-                .${CONFIG.UI_PREFIX}-delete-btn { background: transparent; border: none; cursor: pointer; padding: 0.4rem; display: flex; align-items: center; justify-content: center; border-radius: 0.4rem; transition: background 0.2s; margin-left: 0.5rem; }
+                .${CONFIG.UI_PREFIX}-edit-item-btn, .${CONFIG.UI_PREFIX}-delete-btn {
+                    background: transparent; border: none; cursor: pointer; padding: 0.4rem;
+                    display: flex; align-items: center; justify-content: center; border-radius: 0.4rem; transition: background 0.2s;
+                    margin-left: 0.2rem;
+                }
+                .${CONFIG.UI_PREFIX}-edit-item-btn svg, .${CONFIG.UI_PREFIX}-delete-btn svg { width: 1.1rem; height: 1.1rem; transition: fill 0.2s; }
+
+                .${CONFIG.UI_PREFIX}-edit-item-btn svg { fill: #aaa; }
+                .${CONFIG.UI_PREFIX}-edit-item-btn:hover { background: rgba(255, 255, 255, 0.15); }
+                .${CONFIG.UI_PREFIX}-edit-item-btn:hover svg { fill: #fff; }
+
+                .${CONFIG.UI_PREFIX}-delete-btn svg { fill: #e57373; }
                 .${CONFIG.UI_PREFIX}-delete-btn:hover { background: rgba(229, 115, 115, 0.15); }
-                .${CONFIG.UI_PREFIX}-delete-btn svg { width: 1.1rem; height: 1.1rem; fill: #e57373; }
 
                 /* Configuration Panel */
                 .${CONFIG.UI_PREFIX}-config-body { display: none; flex-direction: column; gap: 0.8rem; height: 100%; overflow-y: auto; padding-right: 0.5rem; }
@@ -950,8 +1022,19 @@
                     const badgeText = isFlavor ? `${item.count}x • ${item.g}` : item.g;
                     const badgeClass = isFlavor ? `${CONFIG.UI_PREFIX}-badge accent` : `${CONFIG.UI_PREFIX}-badge`;
                     const badgeSpan = document.createElement('span');
-                    badgeSpan.className = badgeClass;
+
+                    // Make the side panel group badges redirect to the group
+                    badgeSpan.className = badgeClass + ` ${CONFIG.UI_PREFIX}-badge-actionable`;
                     badgeSpan.textContent = badgeText;
+                    badgeSpan.title = `View ${item.g}`;
+
+                    badgeSpan.onclick = (e) => {
+                        e.stopPropagation();
+                        this.selectedGroup = item.g;
+                        this.currentView = 'members';
+                        if (this.searchInput) this.searchInput.value = '';
+                        this.updateListData('');
+                    };
 
                     btn.appendChild(nameSpan);
                     btn.appendChild(badgeSpan);
@@ -1030,6 +1113,30 @@
             const rightGroup = document.createElement('div');
             rightGroup.className = `${CONFIG.UI_PREFIX}-header-right`;
 
+            const syncBtn = document.createElement('div');
+            syncBtn.className = `${CONFIG.UI_PREFIX}-icon-btn`;
+            syncBtn.appendChild(this._createSVG('0 0 24 24', 'M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46A7.93 7.93 0 0020 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74A7.93 7.93 0 004 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z'));
+            syncBtn.title = "Force Manual Sync";
+            syncBtn.onclick = () => {
+                if (!CloudAPI.isValid()) {
+                    this.showToast('Configure Cloud Engine credentials first.', 'error');
+                    return;
+                }
+                syncBtn.classList.add(`${CONFIG.UI_PREFIX}-spin`);
+                this.showToast('Forcing manual synchronization...', 'syncing');
+
+                Promise.all([
+                    Storage.fetchCloudBackground(true),
+                    Database.init()
+                ]).then(() => {
+                    syncBtn.classList.remove(`${CONFIG.UI_PREFIX}-spin`);
+                    this.showToast('Manual sync complete.', 'success');
+                }).catch((e) => {
+                    syncBtn.classList.remove(`${CONFIG.UI_PREFIX}-spin`);
+                    this.showToast(`Sync failed: ${e.message}`, 'error');
+                });
+            };
+
             const editBtn = document.createElement('div');
             editBtn.className = `${CONFIG.UI_PREFIX}-icon-btn`;
             editBtn.appendChild(this._createSVG('0 0 24 24', 'M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z'));
@@ -1068,6 +1175,7 @@
             closeBtn.title = "Close";
             closeBtn.onclick = () => this.closeMenu();
 
+            rightGroup.appendChild(syncBtn);
             rightGroup.appendChild(editBtn);
             rightGroup.appendChild(configBtn);
             rightGroup.appendChild(closeBtn);
@@ -1116,7 +1224,7 @@
                 GM_setValue('tm_kpop_dl_history_path', historyPathInput.value.trim() || 'kmedia-downloader-history.json');
                 GM_setValue('tm_kpop_dl_github_branch', branchInput.value.trim() || 'main');
 
-                CloudAPI.loadConfig();
+                CloudAPI.loadConfig(); // Immediately ingest new credentials
                 this.showToast('Configurations saved. Re-synchronizing environments...');
                 this.currentView = 'groups';
 
@@ -1205,8 +1313,9 @@
                 requestAnimationFrame(() => this.renderVirtualList());
             });
 
-            // Event Delegation for List Items & Delete Buttons
+            // Event Delegation for List Items & Delete/Edit Buttons
             this.listInner.addEventListener('click', (e) => {
+                // Handle Delete
                 const delBtn = e.target.closest(`.${CONFIG.UI_PREFIX}-delete-btn`);
                 if (delBtn) {
                     e.stopPropagation();
@@ -1231,6 +1340,40 @@
                     return;
                 }
 
+                // Handle Edit
+                const editBtn = e.target.closest(`.${CONFIG.UI_PREFIX}-edit-item-btn`);
+                if (editBtn) {
+                    e.stopPropagation();
+                    const index = parseInt(editBtn.dataset.index, 10);
+                    const itemData = this.currentListData[index];
+
+                    if (itemData.type === 'group') {
+                        const newName = prompt(`Rename group "${itemData.group}":`, itemData.group);
+                        if (newName && newName.trim() !== itemData.group) {
+                            if (Database.renameGroup(itemData.group, newName)) {
+                                Storage.renameGroupHistory(itemData.group, newName.trim());
+                                this.updateListData(this.searchInput.value.toLowerCase().trim());
+                                this.triggerCloudSync();
+                            } else {
+                                this.showToast('Invalid name or group already exists.', 'error');
+                            }
+                        }
+                    } else if (itemData.type === 'member') {
+                        const newName = prompt(`Rename member "${itemData.member}":`, itemData.member);
+                        if (newName && newName.trim() !== itemData.member) {
+                            if (Database.renameMember(itemData.group, itemData.member, newName)) {
+                                Storage.renameMemberHistory(itemData.group, itemData.member, newName.trim());
+                                this.updateListData(this.searchInput.value.toLowerCase().trim());
+                                this.triggerCloudSync();
+                            } else {
+                                this.showToast('Invalid name or member already exists.', 'error');
+                            }
+                        }
+                    }
+                    return;
+                }
+
+                // Handle Standard Click
                 const itemEl = e.target.closest(`.${CONFIG.UI_PREFIX}-item`);
                 if (!itemEl) return;
                 const index = parseInt(itemEl.dataset.index, 10);
@@ -1471,13 +1614,33 @@
                     const badgeSpan = document.createElement('span');
                     badgeSpan.className = `${CONFIG.UI_PREFIX}-badge`;
                     badgeSpan.textContent = itemData.badge;
+
+                    // Make the global search group badges redirect to the group
+                    if (itemData.type === 'member' && this.currentView === 'groups') {
+                        badgeSpan.classList.add(`${CONFIG.UI_PREFIX}-badge-actionable`);
+                        badgeSpan.title = `View ${itemData.group}`;
+                        badgeSpan.onclick = (e) => {
+                            e.stopPropagation();
+                            this.selectedGroup = itemData.group;
+                            this.currentView = 'members';
+                            if (this.searchInput) this.searchInput.value = '';
+                            this.updateListData('');
+                        };
+                    }
                     rightWrapper.appendChild(badgeSpan);
                 }
 
-                if (this.isCrudMode && this.deleteBtnTemplate) {
-                    const delBtn = this.deleteBtnTemplate.cloneNode(true);
-                    delBtn.dataset.index = i;
-                    rightWrapper.appendChild(delBtn);
+                if (this.isCrudMode) {
+                    if (this.editItemBtnTemplate) {
+                        const editBtn = this.editItemBtnTemplate.cloneNode(true);
+                        editBtn.dataset.index = i;
+                        rightWrapper.appendChild(editBtn);
+                    }
+                    if (this.deleteBtnTemplate) {
+                        const delBtn = this.deleteBtnTemplate.cloneNode(true);
+                        delBtn.dataset.index = i;
+                        rightWrapper.appendChild(delBtn);
+                    }
                 }
 
                 btn.appendChild(rightWrapper);
@@ -1650,7 +1813,7 @@
                 }
             }, CONFIG.CLOUD_HISTORY_THROTTLE_MS);
 
-            Logger.info('Initialized K-Pop Media Downloader v6.10');
+            Logger.info('Initialized K-Pop Media Downloader v6.14');
         },
 
         isDirectMediaPage() {
