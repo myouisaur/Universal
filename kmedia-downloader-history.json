@@ -1,207 +1,44 @@
 [
-  {
-    "g": "BLACKPINK",
-    "n": "Jennie",
-    "t": 1780073201415
-  },
-  {
-    "g": "BLACKPINK",
-    "n": "Jennie",
-    "t": 1780073240687
-  },
-  {
-    "g": "Hearts2Hearts",
-    "n": "Ian",
-    "t": 1780073937724
-  },
-  {
-    "g": "NMIXX",
-    "n": "Haewon",
-    "t": 1780074184836
-  },
-  {
-    "g": "NMIXX",
-    "n": "Bae",
-    "t": 1780074694513
-  },
-  {
-    "g": "LE SSERAFIM",
-    "n": "Yunjin",
-    "t": 1780074808148
-  },
-  {
-    "g": "fromis_9",
-    "n": "Jiheon",
-    "t": 1780075454331
-  },
-  {
-    "g": "BABYMONSTER",
-    "n": "Asa",
-    "t": 1780075925968
-  },
-  {
-    "g": "LE SSERAFIM",
-    "n": "Eunchae",
-    "t": 1780077065897
-  },
-  {
-    "g": "IVE",
-    "n": "Wonyoung",
-    "t": 1780077301270
-  },
-  {
-    "g": "ITZY",
-    "n": "Ryujin",
-    "t": 1780081176155
-  },
-  {
-    "g": "ITZY",
-    "n": "Yuna",
-    "t": 1780081602065
-  },
-  {
-    "g": "ITZY",
-    "n": "Chaeryeong",
-    "t": 1780081641521
-  },
-  {
-    "g": "ITZY",
-    "n": "Yuna",
-    "t": 1780081648175
-  },
-  {
-    "g": "BABYMONSTER",
-    "n": "Ahyeon",
-    "t": 1780082225741
-  },
-  {
-    "g": "BABYMONSTER",
-    "n": "Ahyeon",
-    "t": 1780082235216
-  },
-  {
-    "g": "IVE",
-    "n": "Leeseo",
-    "t": 1780082467605
-  },
-  {
-    "g": "TWICE",
-    "n": "Jihyo",
-    "t": 1780082762686
-  },
-  {
-    "g": "tripleS",
-    "n": "Seoyeon",
-    "t": 1780083032898
-  },
-  {
-    "g": "tripleS",
-    "n": "Seoyeon",
-    "t": 1780083051710
-  },
-  {
-    "g": "tripleS",
-    "n": "Kotone",
-    "t": 1780083087752
-  },
-  {
-    "g": "tripleS",
-    "n": "Nien",
-    "t": 1780083894191
-  },
-  {
-    "g": "tripleS",
-    "n": "Nien",
-    "t": 1780083903118
-  },
-  {
-    "g": "tripleS",
-    "n": "Nien",
-    "t": 1780083922357
-  },
-  {
-    "g": "tripleS",
-    "n": "Kotone",
-    "t": 1780084163573
-  },
-  {
-    "g": "tripleS",
-    "n": "Hayeon",
-    "t": 1780084292639
-  },
-  {
-    "g": "tripleS",
-    "n": "Hayeon",
-    "t": 1780084587814
-  },
-  {
-    "g": "tripleS",
-    "n": "Hayeon",
-    "t": 1780084657991
-  },
-  {
-    "g": "tripleS",
-    "n": "Hayeon",
-    "t": 1780085024917
-  },
-  {
-    "g": "tripleS",
-    "n": "Hayeon",
-    "t": 1780085450087
-  },
-  {
-    "g": "tripleS",
-    "n": "Hayeon",
-    "t": 1780086284690
-  },
-  {
-    "g": "aespa",
-    "n": "Karina",
-    "t": 1780086454761
-  },
-  {
-    "g": "ITZY",
-    "n": "Chaeryeong",
-    "t": 1780090257234
-  },
-  {
-    "g": "Purplebeck",
-    "n": "Yeowool",
-    "t": 1780093140139
-  },
-  {
-    "g": "Purplebeck",
-    "n": "Yeowool",
-    "t": 1780093162675
-  },
-  {
-    "g": "15&",
-    "n": "Yerin",
-    "t": 1780093170252
-  },
-  {
-    "g": "tripleS",
-    "n": "Sohyun",
-    "t": 1780093291065
-  },
-  {
-    "g": "Purplebeck",
-    "n": "Yeowool",
-    "t": 1780093849740
-  },
-  {
-    "g": "Purplebeck",
-    "n": "Yeowool",
-    "t": 1780093886670
-  },
-  {
-    "g": "tripleS",
-    "n": "Chaewon",
-    "t": 1780093975316
-  },
-  {
-    "g": "aespa",
-    "n": "Winter",
-    "t": 1780094206192
-  }
+  {"g": "BLACKPINK"    , "n": "Jennie"    , "t": 1780073201415},
+  {"g": "BLACKPINK"    , "n": "Jennie"    , "t": 1780073240687},
+  {"g": "Hearts2Hearts", "n": "Ian"       , "t": 1780073937724},
+  {"g": "NMIXX"        , "n": "Haewon"    , "t": 1780074184836},
+  {"g": "NMIXX"        , "n": "Bae"       , "t": 1780074694513},
+  {"g": "LE SSERAFIM"  , "n": "Yunjin"    , "t": 1780074808148},
+  {"g": "fromis_9"     , "n": "Jiheon"    , "t": 1780075454331},
+  {"g": "BABYMONSTER"  , "n": "Asa"       , "t": 1780075925968},
+  {"g": "LE SSERAFIM"  , "n": "Eunchae"   , "t": 1780077065897},
+  {"g": "IVE"          , "n": "Wonyoung"  , "t": 1780077301270},
+  {"g": "ITZY"         , "n": "Ryujin"    , "t": 1780081176155},
+  {"g": "ITZY"         , "n": "Yuna"      , "t": 1780081602065},
+  {"g": "ITZY"         , "n": "Chaeryeong", "t": 1780081641521},
+  {"g": "ITZY"         , "n": "Yuna"      , "t": 1780081648175},
+  {"g": "BABYMONSTER"  , "n": "Ahyeon"    , "t": 1780082225741},
+  {"g": "BABYMONSTER"  , "n": "Ahyeon"    , "t": 1780082235216},
+  {"g": "IVE"          , "n": "Leeseo"    , "t": 1780082467605},
+  {"g": "TWICE"        , "n": "Jihyo"     , "t": 1780082762686},
+  {"g": "tripleS"      , "n": "Seoyeon"   , "t": 1780083032898},
+  {"g": "tripleS"      , "n": "Seoyeon"   , "t": 1780083051710},
+  {"g": "tripleS"      , "n": "Kotone"    , "t": 1780083087752},
+  {"g": "tripleS"      , "n": "Nien"      , "t": 1780083894191},
+  {"g": "tripleS"      , "n": "Nien"      , "t": 1780083903118},
+  {"g": "tripleS"      , "n": "Nien"      , "t": 1780083922357},
+  {"g": "tripleS"      , "n": "Kotone"    , "t": 1780084163573},
+  {"g": "tripleS"      , "n": "Hayeon"    , "t": 1780084292639},
+  {"g": "tripleS"      , "n": "Hayeon"    , "t": 1780084587814},
+  {"g": "tripleS"      , "n": "Hayeon"    , "t": 1780084657991},
+  {"g": "tripleS"      , "n": "Hayeon"    , "t": 1780085024917},
+  {"g": "tripleS"      , "n": "Hayeon"    , "t": 1780085450087},
+  {"g": "tripleS"      , "n": "Hayeon"    , "t": 1780086284690},
+  {"g": "aespa"        , "n": "Karina"    , "t": 1780086454761},
+  {"g": "ITZY"         , "n": "Chaeryeong", "t": 1780090257234},
+  {"g": "Purplebeck"   , "n": "Yeowool"   , "t": 1780093140139},
+  {"g": "Purplebeck"   , "n": "Yeowool"   , "t": 1780093162675},
+  {"g": "15&"          , "n": "Yerin"     , "t": 1780093170252},
+  {"g": "tripleS"      , "n": "Sohyun"    , "t": 1780093291065},
+  {"g": "Purplebeck"   , "n": "Yeowool"   , "t": 1780093849740},
+  {"g": "Purplebeck"   , "n": "Yeowool"   , "t": 1780093886670},
+  {"g": "tripleS"      , "n": "Chaewon"   , "t": 1780093975316},
+  {"g": "aespa"        , "n": "Winter"    , "t": 1780094206192},
+  {"g": "ITZY"         , "n": "Chaeryeong", "t": 1780095427181}
 ]
