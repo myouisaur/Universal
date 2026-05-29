@@ -2,7 +2,7 @@
 // @name         [Universal] K-Media Downloader
 // @namespace    https://github.com/myouisaur/Universal
 // @icon         data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23FF4081'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 11h3l-4 4-4-4h3V8h2v5z'/%3E%3C/svg%3E
-// @version      6.7
+// @version      6.8
 // @description  Organizes, tracks, and saves categorized K-Pop media files through a centralized overlay.
 // @author       Xiv
 // @match        *://*/*
@@ -36,9 +36,9 @@
         FAB_Z_INDEX: 999990,
         OVERLAY_Z_INDEX: 999999,
         SAVE_DEBOUNCE_MS: 1000,
-        CLOUD_HISTORY_DEBOUNCE_MS: 5000,
-        CLOUD_HISTORY_THROTTLE_MS: 60000, // 1 minute between background background polls
-        CLOUD_MENU_POLL_MS: 15000, // 15 seconds live-polling interval while menu is actively open
+        CLOUD_HISTORY_DEBOUNCE_MS: 1000, // Reduced from 5s to 1s to guarantee save before tab close
+        CLOUD_HISTORY_THROTTLE_MS: 30000, // 30 seconds between silent background polls
+        CLOUD_MENU_POLL_MS: 10000, // 10 seconds live-polling interval while menu is actively open
         VIRTUAL_ITEM_HEIGHT: 50, // 42px element + 8px spacing
 
         // Database Constants
@@ -340,7 +340,7 @@
                     if (remote) {
                         try {
                             this._cache = JSON.parse(newValue || '[]');
-                            if (UI.overlay) UI.refreshSidePanels(); // Update side panels gracefully without destroying user search input state
+                            if (UI.overlay) UI.refreshSidePanels();
                         } catch (e) {
                             Logger.warn('Failed to sync cross-tab storage change.', e);
                         }
@@ -366,7 +366,7 @@
         async fetchCloudBackground(force = false) {
             if (!CloudAPI.isValid()) return;
 
-            // Throttle protection: Prevents resource waste if user spam-opens the menu or flips tabs constantly, override allowed when live-polling
+            // Throttle protection: Prevents resource waste, overridden on explicit polling
             if (!force && Date.now() - this._lastCloudFetch < CONFIG.CLOUD_HISTORY_THROTTLE_MS) return;
             this._lastCloudFetch = Date.now();
 
@@ -382,11 +382,14 @@
 
                     const newCache = Array.from(mergedMap.values()).sort((a, b) => a.t - b.t);
 
-                    // Only update and trigger reflows if data structurally changed from remote device
-                    if (newCache.length !== this._cache.length) {
+                    // Fixed detection logic to account for limits shifting internal IDs while length remains identical
+                    const isChanged = newCache.length !== this._cache.length ||
+                                      (newCache.length > 0 && this._cache.length > 0 && newCache[newCache.length - 1].t !== this._cache[this._cache.length - 1].t);
+
+                    if (isChanged) {
                         this._cache = newCache;
                         this.clean();
-                        this._saveLocalDebounced();
+                        this._saveLocalDebounced(); // Force save to persist cloud fetch to GM storage
 
                         if (UI.overlay) UI.refreshSidePanels();
                         Logger.info('Successfully merged cross-device cloud history tracking.');
@@ -411,7 +414,7 @@
 
         recordSuccess(group, name) {
             if (!group || !name) return;
-            this.syncFromStorage();
+            // Deliberately skipping syncFromStorage() here to prevent race conditions overwriting active rapid saves
             this._cache.push({ g: group, n: name, t: Date.now() });
             this.clean();
 
@@ -972,7 +975,6 @@
                 this.updateVisibility();
             };
 
-            // Inject the missing configuration warning dot if credentials are not valid
             if (!CloudAPI.isValid()) {
                 const configWarningDot = document.createElement('div');
                 configWarningDot.className = `${CONFIG.UI_PREFIX}-notification-dot`;
@@ -1037,7 +1039,6 @@
                 this.showToast('Configurations saved. Re-synchronizing environments...');
                 this.currentView = 'groups';
 
-                // Safely clear the warning dot now that credentials are saved
                 if (CloudAPI.isValid()) {
                     const dot = configBtn.querySelector(`.${CONFIG.UI_PREFIX}-notification-dot`);
                     if (dot) dot.remove();
@@ -1446,8 +1447,7 @@
         },
 
         async triggerCloudSync() {
-            const workerUrl = GM_getValue('tm_kpop_dl_worker_url', '');
-            if (!workerUrl) return;
+            if (!CloudAPI.isValid()) return;
 
             this.updateCloudStatus('syncing');
             try {
@@ -1476,7 +1476,6 @@
 
             if (text) this.showToast(text, type);
 
-            // Lock CRUD inputs during sync to prevent 409 Race Condition conflicts
             if (this.crudInput && this.crudBtn) {
                 const isSyncing = (status === 'syncing');
                 this.crudInput.disabled = isSyncing;
@@ -1525,7 +1524,6 @@
         async showMenu() {
             if (this.overlay) return;
 
-            // Trigger silent cloud check immediately when menu opens to grab cross-device saves
             if (CloudAPI.isValid()) {
                 Storage.fetchCloudBackground(true);
             }
@@ -1541,8 +1539,6 @@
             this.isCrudMode = false;
             this.render();
 
-            // Establish an active polling interval exclusively while the menu remains open
-            // This safely bypasses background throttles to keep your panels visibly live
             this.syncInterval = setInterval(() => {
                 if (CloudAPI.isValid()) {
                     Storage.fetchCloudBackground(true);
@@ -1575,8 +1571,8 @@
             if (window.__KpopDlInitialized || !this.isDirectMediaPage()) return;
             window.__KpopDlInitialized = true;
 
-            CloudAPI.loadConfig(); // Load settings securely into memory once
-            UI.initTemplates(); // Prepare cached SVG nodes
+            CloudAPI.loadConfig();
+            UI.initTemplates();
             Storage.init();
             UI.injectStyles();
             this.bindEvents();
@@ -1584,7 +1580,15 @@
             Database.init().then(() => {
                 UI.injectFAB();
             });
-            Logger.info('Initialized K-Pop Media Downloader v6.7');
+
+            // Passive background syncing while tab is fully open but menu is closed
+            setInterval(() => {
+                if (document.visibilityState === 'visible' && !UI.overlay) {
+                    Storage.fetchCloudBackground();
+                }
+            }, CONFIG.CLOUD_HISTORY_THROTTLE_MS);
+
+            Logger.info('Initialized K-Pop Media Downloader v6.8');
         },
 
         isDirectMediaPage() {
@@ -1593,7 +1597,6 @@
         },
 
         bindEvents() {
-            // Trigger cross-device auto-sync check when tab regains focus
             document.addEventListener('visibilitychange', () => {
                 if (document.visibilityState === 'visible') {
                     Storage.fetchCloudBackground();
