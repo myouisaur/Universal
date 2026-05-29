@@ -2,7 +2,7 @@
 // @name         [Universal] K-Media Downloader
 // @namespace    https://github.com/myouisaur/Universal
 // @icon         data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23FF4081'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 11h3l-4 4-4-4h3V8h2v5z'/%3E%3C/svg%3E
-// @version      6.9
+// @version      6.10
 // @description  Organizes, tracks, and saves categorized K-Pop media files through a centralized overlay.
 // @author       Xiv
 // @match        *://*/*
@@ -29,6 +29,13 @@
         NAMING_FORMAT: '{group}-{member}-{random}.{ext}',
         CUSTOM_NAMING_FORMAT: '{custom}-{random}.{ext}',
         RANDOM_STRING_LENGTH: 8,
+
+        // AUTO-ROUTING FOLDER
+        // Note: Browsers block absolute paths (like D:\Test1\). This MUST be a relative path
+        // that will be created inside your browser's default Downloads folder.
+        IDOL_SUBFOLDER: 'Unoptimized',
+        PROMPT_ON_IDOL_SAVE: false, // Keep false to allow auto-routing to work silently
+
         UI_PREFIX: 'tm-kpop-dl',
         STORAGE_KEY: 'tm_kpop_dl_history',
         HISTORY_MAX_DAYS: 30,
@@ -492,7 +499,7 @@
             const url = window.location.href;
             const originalName = url.substring(url.lastIndexOf('/') + 1).split(/[?#]/)[0] || 'download';
             UI.closeMenu();
-            this.triggerDownload(url, originalName, null, null);
+            this.triggerDownload(url, originalName, null, null, true); // true = force prompt
         },
 
         executeCustomSave(customName) {
@@ -503,16 +510,27 @@
                 .replace('{random}', this.generateRandomString(CONFIG.RANDOM_STRING_LENGTH))
                 .replace('{ext}', ext);
             UI.closeMenu();
-            this.triggerDownload(window.location.href, fileName, null, null);
+            this.triggerDownload(window.location.href, fileName, null, null, true); // true = force prompt
         },
 
         executeIdolSave(group, name) {
             const fileName = this.generateFileName(group, name);
+            let finalName = fileName;
+
+            // Auto-routing logic for Idol database clicks only
+            if (CONFIG.IDOL_SUBFOLDER) {
+                // Ensure slashes are correct and prevent trailing slashes duplicating
+                const cleanFolder = CONFIG.IDOL_SUBFOLDER.replace(/\\/g, '/').replace(/\/$/, '');
+                if (cleanFolder) {
+                    finalName = `${cleanFolder}/${fileName}`;
+                }
+            }
+
             UI.closeMenu();
-            this.triggerDownload(window.location.href, fileName, group, name);
+            this.triggerDownload(window.location.href, finalName, group, name, CONFIG.PROMPT_ON_IDOL_SAVE);
         },
 
-        triggerDownload(url, name, groupContext, nameContext) {
+        triggerDownload(url, name, groupContext, nameContext, promptUser = true) {
             const toastObj = UI.createDownloadToast(name);
             let hasPathExtension = false;
             try {
@@ -520,17 +538,17 @@
             } catch (e) {}
 
             if (hasPathExtension && typeof GM_download === 'function') {
-                this._executeGMDownload(url, name, groupContext, nameContext, toastObj);
+                this._executeGMDownload(url, name, groupContext, nameContext, toastObj, promptUser);
             } else {
                 this.fallbackDownload(url, name, groupContext, nameContext, toastObj);
             }
         },
 
-        _executeGMDownload(url, name, groupContext, nameContext, toastObj) {
+        _executeGMDownload(url, name, groupContext, nameContext, toastObj, promptUser) {
             GM_download({
                 url: url,
                 name: name,
-                saveAs: true,
+                saveAs: promptUser,
                 onprogress: (e) => {
                     UI.updateDownloadToast(toastObj, e.loaded, e.total);
                 },
@@ -549,6 +567,7 @@
         },
 
         fallbackDownload(url, name, groupContext, nameContext, toastObj) {
+            // Note: The blob/fallback method cannot route to subfolders natively via the a.download attribute.
             Logger.info('Using fallback XHR download method...');
             if (typeof GM_xmlhttpRequest === 'function') {
                 GM_xmlhttpRequest({
@@ -563,7 +582,11 @@
                             const blobUrl = URL.createObjectURL(res.response);
                             const a = document.createElement('a');
                             a.href = blobUrl;
-                            a.download = name;
+
+                            // Browser security strips folder slashes in a.download; only filenames pass through.
+                            const finalFileName = name.substring(name.lastIndexOf('/') + 1);
+                            a.download = finalFileName;
+
                             a.click();
                             URL.revokeObjectURL(blobUrl);
                             UI.finishDownloadToast(toastObj, 'success', 'Saved Successfully!');
@@ -1025,7 +1048,7 @@
 
             const configBtn = document.createElement('div');
             configBtn.className = `${CONFIG.UI_PREFIX}-icon-btn`;
-            configBtn.style.position = 'relative'; // Required for absolute positioning of notification dot
+            configBtn.style.position = 'relative';
             configBtn.appendChild(this._createSVG('0 0 24 24', 'M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z'));
             configBtn.title = "Cloud Engine Config";
             configBtn.onclick = () => {
@@ -1093,7 +1116,7 @@
                 GM_setValue('tm_kpop_dl_history_path', historyPathInput.value.trim() || 'kmedia-downloader-history.json');
                 GM_setValue('tm_kpop_dl_github_branch', branchInput.value.trim() || 'main');
 
-                CloudAPI.loadConfig(); // Immediately ingest new credentials
+                CloudAPI.loadConfig();
                 this.showToast('Configurations saved. Re-synchronizing environments...');
                 this.currentView = 'groups';
 
@@ -1627,7 +1650,7 @@
                 }
             }, CONFIG.CLOUD_HISTORY_THROTTLE_MS);
 
-            Logger.info('Initialized K-Pop Media Downloader v6.9');
+            Logger.info('Initialized K-Pop Media Downloader v6.10');
         },
 
         isDirectMediaPage() {
