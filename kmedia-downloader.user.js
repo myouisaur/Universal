@@ -1,8 +1,9 @@
 // ==UserScript==
 // @name         [Universal] K-Media Downloader
 // @namespace    https://github.com/myouisaur/Universal
-// @version      5.4
-// @description  Provides a centralized UI, shortcuts, and tracking for saving categorized K-Pop media.
+// @icon         data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23FF4081'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 11h3l-4 4-4-4h3V8h2v5z'/%3E%3C/svg%3E
+// @version      6.5
+// @description  Organizes, tracks, and saves categorized K-Pop media files through a centralized overlay.
 // @author       Xiv
 // @match        *://*/*
 // @grant        GM_download
@@ -10,8 +11,10 @@
 // @grant        GM_addStyle
 // @grant        GM_setValue
 // @grant        GM_getValue
+// @grant        GM_addValueChangeListener
 // @connect      raw.githubusercontent.com
 // @connect      *
+// @noframes
 // @updateURL    https://myouisaur.github.io/Universal/kmedia-downloader.user.js
 // @downloadURL  https://myouisaur.github.io/Universal/kmedia-downloader.user.js
 // ==/UserScript==
@@ -23,7 +26,8 @@
     // CONFIGURATION
     // =========================================================
     const CONFIG = {
-        NAMING_FORMAT: '{group}-{member}-{random}.{ext}', // Allowed vars: {group}, {member}, {random}, {ext}
+        NAMING_FORMAT: '{group}-{member}-{random}.{ext}',
+        CUSTOM_NAMING_FORMAT: '{custom}-{random}.{ext}',
         RANDOM_STRING_LENGTH: 8,
         UI_PREFIX: 'tm-kpop-dl',
         STORAGE_KEY: 'tm_kpop_dl_history',
@@ -32,9 +36,11 @@
         FAB_Z_INDEX: 999990,
         OVERLAY_Z_INDEX: 999999,
         SAVE_DEBOUNCE_MS: 1000,
+        CLOUD_HISTORY_DEBOUNCE_MS: 5000,
+        VIRTUAL_ITEM_HEIGHT: 50, // 42px element + 8px spacing
 
         // Database Constants
-        DB_URL: 'https://raw.githubusercontent.com/myouisaur/Universal/refs/heads/main/kmedia-downloader.json',
+        DB_URL: 'https://raw.githubusercontent.com/myouisaur/Universal/refs/heads/main/kmedia-downloader-db.json',
         DB_CACHE_KEY: 'tm_kpop_dl_db_cache',
         DB_CACHE_TTL_MS: 12 * 60 * 60 * 1000 // 12 hours cache duration
     };
@@ -57,42 +63,127 @@
     }
 
     // =========================================================
-    // DATABASE MODULE (Fetch & Cache Logic)
+    // CLOUD API MODULE
+    // =========================================================
+    const CloudAPI = {
+        config: { url: '', token: '', owner: '', repo: '', branch: 'main' },
+
+        loadConfig() {
+            this.config.url = GM_getValue('tm_kpop_dl_worker_url', '');
+            this.config.token = GM_getValue('tm_kpop_dl_github_token', '');
+            this.config.owner = GM_getValue('tm_kpop_dl_github_owner', '');
+            this.config.repo = GM_getValue('tm_kpop_dl_github_repo', '');
+            this.config.branch = GM_getValue('tm_kpop_dl_github_branch', 'main');
+        },
+
+        isValid() {
+            return !!(this.config.url && this.config.token && this.config.owner && this.config.repo);
+        },
+
+        getHeaders(targetPath) {
+            return {
+                'X-GitHub-Token': this.config.token,
+                'X-GitHub-Owner': this.config.owner,
+                'X-GitHub-Repo': this.config.repo,
+                'X-GitHub-Path': targetPath,
+                'X-GitHub-Branch': this.config.branch
+            };
+        },
+
+        fetch(targetPath) {
+            return new Promise((resolve, reject) => {
+                GM_xmlhttpRequest({
+                    method: 'GET',
+                    url: this.config.url,
+                    headers: this.getHeaders(targetPath),
+                    responseType: 'json',
+                    onload: (res) => {
+                        if (res.status === 200) {
+                            let data = res.response;
+                            if (typeof data === 'string') {
+                                try { data = JSON.parse(data); } catch (e) { return reject(new Error('Invalid JSON format from proxy.')); }
+                            }
+                            resolve(data);
+                        } else if (res.status === 404) {
+                            resolve(null); // File doesn't exist yet
+                        } else {
+                            reject(new Error(`Proxy fetch failed with status ${res.status}`));
+                        }
+                    },
+                    onerror: (err) => reject(err),
+                    ontimeout: () => reject(new Error('Cloud Proxy Request Timeout'))
+                });
+            });
+        },
+
+        put(targetPath, payloadData) {
+            return new Promise((resolve, reject) => {
+                GM_xmlhttpRequest({
+                    method: 'PUT',
+                    url: this.config.url,
+                    headers: {
+                        ...this.getHeaders(targetPath),
+                        'Content-Type': 'application/json'
+                    },
+                    data: JSON.stringify(payloadData),
+                    responseType: 'json',
+                    onload: (res) => {
+                        if (res.status === 200) {
+                            resolve();
+                        } else {
+                            let msg = `HTTP ${res.status}`;
+                            if (res.response && res.response.error) msg += `: ${res.response.error}`;
+                            reject(new Error(msg));
+                        }
+                    },
+                    onerror: (err) => reject(err)
+                });
+            });
+        }
+    };
+
+    // =========================================================
+    // DATABASE MODULE
     // =========================================================
     const Database = {
         data: {},
         sortedGroups: [],
         isLoaded: false,
+        isLoading: false,
 
         async init() {
+            this.isLoading = true;
+            if (UI.overlay) UI.renderVirtualList(); // Force loading state rendering
+
             try {
                 const cached = this.getCache();
                 if (cached) {
                     this.processData(cached);
                     this.isLoaded = true;
-                    this.fetchBackground(); // Silently update cache in the background
+                    this.isLoading = false;
+                    this.fetchBackground();
                 } else {
                     const freshData = await this.fetch();
                     this.processData(freshData);
                     this.isLoaded = true;
+                    this.isLoading = false;
                 }
             } catch (e) {
                 Logger.error('Failed to initialize database', e);
-                // Fallback to empty if absolutely nothing is available to prevent hard crashes
                 if (!this.data || Object.keys(this.data).length === 0) {
                     this.processData({});
                     this.isLoaded = true;
+                    this.isLoading = false;
                 }
             }
+            if (UI.overlay) UI.renderVirtualList();
         },
 
         getCache() {
             try {
                 const cacheStr = GM_getValue(CONFIG.DB_CACHE_KEY, null);
                 if (!cacheStr) return null;
-
                 const cacheObj = JSON.parse(cacheStr);
-                // Validate TTL
                 if (Date.now() - cacheObj.timestamp > CONFIG.DB_CACHE_TTL_MS) return null;
                 return cacheObj.data;
             } catch (e) {
@@ -102,10 +193,7 @@
 
         setCache(data) {
             try {
-                GM_setValue(CONFIG.DB_CACHE_KEY, JSON.stringify({
-                    timestamp: Date.now(),
-                    data: data
-                }));
+                GM_setValue(CONFIG.DB_CACHE_KEY, JSON.stringify({ timestamp: Date.now(), data: data }));
             } catch (e) {
                 Logger.warn('Failed to save DB cache');
             }
@@ -115,12 +203,19 @@
             this.fetch()
                 .then(data => {
                     this.setCache(data);
-                    this.processData(data); // Refresh in-memory data
+                    this.processData(data);
                 })
                 .catch(() => Logger.warn('Background database update failed.'));
         },
 
         fetch() {
+            const dbPath = GM_getValue('tm_kpop_dl_github_path', 'kmedia-downloader-db.json');
+
+            if (CloudAPI.isValid()) {
+                return CloudAPI.fetch(dbPath).then(data => data || {});
+            }
+
+            // Fallback direct raw fetch
             return new Promise((resolve, reject) => {
                 GM_xmlhttpRequest({
                     method: 'GET',
@@ -129,13 +224,8 @@
                     onload: (res) => {
                         if (res.status >= 200 && res.status < 300) {
                             let responseData = res.response;
-                            // Fail-safe for managers that don't parse responseType: 'json' automatically
                             if (typeof responseData === 'string') {
-                                try {
-                                    responseData = JSON.parse(responseData);
-                                } catch (e) {
-                                    return reject(new Error('Invalid JSON format from URL'));
-                                }
+                                try { responseData = JSON.parse(responseData); } catch (e) { return reject(new Error('Invalid JSON format from URL')); }
                             }
                             this.setCache(responseData);
                             resolve(responseData);
@@ -147,6 +237,15 @@
                     ontimeout: () => reject(new Error('Request Timeout'))
                 });
             });
+        },
+
+        async saveCloud() {
+            if (!CloudAPI.isValid()) {
+                throw new Error('Cloud credentials are incomplete. Please review configurations.');
+            }
+            const dbPath = GM_getValue('tm_kpop_dl_github_path', 'kmedia-downloader-db.json');
+            await CloudAPI.put(dbPath, this.data);
+            this.setCache(this.data);
         },
 
         processData(data) {
@@ -164,28 +263,87 @@
                     }
                 }, 100);
             });
+        },
+
+        // CRUD Mutations
+        addGroup(groupName) {
+            const normalized = groupName.trim();
+            if (!normalized || this.data[normalized]) return false;
+            this.data[normalized] = [];
+            this.processData(this.data);
+            return true;
+        },
+
+        deleteGroup(groupName) {
+            if (!this.data[groupName]) return false;
+            delete this.data[groupName];
+            this.processData(this.data);
+            return true;
+        },
+
+        addMember(groupName, memberName) {
+            const normalized = memberName.trim();
+            if (!this.data[groupName] || !normalized || this.data[groupName].includes(normalized)) return false;
+            this.data[groupName].push(normalized);
+            this.data[groupName].sort((a, b) => a.localeCompare(b));
+            return true;
+        },
+
+        deleteMember(groupName, memberName) {
+            if (!this.data[groupName]) return false;
+            const index = this.data[groupName].indexOf(memberName);
+            if (index === -1) return false;
+            this.data[groupName].splice(index, 1);
+            return true;
         }
     };
 
     // =========================================================
-    // STORAGE & TRACKING MODULE (Optimized w/ Cache)
+    // STORAGE & TRACKING MODULE (Cloud Synced)
     // =========================================================
     const Storage = {
         _cache: null,
-        _saveDebounced: null,
+        _saveLocalDebounced: null,
+        _saveCloudDebounced: null,
 
         init() {
+            this.syncFromStorage();
+
+            this._saveLocalDebounced = debounce(() => {
+                GM_setValue(CONFIG.STORAGE_KEY, JSON.stringify(this._cache));
+            }, CONFIG.SAVE_DEBOUNCE_MS);
+
+            this._saveCloudDebounced = debounce(() => {
+                this.saveCloud();
+            }, CONFIG.CLOUD_HISTORY_DEBOUNCE_MS);
+
+            this.clean();
+            this.setupCrossTabSync();
+            this.fetchCloudBackground();
+        },
+
+        syncFromStorage() {
             try {
                 this._cache = JSON.parse(GM_getValue(CONFIG.STORAGE_KEY, '[]'));
             } catch (e) {
                 Logger.warn('Corrupted storage data, resetting.');
                 this._cache = [];
             }
+        },
 
-            this._saveDebounced = debounce(() => {
-                GM_setValue(CONFIG.STORAGE_KEY, JSON.stringify(this._cache));
-            }, CONFIG.SAVE_DEBOUNCE_MS);
-            this.clean();
+        setupCrossTabSync() {
+            if (typeof GM_addValueChangeListener === 'function') {
+                GM_addValueChangeListener(CONFIG.STORAGE_KEY, (key, oldValue, newValue, remote) => {
+                    if (remote) {
+                        try {
+                            this._cache = JSON.parse(newValue || '[]');
+                            if (UI.overlay) UI.render(); // Re-render panels
+                        } catch (e) {
+                            Logger.warn('Failed to sync cross-tab storage change.', e);
+                        }
+                    }
+                });
+            }
         },
 
         clean() {
@@ -195,24 +353,64 @@
             this._cache = this._cache
                 .filter(item => item.t >= cutoffDate)
                 .slice(-CONFIG.HISTORY_MAX_ENTRIES);
+
             if (this._cache.length !== initialLength) {
-                this._saveDebounced();
+                this._saveLocalDebounced();
             }
             return this._cache;
         },
 
+        async fetchCloudBackground() {
+            if (!CloudAPI.isValid()) return;
+
+            try {
+                const historyPath = GM_getValue('tm_kpop_dl_history_path', 'kmedia-downloader-history.json');
+                const cloudData = await CloudAPI.fetch(historyPath);
+
+                if (cloudData && Array.isArray(cloudData)) {
+                    const mergedMap = new Map();
+                    [...this._cache, ...cloudData].forEach(item => {
+                        mergedMap.set(`${item.t}-${item.g}-${item.n}`, item);
+                    });
+
+                    this._cache = Array.from(mergedMap.values()).sort((a, b) => a.t - b.t);
+                    this.clean();
+                    this._saveLocalDebounced();
+
+                    if (UI.overlay) UI.render();
+                    Logger.info('Successfully merged cross-device cloud history tracking.');
+                }
+            } catch (e) {
+                Logger.warn(`Failed to fetch cloud history: ${e.message}`);
+            }
+        },
+
+        async saveCloud() {
+            if (!CloudAPI.isValid()) return;
+
+            try {
+                const historyPath = GM_getValue('tm_kpop_dl_history_path', 'kmedia-downloader-history.json');
+                await CloudAPI.put(historyPath, this._cache);
+                Logger.info('History cache successfully pushed to remote branch.');
+            } catch (e) {
+                Logger.warn(`History cloud sync failure: ${e.message}`);
+            }
+        },
+
         recordSuccess(group, name) {
             if (!group || !name) return;
-            this.clean();
+            this.syncFromStorage();
             this._cache.push({ g: group, n: name, t: Date.now() });
-            this._saveDebounced();
+            this.clean();
+
+            this._saveLocalDebounced();
+            this._saveCloudDebounced();
         },
 
         getRecentStats() {
             const data = [...this._cache].reverse();
             const seen = new Set();
             const result = [];
-
             for (const item of data) {
                 const identifier = `${item.g}|${item.n}`;
                 if (!seen.has(identifier)) {
@@ -233,9 +431,7 @@
                 }
                 frequencies[identifier].count++;
             });
-            return Object.values(frequencies)
-                .sort((a, b) => b.count - a.count)
-                .slice(0, 10);
+            return Object.values(frequencies).sort((a, b) => b.count - a.count).slice(0, 10);
         }
     };
 
@@ -253,20 +449,13 @@
         getExtension() {
             try {
                 const url = new URL(window.location.href);
-
-                // 1. Check query parameters (e.g., Twitter ?format=jpg)
                 const format = url.searchParams.get('format');
                 if (format) return format.toLowerCase();
-
-                // 2. Check pathname extension
                 const match = url.pathname.match(/\.([a-zA-Z0-9]+)$/);
                 if (match) return match[1].toLowerCase();
-
-                // 3. Document Content-Type heuristic
                 const type = document.contentType || '';
                 if (type.startsWith('image/')) return type.split('/')[1].toLowerCase();
                 if (type.startsWith('video/')) return type.split('/')[1].toLowerCase();
-
                 return 'jpg';
             } catch (e) {
                 return 'jpg';
@@ -289,6 +478,17 @@
             this.triggerDownload(url, originalName, null, null);
         },
 
+        executeCustomSave(customName) {
+            const ext = this.getExtension();
+            const safeName = customName.replace(/[\\/:*?"<>|]/g, '_').trim();
+            const fileName = CONFIG.CUSTOM_NAMING_FORMAT
+                .replace('{custom}', safeName)
+                .replace('{random}', this.generateRandomString(CONFIG.RANDOM_STRING_LENGTH))
+                .replace('{ext}', ext);
+            UI.closeMenu();
+            this.triggerDownload(window.location.href, fileName, null, null);
+        },
+
         executeIdolSave(group, name) {
             const fileName = this.generateFileName(group, name);
             UI.closeMenu();
@@ -301,12 +501,9 @@
                 hasPathExtension = !!new URL(url).pathname.match(/\.[a-zA-Z0-9]+$/);
             } catch (e) {}
 
-            // If it's a standard URL with an extension, native download is fine.
             if (hasPathExtension && typeof GM_download === 'function') {
                 this._executeGMDownload(url, name, groupContext, nameContext);
             } else {
-                // If the URL has no extension (like Twitter), force a Blob XHR fetch first.
-                // This embeds the MIME type into the object so the OS "Save As" doesn't default to "All Files".
                 this.fallbackDownload(url, name, groupContext, nameContext);
             }
         },
@@ -349,23 +546,57 @@
     };
 
     // =========================================================
-    // UI MODULE
+    // UI MODULE (Hardware Accelerated & Delegated)
     // =========================================================
     const UI = {
         overlay: null,
-        currentView: 'groups',
+        toastContainer: null,
+        currentView: 'groups', // 'groups', 'members', 'config'
+        isCrudMode: false,
         selectedGroup: null,
         activeIndex: -1,
+        deleteBtnTemplate: null, // DOM Template Cache
+
+        // Virtual Scrolling State
+        currentListData: [],
+        searchContainer: null,
+        listContainer: null,
+        listInner: null,
+        footer: null,
+        crudBarContainer: null,
+        configContainer: null,
+
+        searchInput: null,
+        crudInput: null,
+        crudBtn: null,
+        headerTitle: null,
+        headerBackBtn: null,
+        cachedContainerHeight: 400,
+        resizeObserver: null,
+
+        initTemplates() {
+            this.deleteBtnTemplate = document.createElement('button');
+            this.deleteBtnTemplate.className = `${CONFIG.UI_PREFIX}-delete-btn`;
+            this.deleteBtnTemplate.title = "Delete Entry";
+            this.deleteBtnTemplate.appendChild(this._createSVG('0 0 24 24', 'M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z'));
+        },
+
+        _createSVG(viewBox, pathD) {
+            const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+            svg.setAttribute('viewBox', viewBox);
+            const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            path.setAttribute('d', pathD);
+            svg.appendChild(path);
+            return svg;
+        },
 
         injectStyles() {
             GM_addStyle(`
                 /* Floating Action Button */
                 .${CONFIG.UI_PREFIX}-fab {
                     position: fixed; bottom: 2.5rem; right: 2.5rem;
-                    width: 3.5rem; height: 3.5rem;
-                    background: rgba(255, 255, 255, 0.1);
-                    border: 1px solid rgba(255, 255, 255, 0.2);
-                    border-radius: 50%;
+                    width: 3.5rem; height: 3.5rem; background: rgba(255, 255, 255, 0.1);
+                    border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 50%;
                     display: flex; align-items: center; justify-content: center;
                     cursor: pointer; box-shadow: 0 0.5rem 1.5rem rgba(0,0,0,0.6);
                     z-index: ${CONFIG.FAB_Z_INDEX}; transition: background 0.2s ease;
@@ -381,16 +612,18 @@
                     font-family: 'Inter', -apple-system, sans-serif; backdrop-filter: blur(8px);
                 }
                 .${CONFIG.UI_PREFIX}-layout {
-                    display: flex; gap: 1.5rem; max-width: 95vw; max-height: 95vh;
+                    display: flex;
+                    gap: 1.5rem; max-width: 95vw; max-height: 95vh;
                     justify-content: center; align-items: stretch; position: relative;
                 }
 
                 /* Panels */
                 .${CONFIG.UI_PREFIX}-panel {
-                    background: #0d0d0d; border-radius: 1.5rem;
-                    padding: 1.5rem; border: 1px solid #222;
+                    background: #0d0d0d;
+                    border-radius: 1.5rem; padding: 1.5rem; border: 1px solid #222;
                     box-shadow: 0 2rem 4rem rgba(0,0,0,0.8); color: #fff;
-                    display: flex; flex-direction: column; box-sizing: border-box; overflow: hidden;
+                    display: flex; flex-direction: column;
+                    box-sizing: border-box; overflow: hidden;
                 }
                 .${CONFIG.UI_PREFIX}-main { width: 25rem; height: 80vh; order: 2; position: relative; }
                 .${CONFIG.UI_PREFIX}-side { width: 20rem; height: 80vh; background: #0a0a0a; }
@@ -399,49 +632,94 @@
 
                 /* Header & Controls */
                 .${CONFIG.UI_PREFIX}-header {
-                    position: relative; height: 2.5rem; margin-bottom: 1rem;
-                    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+                    display: flex; align-items: center; justify-content: center; gap: 1rem;
+                    height: 2.5rem; margin-bottom: 1rem; flex-shrink: 0;
                 }
-                .${CONFIG.UI_PREFIX}-header h2 { font-size: 1.1rem; margin: 0; font-weight: 600; color: #eee; }
+                .${CONFIG.UI_PREFIX}-main .${CONFIG.UI_PREFIX}-header {
+                    justify-content: space-between;
+                }
+                .${CONFIG.UI_PREFIX}-header-left {
+                    display: flex; align-items: center; gap: 0.8rem; overflow: hidden; flex-grow: 1;
+                }
+                .${CONFIG.UI_PREFIX}-header-right {
+                    display: flex; align-items: center; gap: 0.5rem; flex-shrink: 0;
+                }
 
-                .${CONFIG.UI_PREFIX}-back-btn, .${CONFIG.UI_PREFIX}-close-btn {
-                    position: absolute; background: #1a1a1a; border: 1px solid #333;
-                    border-radius: 0.7rem; width: 2.5rem; height: 2.5rem; display: flex;
-                    align-items: center; justify-content: center; cursor: pointer; transition: 0.2s;
+                .${CONFIG.UI_PREFIX}-header h2 {
+                    font-size: 1.1rem; margin: 0; font-weight: 600; color: #eee; text-align: center;
                 }
-                .${CONFIG.UI_PREFIX}-back-btn { left: 0; }
-                .${CONFIG.UI_PREFIX}-close-btn { right: 0; }
-                .${CONFIG.UI_PREFIX}-back-btn:hover, .${CONFIG.UI_PREFIX}-close-btn:hover { background: #222; border-color: #555; }
-                .${CONFIG.UI_PREFIX}-back-btn svg, .${CONFIG.UI_PREFIX}-close-btn svg { width: 1.1rem; height: 1.1rem; fill: #fff; }
+                .${CONFIG.UI_PREFIX}-main .${CONFIG.UI_PREFIX}-header h2 {
+                    text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+                }
+
+                .${CONFIG.UI_PREFIX}-icon-btn {
+                    background: #1a1a1a; border: 1px solid #333;
+                    border-radius: 0.7rem; width: 2.5rem; height: 2.5rem; display: flex;
+                    align-items: center; justify-content: center; cursor: pointer;
+                    transition: 0.2s; flex-shrink: 0;
+                }
+                .${CONFIG.UI_PREFIX}-icon-btn:hover { background: #222; border-color: #555; }
+                .${CONFIG.UI_PREFIX}-icon-btn svg { width: 1.1rem; height: 1.1rem; fill: #fff; }
+
+                /* Toast Notifications */
+                .${CONFIG.UI_PREFIX}-toast-container {
+                    position: absolute; bottom: 2rem; left: 50%; transform: translateX(-50%);
+                    display: flex; flex-direction: column; gap: 0.8rem; z-index: ${CONFIG.OVERLAY_Z_INDEX + 10};
+                    pointer-events: none; align-items: center;
+                }
+                .${CONFIG.UI_PREFIX}-toast {
+                    background: #111; border: 1px solid #333; color: #fff;
+                    padding: 0.8rem 1.2rem; border-radius: 2rem; font-size: 0.9rem; font-weight: 500;
+                    box-shadow: 0 1rem 2rem rgba(0,0,0,0.6);
+                    animation: tmToastFadeIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards, tmToastFadeOut 0.3s ease 2.7s forwards;
+                    display: flex; align-items: center; gap: 0.5rem;
+                }
+                .${CONFIG.UI_PREFIX}-toast.syncing { border-color: #ffb74d; color: #ffb74d; }
+                .${CONFIG.UI_PREFIX}-toast.success { border-color: #81c784; color: #81c784; }
+                .${CONFIG.UI_PREFIX}-toast.error { border-color: #e57373; color: #e57373; }
+
+                @keyframes tmToastFadeIn { from { opacity: 0; transform: translateY(20px) scale(0.9); } to { opacity: 1; transform: translateY(0) scale(1); } }
+                @keyframes tmToastFadeOut { from { opacity: 1; transform: scale(1); } to { opacity: 0; transform: scale(0.9); } }
 
                 /* Search */
                 .${CONFIG.UI_PREFIX}-search-container { margin-bottom: 1rem; flex-shrink: 0; }
                 .${CONFIG.UI_PREFIX}-search-input {
-                    width: 100%; background: #161616; border: 1px solid #333;
+                    width: 100%;
+                    background: #161616; border: 1px solid #333;
                     border-radius: 0.8rem; padding: 0.8rem 1rem; color: #fff;
-                    font-size: 0.95rem; outline: none; box-sizing: border-box; transition: 0.2s;
+                    font-size: 0.95rem; outline: none; box-sizing: border-box;
+                    transition: 0.2s;
                 }
                 .${CONFIG.UI_PREFIX}-search-input:focus { border-color: #666; background: #1a1a1a; }
 
-                /* List & Items */
+                /* Virtual List Architecture */
                 .${CONFIG.UI_PREFIX}-list {
-                    flex-grow: 1; overflow-y: auto; display: flex; flex-direction: column;
-                    gap: 0.5rem; padding-right: 8px; outline: none;
+                    flex-grow: 1;
+                    overflow-y: auto; overflow-x: hidden; position: relative;
+                    padding-right: 0.5rem; outline: none;
                 }
                 .${CONFIG.UI_PREFIX}-list::-webkit-scrollbar { width: 6px; }
                 .${CONFIG.UI_PREFIX}-list::-webkit-scrollbar-thumb { background: #333; border-radius: 10px; }
 
-                .${CONFIG.UI_PREFIX}-empty-state { text-align: center; color: #666; font-size: 0.9rem; margin-top: 2rem; }
+                .${CONFIG.UI_PREFIX}-list-inner { position: relative; width: 100%; min-height: 100%; }
+                .${CONFIG.UI_PREFIX}-empty-state {
+                    position: absolute; top: 2rem; width: 100%;
+                    text-align: center; color: #666; font-size: 0.9rem; font-style: italic;
+                }
 
                 .${CONFIG.UI_PREFIX}-item {
-                    background: #141414; border: 1px solid transparent; padding: 0.8rem 1rem;
-                    border-radius: 0.8rem; cursor: pointer; transition: 0.15s;
+                    position: absolute;
+                    top: 0; left: 0; width: 100%; height: 42px;
+                    background: #141414; border: 1px solid transparent; padding: 0 1rem;
+                    border-radius: 0.8rem;
+                    cursor: pointer; transition: background 0.15s;
                     font-size: 0.95rem; display: flex; justify-content: space-between; align-items: center;
-                    box-sizing: border-box;
+                    box-sizing: border-box; will-change: transform;
                 }
                 .${CONFIG.UI_PREFIX}-item:hover, .${CONFIG.UI_PREFIX}-item.active-focus {
                     background: #1c1c1c; border-color: #555;
                 }
+                .${CONFIG.UI_PREFIX}-static-item { position: relative; margin-bottom: 0.5rem; }
 
                 .${CONFIG.UI_PREFIX}-badge {
                     font-size: 0.7rem; color: #888; background: #1a1a1a;
@@ -449,23 +727,77 @@
                 }
                 .${CONFIG.UI_PREFIX}-badge.accent { color: #aaa; border-color: #444; background: #222; }
 
-                .${CONFIG.UI_PREFIX}-footer { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #222; flex-shrink: 0; }
-                .${CONFIG.UI_PREFIX}-std-btn {
-                    width: 100%; background: #1a1a1a; color: #999; border: 1px dashed #444;
-                    padding: 0.8rem; border-radius: 0.8rem; cursor: pointer; font-size: 0.9rem; transition: 0.2s; outline: none;
+                /* Footer & Actions */
+                .${CONFIG.UI_PREFIX}-footer {
+                    margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #222;
+                    flex-shrink: 0; display: flex; flex-direction: column; gap: 0.5rem;
                 }
-                .${CONFIG.UI_PREFIX}-std-btn:hover, .${CONFIG.UI_PREFIX}-std-btn:focus { background: #222; color: #fff; border-color: #666; }
+                .${CONFIG.UI_PREFIX}-btn-row { display: flex; gap: 0.5rem; width: 100%; }
+                .${CONFIG.UI_PREFIX}-action-btn {
+                    flex: 1; background: #1a1a1a; color: #999; border: 1px dashed #444;
+                    padding: 0.8rem; border-radius: 0.8rem; cursor: pointer; font-size: 0.9rem;
+                    transition: 0.2s; outline: none; display: flex; align-items: center; justify-content: center;
+                }
+                .${CONFIG.UI_PREFIX}-action-btn:hover, .${CONFIG.UI_PREFIX}-action-btn:focus {
+                    background: #222; color: #fff; border-color: #666;
+                }
 
-                /* Responsive Design - FIX APPLIED HERE */
+                /* Custom Input Prompt */
+                .${CONFIG.UI_PREFIX}-custom-wrapper { display: none; width: 100%; gap: 0.5rem; align-items: center; }
+                .${CONFIG.UI_PREFIX}-custom-input {
+                    flex: 1; background: #161616; border: 1px solid #333; border-radius: 0.5rem;
+                    padding: 0.7rem 0.8rem; color: #fff; font-size: 0.9rem; outline: none; transition: 0.2s;
+                }
+                .${CONFIG.UI_PREFIX}-custom-input:focus { border-color: #666; background: #1a1a1a; }
+                .${CONFIG.UI_PREFIX}-custom-confirm, .${CONFIG.UI_PREFIX}-custom-cancel {
+                    background: #1a1a1a; color: #fff; border: 1px solid #444; padding: 0.7rem 1rem;
+                    border-radius: 0.5rem; cursor: pointer; font-size: 0.9rem; transition: 0.2s;
+                }
+                .${CONFIG.UI_PREFIX}-custom-confirm { background: #1e3a2b; border-color: #2c5941; color: #4ade80; }
+                .${CONFIG.UI_PREFIX}-custom-confirm:hover { background: #244935; }
+                .${CONFIG.UI_PREFIX}-custom-cancel:hover { background: #2a2a2a; border-color: #666; }
+
+                /* CRUD UI */
+                .${CONFIG.UI_PREFIX}-crud-bar { display: none; gap: 0.5rem; margin-bottom: 1rem; flex-shrink: 0; transition: opacity 0.2s; }
+                .${CONFIG.UI_PREFIX}-crud-input {
+                    flex-grow: 1; background: #161616; border: 1px solid #333; border-radius: 0.6rem;
+                    padding: 0.7rem 0.8rem; color: #fff; font-size: 0.9rem; outline: none; transition: 0.2s;
+                }
+                .${CONFIG.UI_PREFIX}-crud-input:focus { border-color: #666; }
+                .${CONFIG.UI_PREFIX}-crud-add-btn {
+                    background: #222; color: #fff; border: 1px solid #333; border-radius: 0.6rem;
+                    padding: 0.7rem 1rem; font-size: 0.85rem; cursor: pointer; white-space: nowrap; transition: 0.2s;
+                }
+                .${CONFIG.UI_PREFIX}-crud-add-btn:hover:not(:disabled) { background: #333; border-color: #555; }
+
+                .${CONFIG.UI_PREFIX}-delete-btn {
+                    background: transparent; border: none; cursor: pointer; padding: 0.4rem;
+                    display: flex; align-items: center; justify-content: center; border-radius: 0.4rem; transition: background 0.2s;
+                    margin-left: 0.5rem;
+                }
+                .${CONFIG.UI_PREFIX}-delete-btn:hover { background: rgba(229, 115, 115, 0.15); }
+                .${CONFIG.UI_PREFIX}-delete-btn svg { width: 1.1rem; height: 1.1rem; fill: #e57373; }
+
+                /* Configuration Panel */
+                .${CONFIG.UI_PREFIX}-config-body { display: none; flex-direction: column; gap: 0.8rem; height: 100%; overflow-y: auto; padding-right: 0.5rem; }
+                .${CONFIG.UI_PREFIX}-settings-field { display: flex; flex-direction: column; gap: 0.3rem; }
+                .${CONFIG.UI_PREFIX}-settings-field label { font-size: 0.8rem; color: #aaa; font-weight: 500; text-align: left; }
+                .${CONFIG.UI_PREFIX}-settings-input {
+                    background: #161616; border: 1px solid #333; border-radius: 0.6rem;
+                    padding: 0.7rem 0.8rem; color: #fff; font-size: 0.9rem; outline: none; transition: 0.2s;
+                }
+                .${CONFIG.UI_PREFIX}-settings-input:focus { border-color: #ff4081; background: #1a1a1a; }
+                .${CONFIG.UI_PREFIX}-settings-save-btn {
+                    background: #ff4081; color: #fff; border: none; border-radius: 0.6rem;
+                    padding: 0.8rem; font-size: 0.95rem; font-weight: 600; cursor: pointer; transition: background 0.2s; margin-top: 0.5rem;
+                }
+                .${CONFIG.UI_PREFIX}-settings-save-btn:hover { background: #e91e63; }
+
                 @media (max-width: 1100px) {
                     .${CONFIG.UI_PREFIX}-layout {
-                        flex-direction: column; align-items: center;
-                        justify-content: flex-start; /* Fixes top content being unreachable */
-                        overflow-y: auto; height: 100vh;
-                        max-height: 100vh;
-                        width: 100%;
-                        padding: 2rem 0 4rem 0; /* Padding bottom to prevent flush sticking */
-                        box-sizing: border-box;
+                        flex-direction: column; align-items: center; justify-content: flex-start;
+                        overflow-y: auto; height: 100vh; max-height: 100vh; width: 100%;
+                        padding: 2rem 0 4rem 0; box-sizing: border-box;
                     }
                     .${CONFIG.UI_PREFIX}-layout::-webkit-scrollbar { display: none; }
                     .${CONFIG.UI_PREFIX}-panel { height: 65vh; width: 90vw; max-width: 25rem; flex-shrink: 0; }
@@ -482,7 +814,7 @@
             fab.id = `${CONFIG.UI_PREFIX}-fab`;
             fab.className = `${CONFIG.UI_PREFIX}-fab`;
             fab.title = "Open Download Manager (Ctrl+S)";
-            fab.innerHTML = `<svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>`;
+            fab.appendChild(this._createSVG('0 0 24 24', 'M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z'));
             fab.onclick = () => this.showMenu();
             document.body.appendChild(fab);
         },
@@ -493,23 +825,36 @@
 
             const header = document.createElement('div');
             header.className = `${CONFIG.UI_PREFIX}-header`;
-            header.innerHTML = `<h2>${title}</h2>`;
+            const h2 = document.createElement('h2');
+            h2.textContent = title;
+            header.appendChild(h2);
             panel.appendChild(header);
 
             const list = document.createElement('div');
             list.className = `${CONFIG.UI_PREFIX}-list`;
 
             if (data.length === 0) {
-                list.innerHTML = `<div class="${CONFIG.UI_PREFIX}-empty-state">${emptyMessage}</div>`;
+                const emptyState = document.createElement('div');
+                emptyState.className = `${CONFIG.UI_PREFIX}-empty-state`;
+                emptyState.textContent = emptyMessage;
+                emptyState.style.position = 'relative';
+                list.appendChild(emptyState);
             } else {
                 data.forEach(item => {
                     const btn = document.createElement('div');
-                    btn.className = `${CONFIG.UI_PREFIX}-item`;
+                    btn.className = `${CONFIG.UI_PREFIX}-item ${CONFIG.UI_PREFIX}-static-item`;
+
+                    const nameSpan = document.createElement('span');
+                    nameSpan.textContent = item.n;
 
                     const badgeText = isFlavor ? `${item.count}x • ${item.g}` : item.g;
                     const badgeClass = isFlavor ? `${CONFIG.UI_PREFIX}-badge accent` : `${CONFIG.UI_PREFIX}-badge`;
+                    const badgeSpan = document.createElement('span');
+                    badgeSpan.className = badgeClass;
+                    badgeSpan.textContent = badgeText;
 
-                    btn.innerHTML = `<span>${item.n}</span><span class="${badgeClass}">${badgeText}</span>`;
+                    btn.appendChild(nameSpan);
+                    btn.appendChild(badgeSpan);
                     btn.onclick = () => Downloader.executeIdolSave(item.g, item.n);
                     list.appendChild(btn);
                 });
@@ -522,160 +867,601 @@
             const panel = document.createElement('div');
             panel.className = `${CONFIG.UI_PREFIX}-panel ${CONFIG.UI_PREFIX}-main`;
 
-            // Header
+            // --- Header ---
             const header = document.createElement('div');
             header.className = `${CONFIG.UI_PREFIX}-header`;
 
-            if (this.currentView === 'members') {
-                const back = document.createElement('div');
-                back.className = `${CONFIG.UI_PREFIX}-back-btn`;
-                back.innerHTML = `<svg viewBox="0 0 24 24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>`;
-                back.onclick = (e) => { e.stopPropagation(); this.currentView = 'groups'; this.render(); };
-                header.appendChild(back);
-            }
+            const leftGroup = document.createElement('div');
+            leftGroup.className = `${CONFIG.UI_PREFIX}-header-left`;
 
-            const title = document.createElement('h2');
-            title.innerText = this.currentView === 'groups' ? 'K-Pop Database' : this.selectedGroup;
-            header.appendChild(title);
+            this.headerBackBtn = document.createElement('div');
+            this.headerBackBtn.className = `${CONFIG.UI_PREFIX}-icon-btn`;
+            this.headerBackBtn.appendChild(this._createSVG('0 0 24 24', 'M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z'));
+            this.headerBackBtn.title = "Back";
+            this.headerBackBtn.onclick = (e) => {
+                e.stopPropagation();
+                if (this.currentView === 'config') {
+                    this.currentView = this.selectedGroup ? 'members' : 'groups';
+                } else if (this.currentView === 'members') {
+                    this.currentView = 'groups';
+                    this.selectedGroup = null;
+                    this.searchInput.value = '';
+                    this.updateListData('');
+                }
+                this.updateVisibility();
+            };
+            leftGroup.appendChild(this.headerBackBtn);
+
+            this.headerTitle = document.createElement('h2');
+            leftGroup.appendChild(this.headerTitle);
+
+            const rightGroup = document.createElement('div');
+            rightGroup.className = `${CONFIG.UI_PREFIX}-header-right`;
+
+            const editBtn = document.createElement('div');
+            editBtn.className = `${CONFIG.UI_PREFIX}-icon-btn`;
+            editBtn.appendChild(this._createSVG('0 0 24 24', 'M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z'));
+            editBtn.title = "Toggle CRUD Editing";
+            editBtn.onclick = () => {
+                if (!CloudAPI.isValid()) {
+                    this.showToast('Configure Cloud Engine credentials first to enable CRUD.', 'error');
+                    this.currentView = 'config';
+                    this.updateVisibility();
+                    return;
+                }
+                this.isCrudMode = !this.isCrudMode;
+                this.updateVisibility();
+                this.renderVirtualList();
+            };
+
+            const configBtn = document.createElement('div');
+            configBtn.className = `${CONFIG.UI_PREFIX}-icon-btn`;
+            configBtn.appendChild(this._createSVG('0 0 24 24', 'M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z'));
+            configBtn.title = "Cloud Engine Config";
+            configBtn.onclick = () => {
+                this.currentView = this.currentView === 'config' ? (this.selectedGroup ? 'members' : 'groups') : 'config';
+                this.updateVisibility();
+            };
 
             const closeBtn = document.createElement('div');
-            closeBtn.className = `${CONFIG.UI_PREFIX}-close-btn`;
-            closeBtn.innerHTML = `<svg viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>`;
+            closeBtn.className = `${CONFIG.UI_PREFIX}-icon-btn`;
+            closeBtn.appendChild(this._createSVG('0 0 24 24', 'M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z'));
+            closeBtn.title = "Close";
             closeBtn.onclick = () => this.closeMenu();
-            header.appendChild(closeBtn);
+
+            rightGroup.appendChild(editBtn);
+            rightGroup.appendChild(configBtn);
+            rightGroup.appendChild(closeBtn);
+
+            header.appendChild(leftGroup);
+            header.appendChild(rightGroup);
             panel.appendChild(header);
 
-            // Search
-            const searchContainer = document.createElement('div');
-            searchContainer.className = `${CONFIG.UI_PREFIX}-search-container`;
-            const searchInput = document.createElement('input');
-            searchInput.className = `${CONFIG.UI_PREFIX}-search-input`;
-            searchInput.placeholder = "Search idols or groups...";
-            searchContainer.appendChild(searchInput);
-            panel.appendChild(searchContainer);
-            // List
-            const list = document.createElement('div');
-            list.className = `${CONFIG.UI_PREFIX}-list`;
-            const fragment = document.createDocumentFragment();
+            // --- Config View ---
+            this.configContainer = document.createElement('div');
+            this.configContainer.className = `${CONFIG.UI_PREFIX}-config-body`;
 
-            if (this.currentView === 'groups') {
-                Database.sortedGroups.forEach(gName => {
-                    const gBtn = document.createElement('div');
-                    gBtn.className = `${CONFIG.UI_PREFIX}-item`;
-                    gBtn.dataset.type = "group";
-                    gBtn.dataset.name = gName.toLowerCase();
-                    gBtn.innerHTML = `<span>${gName}</span><span class="${CONFIG.UI_PREFIX}-badge">Group</span>`;
-                    gBtn.onclick = () => { this.selectedGroup = gName; this.currentView = 'members'; this.render(); };
-                    fragment.appendChild(gBtn);
+            const createSettingsField = (labelTxt, inputType, inputId, defaultVal, placeholder) => {
+                const field = document.createElement('div');
+                field.className = `${CONFIG.UI_PREFIX}-settings-field`;
+                const label = document.createElement('label');
+                label.textContent = labelTxt;
+                const input = document.createElement('input');
+                input.type = inputType;
+                input.className = `${CONFIG.UI_PREFIX}-settings-input`;
+                input.placeholder = placeholder || '';
+                input.value = GM_getValue(inputId, defaultVal);
+                input.dataset.key = inputId;
+                field.appendChild(label);
+                field.appendChild(input);
+                return input;
+            };
 
-                    Database.data[gName].forEach(mName => {
-                        const mBtn = document.createElement('div');
-                        mBtn.className = `${CONFIG.UI_PREFIX}-item`;
-                        mBtn.style.display = "none";
-                        mBtn.dataset.type = "member";
-                        mBtn.dataset.name = mName.toLowerCase();
-                        mBtn.innerHTML = `<span>${mName}</span><span class="${CONFIG.UI_PREFIX}-badge">${gName}</span>`;
-                        mBtn.onclick = () => Downloader.executeIdolSave(gName, mName);
-                        fragment.appendChild(mBtn);
-                    });
+            const workerUrlInput = createSettingsField('Cloudflare Worker End-Point', 'text', 'tm_kpop_dl_worker_url', '', 'https://your-worker.workers.dev');
+            const tokenInput = createSettingsField('GitHub Fine-Grained Token', 'password', 'tm_kpop_dl_github_token', '', 'github_pat_...');
+            const ownerInput = createSettingsField('Repository Structural Owner', 'text', 'tm_kpop_dl_github_owner', '', 'GitHub Username');
+            const repoInput = createSettingsField('Target Repository Domain', 'text', 'tm_kpop_dl_github_repo', '', 'Repository Name');
+            const dbPathInput = createSettingsField('Database Target Path Mapping', 'text', 'tm_kpop_dl_github_path', 'kmedia-downloader-db.json', 'kmedia-downloader-db.json');
+            const historyPathInput = createSettingsField('History Target Path Mapping', 'text', 'tm_kpop_dl_history_path', 'kmedia-downloader-history.json', 'kmedia-downloader-history.json');
+            const branchInput = createSettingsField('Target Remote Tree Branch', 'text', 'tm_kpop_dl_github_branch', 'main', 'main');
+
+            const saveConfigBtn = document.createElement('button');
+            saveConfigBtn.className = `${CONFIG.UI_PREFIX}-settings-save-btn`;
+            saveConfigBtn.textContent = 'Save Configuration';
+            saveConfigBtn.onclick = () => {
+                GM_setValue('tm_kpop_dl_worker_url', workerUrlInput.value.trim());
+                GM_setValue('tm_kpop_dl_github_token', tokenInput.value.trim());
+                GM_setValue('tm_kpop_dl_github_owner', ownerInput.value.trim());
+                GM_setValue('tm_kpop_dl_github_repo', repoInput.value.trim());
+                GM_setValue('tm_kpop_dl_github_path', dbPathInput.value.trim() || 'kmedia-downloader-db.json');
+                GM_setValue('tm_kpop_dl_history_path', historyPathInput.value.trim() || 'kmedia-downloader-history.json');
+                GM_setValue('tm_kpop_dl_github_branch', branchInput.value.trim() || 'main');
+
+                CloudAPI.loadConfig(); // Immediately ingest new credentials
+                this.showToast('Configurations saved. Re-synchronizing environments...');
+                this.currentView = 'groups';
+                Storage.fetchCloudBackground();
+                Database.init().then(() => {
+                    this.updateListData('');
+                    this.updateVisibility();
                 });
-            } else {
-                Database.data[this.selectedGroup].forEach(mName => {
-                    const mBtn = document.createElement('div');
-                    mBtn.className = `${CONFIG.UI_PREFIX}-item`;
-                    mBtn.dataset.name = mName.toLowerCase();
-                    mBtn.innerText = mName;
-                    mBtn.onclick = () => Downloader.executeIdolSave(this.selectedGroup, mName);
-                    fragment.appendChild(mBtn);
-                });
-            }
+            };
 
-            // Keyboard Navigation Handling
-            const updateFocus = (items) => {
-                items.forEach(el => el.classList.remove('active-focus'));
-                if (this.activeIndex >= 0 && this.activeIndex < items.length) {
-                    items[this.activeIndex].classList.add('active-focus');
-                    items[this.activeIndex].scrollIntoView({ block: 'nearest' });
+            this.configContainer.appendChild(workerUrlInput.parentNode);
+            this.configContainer.appendChild(tokenInput.parentNode);
+            this.configContainer.appendChild(ownerInput.parentNode);
+            this.configContainer.appendChild(repoInput.parentNode);
+            this.configContainer.appendChild(dbPathInput.parentNode);
+            this.configContainer.appendChild(historyPathInput.parentNode);
+            this.configContainer.appendChild(branchInput.parentNode);
+            this.configContainer.appendChild(saveConfigBtn);
+            panel.appendChild(this.configContainer);
+
+            // --- Search ---
+            this.searchContainer = document.createElement('div');
+            this.searchContainer.className = `${CONFIG.UI_PREFIX}-search-container`;
+            this.searchInput = document.createElement('input');
+            this.searchInput.className = `${CONFIG.UI_PREFIX}-search-input`;
+            this.searchInput.placeholder = "Search idols or groups...";
+            this.searchContainer.appendChild(this.searchInput);
+            panel.appendChild(this.searchContainer);
+
+            // --- CRUD Bar ---
+            this.crudBarContainer = document.createElement('div');
+            this.crudBarContainer.className = `${CONFIG.UI_PREFIX}-crud-bar`;
+            this.crudInput = document.createElement('input');
+            this.crudInput.className = `${CONFIG.UI_PREFIX}-crud-input`;
+
+            this.crudBtn = document.createElement('button');
+            this.crudBtn.className = `${CONFIG.UI_PREFIX}-crud-add-btn`;
+            this.crudBtn.onclick = () => {
+                if (this.crudBtn.disabled) return;
+                const val = this.crudInput.value.trim();
+                if (!val) return;
+
+                let success = false;
+                if (this.currentView === 'groups') {
+                    success = Database.addGroup(val);
+                } else if (this.currentView === 'members') {
+                    success = Database.addMember(this.selectedGroup, val);
+                }
+
+                if (success) {
+                    this.crudInput.value = '';
+                    this.updateListData(this.searchInput.value.toLowerCase().trim());
+                    this.triggerCloudSync();
+                } else {
+                    this.showToast('Element empty or already exists.', 'error');
                 }
             };
-            searchInput.addEventListener('keydown', (e) => {
-                const visibleItems = Array.from(list.querySelectorAll(`.${CONFIG.UI_PREFIX}-item`)).filter(el => el.style.display !== 'none');
+            this.crudBarContainer.appendChild(this.crudInput);
+            this.crudBarContainer.appendChild(this.crudBtn);
+            panel.appendChild(this.crudBarContainer);
+
+            // --- List View ---
+            this.listContainer = document.createElement('div');
+            this.listContainer.className = `${CONFIG.UI_PREFIX}-list`;
+
+            this.listInner = document.createElement('div');
+            this.listInner.className = `${CONFIG.UI_PREFIX}-list-inner`;
+            this.listContainer.appendChild(this.listInner);
+
+            if (typeof ResizeObserver !== 'undefined') {
+                this.resizeObserver = new ResizeObserver(entries => {
+                    for (let entry of entries) {
+                        this.cachedContainerHeight = entry.contentRect.height;
+                        this.renderVirtualList();
+                    }
+                });
+                this.resizeObserver.observe(this.listContainer);
+            }
+
+            this.listContainer.addEventListener('scroll', () => {
+                requestAnimationFrame(() => this.renderVirtualList());
+            });
+
+            // Event Delegation for List Items & Delete Buttons
+            this.listInner.addEventListener('click', (e) => {
+                const delBtn = e.target.closest(`.${CONFIG.UI_PREFIX}-delete-btn`);
+                if (delBtn) {
+                    e.stopPropagation();
+                    const index = parseInt(delBtn.dataset.index, 10);
+                    const itemData = this.currentListData[index];
+
+                    if (itemData.type === 'group') {
+                        if (confirm(`Confirm complete destruction of group data and profiles connected to: "${itemData.group}"?`)) {
+                            if (Database.deleteGroup(itemData.group)) {
+                                this.updateListData(this.searchInput.value.toLowerCase().trim());
+                                this.triggerCloudSync();
+                            }
+                        }
+                    } else if (itemData.type === 'member') {
+                        if (confirm(`Confirm target detachment and deletion of profile structural reference: "${itemData.member}"?`)) {
+                            if (Database.deleteMember(itemData.group, itemData.member)) {
+                                this.updateListData(this.searchInput.value.toLowerCase().trim());
+                                this.triggerCloudSync();
+                            }
+                        }
+                    }
+                    return;
+                }
+
+                const itemEl = e.target.closest(`.${CONFIG.UI_PREFIX}-item`);
+                if (!itemEl) return;
+                const index = parseInt(itemEl.dataset.index, 10);
+                if (!isNaN(index) && this.currentListData[index]) {
+                    this.handleItemClick(this.currentListData[index]);
+                }
+            });
+
+            this.searchInput.addEventListener('keydown', (e) => {
+                if (this.currentView === 'config') return;
+                if (this.currentListData.length === 0) return;
 
                 if (e.key === 'ArrowDown') {
                     e.preventDefault();
-                    this.activeIndex = (this.activeIndex + 1) % visibleItems.length;
-                    updateFocus(visibleItems);
+                    this.activeIndex = Math.min(this.activeIndex + 1, this.currentListData.length - 1);
+                    this.adjustScrollToActive();
                 } else if (e.key === 'ArrowUp') {
                     e.preventDefault();
-                    this.activeIndex = this.activeIndex <= 0 ? visibleItems.length - 1 : this.activeIndex - 1;
-                    updateFocus(visibleItems);
+                    this.activeIndex = Math.max(0, this.activeIndex - 1);
+                    this.adjustScrollToActive();
                 } else if (e.key === 'Enter') {
                     e.preventDefault();
-                    if (this.activeIndex >= 0 && visibleItems[this.activeIndex]) {
-                        visibleItems[this.activeIndex].click();
-                    }
+                    const activeItem = this.currentListData[this.activeIndex];
+                    if (activeItem) this.handleItemClick(activeItem);
                 }
             });
-            // Debounced Search Logic
-            searchInput.oninput = debounce((e) => {
-                const val = e.target.value.toLowerCase().trim();
-                this.activeIndex = -1; // Reset selection
-                const allItems = list.querySelectorAll(`.${CONFIG.UI_PREFIX}-item`);
 
-                allItems.forEach(item => {
-                    item.classList.remove('active-focus');
-                    const name = item.dataset.name;
-                    const type = item.dataset.type;
-                    if (this.currentView === 'groups') {
-                        item.style.display = (val === "") ? (type === "group" ? "flex" : "none") : (name.includes(val) ? "flex" : "none");
-                    } else {
-                        item.style.display = name.includes(val) ? "flex" : "none";
-                    }
-                });
+            this.searchInput.oninput = debounce((e) => {
+                this.updateListData(e.target.value.toLowerCase().trim());
             }, 150);
-            // Footer
-            const footer = document.createElement('div');
-            footer.className = `${CONFIG.UI_PREFIX}-footer`;
+
+            // --- Footer ---
+            this.footer = document.createElement('div');
+            this.footer.className = `${CONFIG.UI_PREFIX}-footer`;
+
+            const btnRow = document.createElement('div');
+            btnRow.className = `${CONFIG.UI_PREFIX}-btn-row`;
+
             const stdBtn = document.createElement('button');
-            stdBtn.className = `${CONFIG.UI_PREFIX}-std-btn`;
-            stdBtn.innerText = "Standard Save (Original Name)";
+            stdBtn.className = `${CONFIG.UI_PREFIX}-action-btn`;
+            stdBtn.innerText = "Standard Save";
+            stdBtn.title = "Save with the original file name";
             stdBtn.onclick = () => Downloader.executeStandardSave();
 
-            list.appendChild(fragment);
-            footer.appendChild(stdBtn);
-            panel.appendChild(list);
-            panel.appendChild(footer);
+            const customBtn = document.createElement('button');
+            customBtn.className = `${CONFIG.UI_PREFIX}-action-btn`;
+            customBtn.innerText = "Custom Save";
+            customBtn.title = "Specify a custom file name";
 
-            setTimeout(() => searchInput.focus(), 50);
+            btnRow.appendChild(stdBtn);
+            btnRow.appendChild(customBtn);
+
+            const customWrapper = document.createElement('div');
+            customWrapper.className = `${CONFIG.UI_PREFIX}-custom-wrapper`;
+
+            const customNameInput = document.createElement('input');
+            customNameInput.className = `${CONFIG.UI_PREFIX}-custom-input`;
+            customNameInput.type = "text";
+            customNameInput.placeholder = "Enter custom name...";
+
+            const customCancelBtn = document.createElement('button');
+            customCancelBtn.className = `${CONFIG.UI_PREFIX}-custom-cancel`;
+            customCancelBtn.innerText = "Cancel";
+
+            const customConfirmBtn = document.createElement('button');
+            customConfirmBtn.className = `${CONFIG.UI_PREFIX}-custom-confirm`;
+            customConfirmBtn.innerText = "Save";
+
+            customWrapper.appendChild(customNameInput);
+            customWrapper.appendChild(customCancelBtn);
+            customWrapper.appendChild(customConfirmBtn);
+
+            this.footer.appendChild(btnRow);
+            this.footer.appendChild(customWrapper);
+
+            const resetCustomInput = () => {
+                customWrapper.style.display = 'none';
+                btnRow.style.display = 'flex';
+                customNameInput.value = '';
+            };
+
+            const submitCustomSave = () => {
+                const customName = customNameInput.value.trim();
+                if (customName) {
+                    Downloader.executeCustomSave(customName);
+                } else {
+                    customNameInput.focus();
+                }
+            };
+
+            customBtn.onclick = () => {
+                btnRow.style.display = 'none';
+                customWrapper.style.display = 'flex';
+                requestAnimationFrame(() => customNameInput.focus());
+            };
+
+            customCancelBtn.onclick = resetCustomInput;
+            customConfirmBtn.onclick = submitCustomSave;
+
+            customNameInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    submitCustomSave();
+                } else if (e.key === 'Escape') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    resetCustomInput();
+                    this.searchInput.focus();
+                }
+            });
+
+            panel.appendChild(this.listContainer);
+            panel.appendChild(this.footer);
+
             return panel;
+        },
+
+        updateVisibility() {
+            if (this.currentView === 'config') {
+                this.headerTitle.textContent = 'Cloud Engine Config';
+                this.headerBackBtn.style.display = 'flex';
+                this.searchContainer.style.display = 'none';
+                this.listContainer.style.display = 'none';
+                this.footer.style.display = 'none';
+                this.crudBarContainer.style.display = 'none';
+                this.configContainer.style.display = 'flex';
+            } else {
+                this.configContainer.style.display = 'none';
+                this.searchContainer.style.display = 'block';
+                this.listContainer.style.display = 'block';
+                this.footer.style.display = 'flex';
+
+                if (this.currentView === 'groups') {
+                    this.headerTitle.textContent = 'K-Pop Database';
+                    this.headerBackBtn.style.display = 'none';
+                } else {
+                    this.headerTitle.textContent = this.selectedGroup;
+                    this.headerBackBtn.style.display = 'flex';
+                }
+
+                if (this.isCrudMode) {
+                    this.crudBarContainer.style.display = 'flex';
+                    this.crudInput.placeholder = this.currentView === 'groups' ? 'Enter new group name...' : 'Enter new member name...';
+                    this.crudBtn.textContent = this.currentView === 'groups' ? 'Add Group' : 'Add Member';
+                } else {
+                    this.crudBarContainer.style.display = 'none';
+                }
+            }
+        },
+
+        updateListData(searchVal) {
+            this.currentListData = [];
+            const isSearch = searchVal.length > 0;
+
+            if (this.currentView === 'groups') {
+                Database.sortedGroups.forEach(gName => {
+                    const groupMatches = !isSearch || gName.toLowerCase().includes(searchVal);
+                    if (groupMatches) {
+                        this.currentListData.push({ type: 'group', group: gName, label: gName, badge: 'Group' });
+                    }
+                    if (isSearch) {
+                        Database.data[gName].forEach(mName => {
+                            if (mName.toLowerCase().includes(searchVal)) {
+                                this.currentListData.push({ type: 'member', group: gName, member: mName, label: mName, badge: gName });
+                            }
+                        });
+                    }
+                });
+            } else if (this.currentView === 'members') {
+                if (Database.data[this.selectedGroup]) {
+                    Database.data[this.selectedGroup].forEach(mName => {
+                        if (!isSearch || mName.toLowerCase().includes(searchVal)) {
+                            this.currentListData.push({ type: 'member', group: this.selectedGroup, member: mName, label: mName, badge: '' });
+                        }
+                    });
+                }
+            }
+
+            this.activeIndex = this.currentListData.length > 0 ? 0 : -1;
+            this.listContainer.scrollTop = 0;
+            this.updateVisibility();
+            this.renderVirtualList();
+        },
+
+        renderVirtualList() {
+            if (!this.listContainer || !this.listInner || this.currentView === 'config') return;
+
+            if (Database.isLoading) {
+                this.listInner.style.height = '100%';
+                this.listInner.textContent = '';
+                const emptyState = document.createElement('div');
+                emptyState.className = `${CONFIG.UI_PREFIX}-empty-state`;
+                emptyState.textContent = 'Loading database parameters...';
+                this.listInner.appendChild(emptyState);
+                return;
+            }
+
+            const totalItems = this.currentListData.length;
+            if (totalItems === 0) {
+                this.listInner.style.height = '100%';
+                this.listInner.textContent = '';
+                const emptyState = document.createElement('div');
+                emptyState.className = `${CONFIG.UI_PREFIX}-empty-state`;
+                emptyState.textContent = 'No matching database profiles tracked.';
+                this.listInner.appendChild(emptyState);
+                return;
+            }
+
+            const itemHeight = CONFIG.VIRTUAL_ITEM_HEIGHT;
+            this.listInner.style.height = `${totalItems * itemHeight}px`;
+
+            const scrollTop = this.listContainer.scrollTop;
+            const containerHeight = this.cachedContainerHeight || 400;
+
+            const startIndex = Math.max(0, Math.floor(scrollTop / itemHeight) - 5);
+            const endIndex = Math.min(totalItems, Math.floor((scrollTop + containerHeight) / itemHeight) + 5);
+
+            this.listInner.textContent = '';
+            const fragment = document.createDocumentFragment();
+
+            for (let i = startIndex; i < endIndex; i++) {
+                const itemData = this.currentListData[i];
+                const btn = document.createElement('div');
+
+                btn.className = `${CONFIG.UI_PREFIX}-item ${i === this.activeIndex ? 'active-focus' : ''}`;
+                btn.style.transform = `translate3d(0, ${i * itemHeight}px, 0)`;
+                btn.dataset.index = i;
+
+                const nameSpan = document.createElement('span');
+                nameSpan.textContent = itemData.label;
+                btn.appendChild(nameSpan);
+
+                const rightWrapper = document.createElement('div');
+                rightWrapper.style.display = 'flex';
+                rightWrapper.style.alignItems = 'center';
+
+                if (itemData.badge) {
+                    const badgeSpan = document.createElement('span');
+                    badgeSpan.className = `${CONFIG.UI_PREFIX}-badge`;
+                    badgeSpan.textContent = itemData.badge;
+                    rightWrapper.appendChild(badgeSpan);
+                }
+
+                if (this.isCrudMode && this.deleteBtnTemplate) {
+                    const delBtn = this.deleteBtnTemplate.cloneNode(true);
+                    delBtn.dataset.index = i;
+                    rightWrapper.appendChild(delBtn);
+                }
+
+                btn.appendChild(rightWrapper);
+                fragment.appendChild(btn);
+            }
+            this.listInner.appendChild(fragment);
+        },
+
+        adjustScrollToActive() {
+            if (this.activeIndex < 0) return;
+            const itemHeight = CONFIG.VIRTUAL_ITEM_HEIGHT;
+            const itemTop = this.activeIndex * itemHeight;
+            const itemBottom = itemTop + itemHeight;
+
+            const scrollTop = this.listContainer.scrollTop;
+            const containerHeight = this.cachedContainerHeight;
+
+            if (itemTop < scrollTop) {
+                this.listContainer.scrollTop = itemTop;
+            } else if (itemBottom > scrollTop + containerHeight) {
+                this.listContainer.scrollTop = itemBottom - containerHeight;
+            }
+
+            this.renderVirtualList();
+        },
+
+        handleItemClick(itemData) {
+            if (itemData.type === 'group') {
+                this.selectedGroup = itemData.group;
+                this.currentView = 'members';
+                this.searchInput.value = '';
+                this.updateListData('');
+            } else {
+                Downloader.executeIdolSave(itemData.group, itemData.member);
+            }
+        },
+
+        showToast(message, type = 'info') {
+            if (!this.toastContainer) return;
+            const toast = document.createElement('div');
+            toast.className = `${CONFIG.UI_PREFIX}-toast ${type}`;
+            toast.textContent = message;
+            this.toastContainer.appendChild(toast);
+
+            setTimeout(() => {
+                if (toast.parentNode) toast.remove();
+            }, 3000);
+        },
+
+        async triggerCloudSync() {
+            const workerUrl = GM_getValue('tm_kpop_dl_worker_url', '');
+            if (!workerUrl) return;
+
+            this.updateCloudStatus('syncing');
+            try {
+                await Database.saveCloud();
+                this.updateCloudStatus('success');
+            } catch (e) {
+                Logger.error('Cloud synchronization transaction failure exception', e);
+                this.updateCloudStatus('error', e.message);
+            }
+        },
+
+        updateCloudStatus(status, message = '') {
+            let text = '';
+            let type = 'info';
+
+            if (status === 'syncing') {
+                text = 'Committing changes to cloud...';
+                type = 'syncing';
+            } else if (status === 'success') {
+                text = 'Successfully synced to cloud.';
+                type = 'success';
+            } else if (status === 'error') {
+                text = `Sync failed: ${message}`;
+                type = 'error';
+            }
+
+            if (text) this.showToast(text, type);
+
+            // Lock CRUD inputs during sync to prevent 409 Race Condition conflicts
+            if (this.crudInput && this.crudBtn) {
+                const isSyncing = (status === 'syncing');
+                this.crudInput.disabled = isSyncing;
+                this.crudBtn.disabled = isSyncing;
+                this.crudInput.style.opacity = isSyncing ? '0.5' : '1';
+                this.crudBtn.style.opacity = isSyncing ? '0.5' : '1';
+                this.crudBtn.style.cursor = isSyncing ? 'wait' : 'pointer';
+            }
         },
 
         render() {
             if (this.overlay) this.overlay.remove();
             this.overlay = document.createElement('div');
             this.overlay.id = `${CONFIG.UI_PREFIX}-overlay`;
-            this.overlay.onclick = (e) => { if (e.target === this.overlay || e.target.className === `${CONFIG.UI_PREFIX}-layout`) this.closeMenu();
+            this.overlay.onclick = (e) => {
+                if (e.target === this.overlay || e.target.className === `${CONFIG.UI_PREFIX}-layout`) this.closeMenu();
             };
 
-            // Trap Focus / Prevent page scroll
             document.body.style.overflow = 'hidden';
             const layoutWrapper = document.createElement('div');
             layoutWrapper.className = `${CONFIG.UI_PREFIX}-layout`;
 
             const recentData = Storage.getRecentStats();
             const flavorData = Storage.getFlavorStats();
+
             layoutWrapper.appendChild(this.createSidePanel('🕒 Recent Saves', 'left', recentData, 'No recent saves.', false));
             layoutWrapper.appendChild(this.createMainPanel());
             layoutWrapper.appendChild(this.createSidePanel('❤️‍🔥 Flavor of the Month', 'right', flavorData, 'No data for this month.', true));
 
             this.overlay.appendChild(layoutWrapper);
+
+            this.toastContainer = document.createElement('div');
+            this.toastContainer.className = `${CONFIG.UI_PREFIX}-toast-container`;
+            this.overlay.appendChild(this.toastContainer);
+
             document.body.appendChild(this.overlay);
+
+            this.updateListData('');
+            if (this.listContainer) {
+                this.cachedContainerHeight = this.listContainer.clientHeight;
+            }
+
+            setTimeout(() => { if (this.searchInput) this.searchInput.focus(); }, 50);
         },
 
         async showMenu() {
             if (this.overlay) return;
-            // Defensively wait for Database if user clicks instantly on load
-            if (!Database.isLoaded) {
+            if (!Database.isLoaded && !Database.isLoading) {
                 document.body.style.cursor = 'wait';
                 await Database.waitForLoad();
                 document.body.style.cursor = '';
@@ -683,6 +1469,7 @@
 
             this.activeIndex = -1;
             this.currentView = 'groups';
+            this.isCrudMode = false;
             this.render();
         },
 
@@ -690,10 +1477,15 @@
             if (this.overlay) {
                 this.overlay.remove();
                 this.overlay = null;
-                document.body.style.overflow = ''; // Restore scroll
+                document.body.style.overflow = '';
+
+                if (this.resizeObserver) {
+                    this.resizeObserver.disconnect();
+                }
             }
         }
     };
+
     // =========================================================
     // CORE APPLICATION MODULE
     // =========================================================
@@ -702,19 +1494,19 @@
             if (window.__KpopDlInitialized || !this.isDirectMediaPage()) return;
             window.__KpopDlInitialized = true;
 
+            CloudAPI.loadConfig(); // Load settings securely into memory once
+            UI.initTemplates(); // Prepare cached SVG nodes
             Storage.init();
             UI.injectStyles();
             this.bindEvents();
 
-            // Asynchronously initialize database, inject FAB when ready
             Database.init().then(() => {
                 UI.injectFAB();
             });
-            Logger.info('Initialized K-Pop Media Downloader v5.4');
+            Logger.info('Initialized K-Pop Media Downloader v6.5');
         },
 
         isDirectMediaPage() {
-            // Bulletproof detection based on content type
             const type = document.contentType || '';
             return type.startsWith('image/') || type.startsWith('video/');
         },
@@ -729,12 +1521,10 @@
                 if (e.key === 'Escape' && UI.overlay) {
                     UI.closeMenu();
                 }
-            },
-            true);
+            }, true);
         }
     };
 
-    // Boot
     App.init();
 
 })();
