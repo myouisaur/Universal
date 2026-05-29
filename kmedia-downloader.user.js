@@ -2,7 +2,7 @@
 // @name         [Universal] K-Media Downloader
 // @namespace    https://github.com/myouisaur/Universal
 // @icon         data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23FF4081'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 11h3l-4 4-4-4h3V8h2v5z'/%3E%3C/svg%3E
-// @version      6.5
+// @version      6.7
 // @description  Organizes, tracks, and saves categorized K-Pop media files through a centralized overlay.
 // @author       Xiv
 // @match        *://*/*
@@ -37,6 +37,8 @@
         OVERLAY_Z_INDEX: 999999,
         SAVE_DEBOUNCE_MS: 1000,
         CLOUD_HISTORY_DEBOUNCE_MS: 5000,
+        CLOUD_HISTORY_THROTTLE_MS: 60000, // 1 minute between background background polls
+        CLOUD_MENU_POLL_MS: 15000, // 15 seconds live-polling interval while menu is actively open
         VIRTUAL_ITEM_HEIGHT: 50, // 42px element + 8px spacing
 
         // Database Constants
@@ -305,6 +307,7 @@
         _cache: null,
         _saveLocalDebounced: null,
         _saveCloudDebounced: null,
+        _lastCloudFetch: 0,
 
         init() {
             this.syncFromStorage();
@@ -337,7 +340,7 @@
                     if (remote) {
                         try {
                             this._cache = JSON.parse(newValue || '[]');
-                            if (UI.overlay) UI.render(); // Re-render panels
+                            if (UI.overlay) UI.refreshSidePanels(); // Update side panels gracefully without destroying user search input state
                         } catch (e) {
                             Logger.warn('Failed to sync cross-tab storage change.', e);
                         }
@@ -360,8 +363,12 @@
             return this._cache;
         },
 
-        async fetchCloudBackground() {
+        async fetchCloudBackground(force = false) {
             if (!CloudAPI.isValid()) return;
+
+            // Throttle protection: Prevents resource waste if user spam-opens the menu or flips tabs constantly, override allowed when live-polling
+            if (!force && Date.now() - this._lastCloudFetch < CONFIG.CLOUD_HISTORY_THROTTLE_MS) return;
+            this._lastCloudFetch = Date.now();
 
             try {
                 const historyPath = GM_getValue('tm_kpop_dl_history_path', 'kmedia-downloader-history.json');
@@ -373,12 +380,17 @@
                         mergedMap.set(`${item.t}-${item.g}-${item.n}`, item);
                     });
 
-                    this._cache = Array.from(mergedMap.values()).sort((a, b) => a.t - b.t);
-                    this.clean();
-                    this._saveLocalDebounced();
+                    const newCache = Array.from(mergedMap.values()).sort((a, b) => a.t - b.t);
 
-                    if (UI.overlay) UI.render();
-                    Logger.info('Successfully merged cross-device cloud history tracking.');
+                    // Only update and trigger reflows if data structurally changed from remote device
+                    if (newCache.length !== this._cache.length) {
+                        this._cache = newCache;
+                        this.clean();
+                        this._saveLocalDebounced();
+
+                        if (UI.overlay) UI.refreshSidePanels();
+                        Logger.info('Successfully merged cross-device cloud history tracking.');
+                    }
                 }
             } catch (e) {
                 Logger.warn(`Failed to fetch cloud history: ${e.message}`);
@@ -556,6 +568,7 @@
         selectedGroup: null,
         activeIndex: -1,
         deleteBtnTemplate: null, // DOM Template Cache
+        syncInterval: null,
 
         // Virtual Scrolling State
         currentListData: [],
@@ -565,6 +578,8 @@
         footer: null,
         crudBarContainer: null,
         configContainer: null,
+        recentListContainer: null,
+        flavorListContainer: null,
 
         searchInput: null,
         crudInput: null,
@@ -660,6 +675,19 @@
                 }
                 .${CONFIG.UI_PREFIX}-icon-btn:hover { background: #222; border-color: #555; }
                 .${CONFIG.UI_PREFIX}-icon-btn svg { width: 1.1rem; height: 1.1rem; fill: #fff; }
+
+                /* Configuration Notification Dot */
+                .${CONFIG.UI_PREFIX}-notification-dot {
+                    position: absolute;
+                    top: -2px;
+                    right: -2px;
+                    width: 10px;
+                    height: 10px;
+                    background-color: #e57373;
+                    border-radius: 50%;
+                    border: 2px solid #1a1a1a;
+                    box-sizing: content-box;
+                }
 
                 /* Toast Notifications */
                 .${CONFIG.UI_PREFIX}-toast-container {
@@ -819,26 +847,14 @@
             document.body.appendChild(fab);
         },
 
-        createSidePanel(title, customClass, data, emptyMessage, isFlavor = false) {
-            const panel = document.createElement('div');
-            panel.className = `${CONFIG.UI_PREFIX}-panel ${CONFIG.UI_PREFIX}-side ${customClass}`;
-
-            const header = document.createElement('div');
-            header.className = `${CONFIG.UI_PREFIX}-header`;
-            const h2 = document.createElement('h2');
-            h2.textContent = title;
-            header.appendChild(h2);
-            panel.appendChild(header);
-
-            const list = document.createElement('div');
-            list.className = `${CONFIG.UI_PREFIX}-list`;
-
+        _buildSidePanelList(container, data, emptyMessage, isFlavor) {
+            container.textContent = '';
             if (data.length === 0) {
                 const emptyState = document.createElement('div');
                 emptyState.className = `${CONFIG.UI_PREFIX}-empty-state`;
                 emptyState.textContent = emptyMessage;
                 emptyState.style.position = 'relative';
-                list.appendChild(emptyState);
+                container.appendChild(emptyState);
             } else {
                 data.forEach(item => {
                     const btn = document.createElement('div');
@@ -856,11 +872,43 @@
                     btn.appendChild(nameSpan);
                     btn.appendChild(badgeSpan);
                     btn.onclick = () => Downloader.executeIdolSave(item.g, item.n);
-                    list.appendChild(btn);
+                    container.appendChild(btn);
                 });
             }
+        },
+
+        createSidePanel(title, customClass, data, emptyMessage, isFlavor = false) {
+            const panel = document.createElement('div');
+            panel.className = `${CONFIG.UI_PREFIX}-panel ${CONFIG.UI_PREFIX}-side ${customClass}`;
+
+            const header = document.createElement('div');
+            header.className = `${CONFIG.UI_PREFIX}-header`;
+            const h2 = document.createElement('h2');
+            h2.textContent = title;
+            header.appendChild(h2);
+            panel.appendChild(header);
+
+            const list = document.createElement('div');
+            list.className = `${CONFIG.UI_PREFIX}-list`;
+
+            // Cache reference for silent background reloading
+            if (customClass === 'left') this.recentListContainer = list;
+            if (customClass === 'right') this.flavorListContainer = list;
+
+            this._buildSidePanelList(list, data, emptyMessage, isFlavor);
+
             panel.appendChild(list);
             return panel;
+        },
+
+        refreshSidePanels() {
+            if (!this.overlay) return;
+            if (this.recentListContainer) {
+                this._buildSidePanelList(this.recentListContainer, Storage.getRecentStats(), 'No recent saves.', false);
+            }
+            if (this.flavorListContainer) {
+                this._buildSidePanelList(this.flavorListContainer, Storage.getFlavorStats(), 'No data for this month.', true);
+            }
         },
 
         createMainPanel() {
@@ -916,12 +964,20 @@
 
             const configBtn = document.createElement('div');
             configBtn.className = `${CONFIG.UI_PREFIX}-icon-btn`;
+            configBtn.style.position = 'relative'; // Required for absolute positioning of notification dot
             configBtn.appendChild(this._createSVG('0 0 24 24', 'M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z'));
             configBtn.title = "Cloud Engine Config";
             configBtn.onclick = () => {
                 this.currentView = this.currentView === 'config' ? (this.selectedGroup ? 'members' : 'groups') : 'config';
                 this.updateVisibility();
             };
+
+            // Inject the missing configuration warning dot if credentials are not valid
+            if (!CloudAPI.isValid()) {
+                const configWarningDot = document.createElement('div');
+                configWarningDot.className = `${CONFIG.UI_PREFIX}-notification-dot`;
+                configBtn.appendChild(configWarningDot);
+            }
 
             const closeBtn = document.createElement('div');
             closeBtn.className = `${CONFIG.UI_PREFIX}-icon-btn`;
@@ -980,7 +1036,14 @@
                 CloudAPI.loadConfig(); // Immediately ingest new credentials
                 this.showToast('Configurations saved. Re-synchronizing environments...');
                 this.currentView = 'groups';
-                Storage.fetchCloudBackground();
+
+                // Safely clear the warning dot now that credentials are saved
+                if (CloudAPI.isValid()) {
+                    const dot = configBtn.querySelector(`.${CONFIG.UI_PREFIX}-notification-dot`);
+                    if (dot) dot.remove();
+                }
+
+                Storage.fetchCloudBackground(true);
                 Database.init().then(() => {
                     this.updateListData('');
                     this.updateVisibility();
@@ -1461,6 +1524,12 @@
 
         async showMenu() {
             if (this.overlay) return;
+
+            // Trigger silent cloud check immediately when menu opens to grab cross-device saves
+            if (CloudAPI.isValid()) {
+                Storage.fetchCloudBackground(true);
+            }
+
             if (!Database.isLoaded && !Database.isLoading) {
                 document.body.style.cursor = 'wait';
                 await Database.waitForLoad();
@@ -1471,6 +1540,14 @@
             this.currentView = 'groups';
             this.isCrudMode = false;
             this.render();
+
+            // Establish an active polling interval exclusively while the menu remains open
+            // This safely bypasses background throttles to keep your panels visibly live
+            this.syncInterval = setInterval(() => {
+                if (CloudAPI.isValid()) {
+                    Storage.fetchCloudBackground(true);
+                }
+            }, CONFIG.CLOUD_MENU_POLL_MS);
         },
 
         closeMenu() {
@@ -1481,6 +1558,10 @@
 
                 if (this.resizeObserver) {
                     this.resizeObserver.disconnect();
+                }
+                if (this.syncInterval) {
+                    clearInterval(this.syncInterval);
+                    this.syncInterval = null;
                 }
             }
         }
@@ -1503,7 +1584,7 @@
             Database.init().then(() => {
                 UI.injectFAB();
             });
-            Logger.info('Initialized K-Pop Media Downloader v6.5');
+            Logger.info('Initialized K-Pop Media Downloader v6.7');
         },
 
         isDirectMediaPage() {
@@ -1512,6 +1593,13 @@
         },
 
         bindEvents() {
+            // Trigger cross-device auto-sync check when tab regains focus
+            document.addEventListener('visibilitychange', () => {
+                if (document.visibilityState === 'visible') {
+                    Storage.fetchCloudBackground();
+                }
+            });
+
             window.addEventListener('keydown', (e) => {
                 if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
                     e.preventDefault();
