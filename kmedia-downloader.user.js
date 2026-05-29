@@ -2,7 +2,7 @@
 // @name         [Universal] K-Media Downloader
 // @namespace    https://github.com/myouisaur/Universal
 // @icon         data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23FF4081'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 11h3l-4 4-4-4h3V8h2v5z'/%3E%3C/svg%3E
-// @version      6.8
+// @version      6.9
 // @description  Organizes, tracks, and saves categorized K-Pop media files through a centralized overlay.
 // @author       Xiv
 // @match        *://*/*
@@ -36,15 +36,14 @@
         FAB_Z_INDEX: 999990,
         OVERLAY_Z_INDEX: 999999,
         SAVE_DEBOUNCE_MS: 1000,
-        CLOUD_HISTORY_DEBOUNCE_MS: 1000, // Reduced from 5s to 1s to guarantee save before tab close
-        CLOUD_HISTORY_THROTTLE_MS: 30000, // 30 seconds between silent background polls
-        CLOUD_MENU_POLL_MS: 10000, // 10 seconds live-polling interval while menu is actively open
-        VIRTUAL_ITEM_HEIGHT: 50, // 42px element + 8px spacing
+        CLOUD_HISTORY_DEBOUNCE_MS: 1000,
+        CLOUD_HISTORY_THROTTLE_MS: 30000,
+        CLOUD_MENU_POLL_MS: 10000,
+        VIRTUAL_ITEM_HEIGHT: 50,
 
-        // Database Constants
         DB_URL: 'https://raw.githubusercontent.com/myouisaur/Universal/refs/heads/main/kmedia-downloader-db.json',
         DB_CACHE_KEY: 'tm_kpop_dl_db_cache',
-        DB_CACHE_TTL_MS: 12 * 60 * 60 * 1000 // 12 hours cache duration
+        DB_CACHE_TTL_MS: 12 * 60 * 60 * 1000
     };
 
     // =========================================================
@@ -56,13 +55,23 @@
         error(msg, err) { console.error(`[K-Pop DL] ${msg}`, err); }
     };
 
-    function debounce(fn, delay) {
-        let timeoutId;
-        return function (...args) {
-            clearTimeout(timeoutId);
-            timeoutId = setTimeout(() => fn.apply(this, args), delay);
-        };
-    }
+    const Utils = {
+        debounce(fn, delay) {
+            let timeoutId;
+            return function (...args) {
+                clearTimeout(timeoutId);
+                timeoutId = setTimeout(() => fn.apply(this, args), delay);
+            };
+        },
+        formatBytes(bytes, decimals = 1) {
+            if (!+bytes) return '0 B';
+            const k = 1024;
+            const dm = decimals < 0 ? 0 : decimals;
+            const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
+        }
+    };
 
     // =========================================================
     // CLOUD API MODULE
@@ -107,7 +116,7 @@
                             }
                             resolve(data);
                         } else if (res.status === 404) {
-                            resolve(null); // File doesn't exist yet
+                            resolve(null);
                         } else {
                             reject(new Error(`Proxy fetch failed with status ${res.status}`));
                         }
@@ -155,7 +164,7 @@
 
         async init() {
             this.isLoading = true;
-            if (UI.overlay) UI.renderVirtualList(); // Force loading state rendering
+            if (UI.overlay) UI.renderVirtualList();
 
             try {
                 const cached = this.getCache();
@@ -217,7 +226,6 @@
                 return CloudAPI.fetch(dbPath).then(data => data || {});
             }
 
-            // Fallback direct raw fetch
             return new Promise((resolve, reject) => {
                 GM_xmlhttpRequest({
                     method: 'GET',
@@ -267,7 +275,6 @@
             });
         },
 
-        // CRUD Mutations
         addGroup(groupName) {
             const normalized = groupName.trim();
             if (!normalized || this.data[normalized]) return false;
@@ -301,7 +308,7 @@
     };
 
     // =========================================================
-    // STORAGE & TRACKING MODULE (Cloud Synced)
+    // STORAGE & TRACKING MODULE
     // =========================================================
     const Storage = {
         _cache: null,
@@ -312,11 +319,11 @@
         init() {
             this.syncFromStorage();
 
-            this._saveLocalDebounced = debounce(() => {
+            this._saveLocalDebounced = Utils.debounce(() => {
                 GM_setValue(CONFIG.STORAGE_KEY, JSON.stringify(this._cache));
             }, CONFIG.SAVE_DEBOUNCE_MS);
 
-            this._saveCloudDebounced = debounce(() => {
+            this._saveCloudDebounced = Utils.debounce(() => {
                 this.saveCloud();
             }, CONFIG.CLOUD_HISTORY_DEBOUNCE_MS);
 
@@ -366,7 +373,6 @@
         async fetchCloudBackground(force = false) {
             if (!CloudAPI.isValid()) return;
 
-            // Throttle protection: Prevents resource waste, overridden on explicit polling
             if (!force && Date.now() - this._lastCloudFetch < CONFIG.CLOUD_HISTORY_THROTTLE_MS) return;
             this._lastCloudFetch = Date.now();
 
@@ -382,17 +388,15 @@
 
                     const newCache = Array.from(mergedMap.values()).sort((a, b) => a.t - b.t);
 
-                    // Fixed detection logic to account for limits shifting internal IDs while length remains identical
                     const isChanged = newCache.length !== this._cache.length ||
                                       (newCache.length > 0 && this._cache.length > 0 && newCache[newCache.length - 1].t !== this._cache[this._cache.length - 1].t);
 
                     if (isChanged) {
                         this._cache = newCache;
                         this.clean();
-                        this._saveLocalDebounced(); // Force save to persist cloud fetch to GM storage
+                        this._saveLocalDebounced();
 
                         if (UI.overlay) UI.refreshSidePanels();
-                        Logger.info('Successfully merged cross-device cloud history tracking.');
                     }
                 }
             } catch (e) {
@@ -402,7 +406,6 @@
 
         async saveCloud() {
             if (!CloudAPI.isValid()) return;
-
             try {
                 const historyPath = GM_getValue('tm_kpop_dl_history_path', 'kmedia-downloader-history.json');
                 await CloudAPI.put(historyPath, this._cache);
@@ -414,7 +417,6 @@
 
         recordSuccess(group, name) {
             if (!group || !name) return;
-            // Deliberately skipping syncFromStorage() here to prevent race conditions overwriting active rapid saves
             this._cache.push({ g: group, n: name, t: Date.now() });
             this.clean();
 
@@ -511,69 +513,90 @@
         },
 
         triggerDownload(url, name, groupContext, nameContext) {
+            const toastObj = UI.createDownloadToast(name);
             let hasPathExtension = false;
             try {
                 hasPathExtension = !!new URL(url).pathname.match(/\.[a-zA-Z0-9]+$/);
             } catch (e) {}
 
             if (hasPathExtension && typeof GM_download === 'function') {
-                this._executeGMDownload(url, name, groupContext, nameContext);
+                this._executeGMDownload(url, name, groupContext, nameContext, toastObj);
             } else {
-                this.fallbackDownload(url, name, groupContext, nameContext);
+                this.fallbackDownload(url, name, groupContext, nameContext, toastObj);
             }
         },
 
-        _executeGMDownload(url, name, groupContext, nameContext) {
+        _executeGMDownload(url, name, groupContext, nameContext, toastObj) {
             GM_download({
                 url: url,
                 name: name,
                 saveAs: true,
+                onprogress: (e) => {
+                    UI.updateDownloadToast(toastObj, e.loaded, e.total);
+                },
                 onload: () => {
+                    UI.finishDownloadToast(toastObj, 'success', 'Saved Successfully!');
                     if (groupContext && nameContext) Storage.recordSuccess(groupContext, nameContext);
                 },
-                onerror: () => this.fallbackDownload(url, name, groupContext, nameContext)
+                onerror: () => {
+                    UI.updateDownloadToast(toastObj, 0, 0, 'GM Engine blocked, triggering XHR override...');
+                    this.fallbackDownload(url, name, groupContext, nameContext, toastObj);
+                },
+                ontimeout: () => {
+                    UI.finishDownloadToast(toastObj, 'error', 'Download timed out.');
+                }
             });
         },
 
-        fallbackDownload(url, name, groupContext, nameContext) {
+        fallbackDownload(url, name, groupContext, nameContext, toastObj) {
             Logger.info('Using fallback XHR download method...');
             if (typeof GM_xmlhttpRequest === 'function') {
                 GM_xmlhttpRequest({
                     method: 'GET',
                     url: url,
                     responseType: 'blob',
-                    onload: (res) => {
-                        const blobUrl = URL.createObjectURL(res.response);
-                        const a = document.createElement('a');
-                        a.href = blobUrl;
-                        a.download = name;
-                        a.click();
-                        URL.revokeObjectURL(blobUrl);
-                        if (groupContext && nameContext) Storage.recordSuccess(groupContext, nameContext);
+                    onprogress: (e) => {
+                        UI.updateDownloadToast(toastObj, e.loaded, e.total);
                     },
-                    onerror: (err) => Logger.error('Fallback download failed', err)
+                    onload: (res) => {
+                        if (res.status >= 200 && res.status < 300) {
+                            const blobUrl = URL.createObjectURL(res.response);
+                            const a = document.createElement('a');
+                            a.href = blobUrl;
+                            a.download = name;
+                            a.click();
+                            URL.revokeObjectURL(blobUrl);
+                            UI.finishDownloadToast(toastObj, 'success', 'Saved Successfully!');
+                            if (groupContext && nameContext) Storage.recordSuccess(groupContext, nameContext);
+                        } else {
+                            UI.finishDownloadToast(toastObj, 'error', `HTTP ${res.status}`);
+                        }
+                    },
+                    onerror: (err) => {
+                        Logger.error('Fallback download failed', err);
+                        UI.finishDownloadToast(toastObj, 'error', 'Network failure.');
+                    }
                 });
             } else {
-                Logger.warn('No capable download API found. Opening in new tab.');
+                UI.finishDownloadToast(toastObj, 'error', 'Missing browser download API.');
                 window.open(url, '_blank');
             }
         }
     };
 
     // =========================================================
-    // UI MODULE (Hardware Accelerated & Delegated)
+    // UI MODULE
     // =========================================================
     const UI = {
         overlay: null,
         toastContainer: null,
-        currentView: 'groups', // 'groups', 'members', 'config'
+        currentView: 'groups',
         isCrudMode: false,
         selectedGroup: null,
         activeIndex: -1,
-        deleteBtnTemplate: null, // DOM Template Cache
+        deleteBtnTemplate: null,
         syncInterval: null,
 
-        // Virtual Scrolling State
         currentListData: [],
         searchContainer: null,
         listContainer: null,
@@ -681,30 +704,31 @@
 
                 /* Configuration Notification Dot */
                 .${CONFIG.UI_PREFIX}-notification-dot {
-                    position: absolute;
-                    top: -2px;
-                    right: -2px;
-                    width: 10px;
-                    height: 10px;
-                    background-color: #e57373;
-                    border-radius: 50%;
-                    border: 2px solid #1a1a1a;
-                    box-sizing: content-box;
+                    position: absolute; top: -2px; right: -2px; width: 10px; height: 10px;
+                    background-color: #e57373; border-radius: 50%; border: 2px solid #1a1a1a; box-sizing: content-box;
                 }
 
-                /* Toast Notifications */
-                .${CONFIG.UI_PREFIX}-toast-container {
-                    position: absolute; bottom: 2rem; left: 50%; transform: translateX(-50%);
+                /* Toast Notifications (Global Level) */
+                #${CONFIG.UI_PREFIX}-toast-wrapper {
+                    position: fixed; bottom: 2rem; left: 50%; transform: translateX(-50%);
                     display: flex; flex-direction: column; gap: 0.8rem; z-index: ${CONFIG.OVERLAY_Z_INDEX + 10};
-                    pointer-events: none; align-items: center;
+                    pointer-events: none; align-items: center; font-family: 'Inter', -apple-system, sans-serif;
                 }
                 .${CONFIG.UI_PREFIX}-toast {
                     background: #111; border: 1px solid #333; color: #fff;
                     padding: 0.8rem 1.2rem; border-radius: 2rem; font-size: 0.9rem; font-weight: 500;
-                    box-shadow: 0 1rem 2rem rgba(0,0,0,0.6);
-                    animation: tmToastFadeIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards, tmToastFadeOut 0.3s ease 2.7s forwards;
-                    display: flex; align-items: center; gap: 0.5rem;
+                    box-shadow: 0 1rem 2rem rgba(0,0,0,0.6); display: flex; align-items: center; gap: 0.5rem; pointer-events: auto;
                 }
+
+                /* Progress Bar Toast Overrides */
+                .${CONFIG.UI_PREFIX}-dl-toast {
+                    flex-direction: column; align-items: stretch; gap: 0.4rem; min-width: 250px; background: #1a1a1a; border-radius: 1rem;
+                }
+                .${CONFIG.UI_PREFIX}-dl-title { font-size: 0.85rem; font-weight: 600; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; max-width: 300px;}
+                .${CONFIG.UI_PREFIX}-progress-bg { width: 100%; height: 6px; background: #333; border-radius: 3px; overflow: hidden; }
+                .${CONFIG.UI_PREFIX}-progress-fill { height: 100%; background: #ff4081; width: 0%; transition: width 0.2s linear, background 0.3s; }
+                .${CONFIG.UI_PREFIX}-dl-status { font-size: 0.75rem; color: #aaa; text-align: right; font-variant-numeric: tabular-nums; }
+
                 .${CONFIG.UI_PREFIX}-toast.syncing { border-color: #ffb74d; color: #ffb74d; }
                 .${CONFIG.UI_PREFIX}-toast.success { border-color: #81c784; color: #81c784; }
                 .${CONFIG.UI_PREFIX}-toast.error { border-color: #e57373; color: #e57373; }
@@ -715,97 +739,59 @@
                 /* Search */
                 .${CONFIG.UI_PREFIX}-search-container { margin-bottom: 1rem; flex-shrink: 0; }
                 .${CONFIG.UI_PREFIX}-search-input {
-                    width: 100%;
-                    background: #161616; border: 1px solid #333;
-                    border-radius: 0.8rem; padding: 0.8rem 1rem; color: #fff;
-                    font-size: 0.95rem; outline: none; box-sizing: border-box;
-                    transition: 0.2s;
+                    width: 100%; background: #161616; border: 1px solid #333; border-radius: 0.8rem;
+                    padding: 0.8rem 1rem; color: #fff; font-size: 0.95rem; outline: none; box-sizing: border-box; transition: 0.2s;
                 }
                 .${CONFIG.UI_PREFIX}-search-input:focus { border-color: #666; background: #1a1a1a; }
 
                 /* Virtual List Architecture */
                 .${CONFIG.UI_PREFIX}-list {
-                    flex-grow: 1;
-                    overflow-y: auto; overflow-x: hidden; position: relative;
-                    padding-right: 0.5rem; outline: none;
+                    flex-grow: 1; overflow-y: auto; overflow-x: hidden; position: relative; padding-right: 0.5rem; outline: none;
                 }
                 .${CONFIG.UI_PREFIX}-list::-webkit-scrollbar { width: 6px; }
                 .${CONFIG.UI_PREFIX}-list::-webkit-scrollbar-thumb { background: #333; border-radius: 10px; }
 
                 .${CONFIG.UI_PREFIX}-list-inner { position: relative; width: 100%; min-height: 100%; }
-                .${CONFIG.UI_PREFIX}-empty-state {
-                    position: absolute; top: 2rem; width: 100%;
-                    text-align: center; color: #666; font-size: 0.9rem; font-style: italic;
-                }
+                .${CONFIG.UI_PREFIX}-empty-state { position: absolute; top: 2rem; width: 100%; text-align: center; color: #666; font-size: 0.9rem; font-style: italic; }
 
                 .${CONFIG.UI_PREFIX}-item {
-                    position: absolute;
-                    top: 0; left: 0; width: 100%; height: 42px;
-                    background: #141414; border: 1px solid transparent; padding: 0 1rem;
-                    border-radius: 0.8rem;
-                    cursor: pointer; transition: background 0.15s;
-                    font-size: 0.95rem; display: flex; justify-content: space-between; align-items: center;
-                    box-sizing: border-box; will-change: transform;
+                    position: absolute; top: 0; left: 0; width: 100%; height: 42px;
+                    background: #141414; border: 1px solid transparent; padding: 0 1rem; border-radius: 0.8rem;
+                    cursor: pointer; transition: background 0.15s; font-size: 0.95rem; display: flex;
+                    justify-content: space-between; align-items: center; box-sizing: border-box; will-change: transform;
                 }
-                .${CONFIG.UI_PREFIX}-item:hover, .${CONFIG.UI_PREFIX}-item.active-focus {
-                    background: #1c1c1c; border-color: #555;
-                }
+                .${CONFIG.UI_PREFIX}-item:hover, .${CONFIG.UI_PREFIX}-item.active-focus { background: #1c1c1c; border-color: #555; }
                 .${CONFIG.UI_PREFIX}-static-item { position: relative; margin-bottom: 0.5rem; }
 
-                .${CONFIG.UI_PREFIX}-badge {
-                    font-size: 0.7rem; color: #888; background: #1a1a1a;
-                    padding: 0.2rem 0.5rem; border-radius: 0.4rem; border: 1px solid #252525; font-weight: 500;
-                }
+                .${CONFIG.UI_PREFIX}-badge { font-size: 0.7rem; color: #888; background: #1a1a1a; padding: 0.2rem 0.5rem; border-radius: 0.4rem; border: 1px solid #252525; font-weight: 500; }
                 .${CONFIG.UI_PREFIX}-badge.accent { color: #aaa; border-color: #444; background: #222; }
 
                 /* Footer & Actions */
-                .${CONFIG.UI_PREFIX}-footer {
-                    margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #222;
-                    flex-shrink: 0; display: flex; flex-direction: column; gap: 0.5rem;
-                }
+                .${CONFIG.UI_PREFIX}-footer { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #222; flex-shrink: 0; display: flex; flex-direction: column; gap: 0.5rem; }
                 .${CONFIG.UI_PREFIX}-btn-row { display: flex; gap: 0.5rem; width: 100%; }
                 .${CONFIG.UI_PREFIX}-action-btn {
-                    flex: 1; background: #1a1a1a; color: #999; border: 1px dashed #444;
-                    padding: 0.8rem; border-radius: 0.8rem; cursor: pointer; font-size: 0.9rem;
-                    transition: 0.2s; outline: none; display: flex; align-items: center; justify-content: center;
+                    flex: 1; background: #1a1a1a; color: #999; border: 1px dashed #444; padding: 0.8rem; border-radius: 0.8rem;
+                    cursor: pointer; font-size: 0.9rem; transition: 0.2s; outline: none; display: flex; align-items: center; justify-content: center;
                 }
-                .${CONFIG.UI_PREFIX}-action-btn:hover, .${CONFIG.UI_PREFIX}-action-btn:focus {
-                    background: #222; color: #fff; border-color: #666;
-                }
+                .${CONFIG.UI_PREFIX}-action-btn:hover, .${CONFIG.UI_PREFIX}-action-btn:focus { background: #222; color: #fff; border-color: #666; }
 
                 /* Custom Input Prompt */
                 .${CONFIG.UI_PREFIX}-custom-wrapper { display: none; width: 100%; gap: 0.5rem; align-items: center; }
-                .${CONFIG.UI_PREFIX}-custom-input {
-                    flex: 1; background: #161616; border: 1px solid #333; border-radius: 0.5rem;
-                    padding: 0.7rem 0.8rem; color: #fff; font-size: 0.9rem; outline: none; transition: 0.2s;
-                }
+                .${CONFIG.UI_PREFIX}-custom-input { flex: 1; background: #161616; border: 1px solid #333; border-radius: 0.5rem; padding: 0.7rem 0.8rem; color: #fff; font-size: 0.9rem; outline: none; transition: 0.2s; }
                 .${CONFIG.UI_PREFIX}-custom-input:focus { border-color: #666; background: #1a1a1a; }
-                .${CONFIG.UI_PREFIX}-custom-confirm, .${CONFIG.UI_PREFIX}-custom-cancel {
-                    background: #1a1a1a; color: #fff; border: 1px solid #444; padding: 0.7rem 1rem;
-                    border-radius: 0.5rem; cursor: pointer; font-size: 0.9rem; transition: 0.2s;
-                }
+                .${CONFIG.UI_PREFIX}-custom-confirm, .${CONFIG.UI_PREFIX}-custom-cancel { background: #1a1a1a; color: #fff; border: 1px solid #444; padding: 0.7rem 1rem; border-radius: 0.5rem; cursor: pointer; font-size: 0.9rem; transition: 0.2s; }
                 .${CONFIG.UI_PREFIX}-custom-confirm { background: #1e3a2b; border-color: #2c5941; color: #4ade80; }
                 .${CONFIG.UI_PREFIX}-custom-confirm:hover { background: #244935; }
                 .${CONFIG.UI_PREFIX}-custom-cancel:hover { background: #2a2a2a; border-color: #666; }
 
                 /* CRUD UI */
                 .${CONFIG.UI_PREFIX}-crud-bar { display: none; gap: 0.5rem; margin-bottom: 1rem; flex-shrink: 0; transition: opacity 0.2s; }
-                .${CONFIG.UI_PREFIX}-crud-input {
-                    flex-grow: 1; background: #161616; border: 1px solid #333; border-radius: 0.6rem;
-                    padding: 0.7rem 0.8rem; color: #fff; font-size: 0.9rem; outline: none; transition: 0.2s;
-                }
+                .${CONFIG.UI_PREFIX}-crud-input { flex-grow: 1; background: #161616; border: 1px solid #333; border-radius: 0.6rem; padding: 0.7rem 0.8rem; color: #fff; font-size: 0.9rem; outline: none; transition: 0.2s; }
                 .${CONFIG.UI_PREFIX}-crud-input:focus { border-color: #666; }
-                .${CONFIG.UI_PREFIX}-crud-add-btn {
-                    background: #222; color: #fff; border: 1px solid #333; border-radius: 0.6rem;
-                    padding: 0.7rem 1rem; font-size: 0.85rem; cursor: pointer; white-space: nowrap; transition: 0.2s;
-                }
+                .${CONFIG.UI_PREFIX}-crud-add-btn { background: #222; color: #fff; border: 1px solid #333; border-radius: 0.6rem; padding: 0.7rem 1rem; font-size: 0.85rem; cursor: pointer; white-space: nowrap; transition: 0.2s; }
                 .${CONFIG.UI_PREFIX}-crud-add-btn:hover:not(:disabled) { background: #333; border-color: #555; }
 
-                .${CONFIG.UI_PREFIX}-delete-btn {
-                    background: transparent; border: none; cursor: pointer; padding: 0.4rem;
-                    display: flex; align-items: center; justify-content: center; border-radius: 0.4rem; transition: background 0.2s;
-                    margin-left: 0.5rem;
-                }
+                .${CONFIG.UI_PREFIX}-delete-btn { background: transparent; border: none; cursor: pointer; padding: 0.4rem; display: flex; align-items: center; justify-content: center; border-radius: 0.4rem; transition: background 0.2s; margin-left: 0.5rem; }
                 .${CONFIG.UI_PREFIX}-delete-btn:hover { background: rgba(229, 115, 115, 0.15); }
                 .${CONFIG.UI_PREFIX}-delete-btn svg { width: 1.1rem; height: 1.1rem; fill: #e57373; }
 
@@ -813,23 +799,13 @@
                 .${CONFIG.UI_PREFIX}-config-body { display: none; flex-direction: column; gap: 0.8rem; height: 100%; overflow-y: auto; padding-right: 0.5rem; }
                 .${CONFIG.UI_PREFIX}-settings-field { display: flex; flex-direction: column; gap: 0.3rem; }
                 .${CONFIG.UI_PREFIX}-settings-field label { font-size: 0.8rem; color: #aaa; font-weight: 500; text-align: left; }
-                .${CONFIG.UI_PREFIX}-settings-input {
-                    background: #161616; border: 1px solid #333; border-radius: 0.6rem;
-                    padding: 0.7rem 0.8rem; color: #fff; font-size: 0.9rem; outline: none; transition: 0.2s;
-                }
+                .${CONFIG.UI_PREFIX}-settings-input { background: #161616; border: 1px solid #333; border-radius: 0.6rem; padding: 0.7rem 0.8rem; color: #fff; font-size: 0.9rem; outline: none; transition: 0.2s; }
                 .${CONFIG.UI_PREFIX}-settings-input:focus { border-color: #ff4081; background: #1a1a1a; }
-                .${CONFIG.UI_PREFIX}-settings-save-btn {
-                    background: #ff4081; color: #fff; border: none; border-radius: 0.6rem;
-                    padding: 0.8rem; font-size: 0.95rem; font-weight: 600; cursor: pointer; transition: background 0.2s; margin-top: 0.5rem;
-                }
+                .${CONFIG.UI_PREFIX}-settings-save-btn { background: #ff4081; color: #fff; border: none; border-radius: 0.6rem; padding: 0.8rem; font-size: 0.95rem; font-weight: 600; cursor: pointer; transition: background 0.2s; margin-top: 0.5rem; }
                 .${CONFIG.UI_PREFIX}-settings-save-btn:hover { background: #e91e63; }
 
                 @media (max-width: 1100px) {
-                    .${CONFIG.UI_PREFIX}-layout {
-                        flex-direction: column; align-items: center; justify-content: flex-start;
-                        overflow-y: auto; height: 100vh; max-height: 100vh; width: 100%;
-                        padding: 2rem 0 4rem 0; box-sizing: border-box;
-                    }
+                    .${CONFIG.UI_PREFIX}-layout { flex-direction: column; align-items: center; justify-content: flex-start; overflow-y: auto; height: 100vh; max-height: 100vh; width: 100%; padding: 2rem 0 4rem 0; box-sizing: border-box; }
                     .${CONFIG.UI_PREFIX}-layout::-webkit-scrollbar { display: none; }
                     .${CONFIG.UI_PREFIX}-panel { height: 65vh; width: 90vw; max-width: 25rem; flex-shrink: 0; }
                     .${CONFIG.UI_PREFIX}-main { order: 1; }
@@ -839,15 +815,97 @@
             `);
         },
 
-        injectFAB() {
-            if (document.getElementById(`${CONFIG.UI_PREFIX}-fab`)) return;
-            const fab = document.createElement('div');
-            fab.id = `${CONFIG.UI_PREFIX}-fab`;
-            fab.className = `${CONFIG.UI_PREFIX}-fab`;
-            fab.title = "Open Download Manager (Ctrl+S)";
-            fab.appendChild(this._createSVG('0 0 24 24', 'M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z'));
-            fab.onclick = () => this.showMenu();
-            document.body.appendChild(fab);
+        injectGlobals() {
+            if (!document.getElementById(`${CONFIG.UI_PREFIX}-fab`)) {
+                const fab = document.createElement('div');
+                fab.id = `${CONFIG.UI_PREFIX}-fab`;
+                fab.className = `${CONFIG.UI_PREFIX}-fab`;
+                fab.title = "Open Download Manager (Ctrl+S)";
+                fab.appendChild(this._createSVG('0 0 24 24', 'M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z'));
+                fab.onclick = () => this.showMenu();
+                document.body.appendChild(fab);
+            }
+            if (!document.getElementById(`${CONFIG.UI_PREFIX}-toast-wrapper`)) {
+                this.toastContainer = document.createElement('div');
+                this.toastContainer.id = `${CONFIG.UI_PREFIX}-toast-wrapper`;
+                document.body.appendChild(this.toastContainer);
+            }
+        },
+
+        createDownloadToast(filename) {
+            if (!this.toastContainer) return null;
+            const toast = document.createElement('div');
+            toast.className = `${CONFIG.UI_PREFIX}-toast ${CONFIG.UI_PREFIX}-dl-toast`;
+
+            toast.innerHTML = `
+                <div class="${CONFIG.UI_PREFIX}-dl-title">Saving: ${filename}</div>
+                <div class="${CONFIG.UI_PREFIX}-progress-bg">
+                    <div class="${CONFIG.UI_PREFIX}-progress-fill"></div>
+                </div>
+                <div class="${CONFIG.UI_PREFIX}-dl-status">Initializing stream...</div>
+            `;
+            toast.style.animation = 'tmToastFadeIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards';
+
+            this.toastContainer.appendChild(toast);
+            return {
+                el: toast,
+                fill: toast.querySelector(`.${CONFIG.UI_PREFIX}-progress-fill`),
+                status: toast.querySelector(`.${CONFIG.UI_PREFIX}-dl-status`)
+            };
+        },
+
+        updateDownloadToast(toastObj, loaded, total, customMessage) {
+            if (!toastObj || !toastObj.el) return;
+            if (customMessage) {
+                toastObj.status.textContent = customMessage;
+                return;
+            }
+            if (total && total > 0) {
+                const percent = Math.min(100, Math.round((loaded / total) * 100));
+                toastObj.fill.style.width = `${percent}%`;
+                toastObj.status.textContent = `${Utils.formatBytes(loaded)} / ${Utils.formatBytes(total)} (${percent}%)`;
+            } else {
+                toastObj.fill.style.width = '100%';
+                toastObj.fill.style.background = '#888';
+                toastObj.status.textContent = `${Utils.formatBytes(loaded)} buffered...`;
+            }
+        },
+
+        finishDownloadToast(toastObj, type, message) {
+            if (!toastObj || !toastObj.el) return;
+            toastObj.el.classList.add(type);
+            toastObj.fill.style.width = '100%';
+
+            if (type === 'success') {
+                toastObj.fill.style.background = '#81c784';
+                toastObj.status.textContent = message || 'Complete!';
+            } else {
+                toastObj.fill.style.background = '#e57373';
+                toastObj.status.textContent = message || 'Failed';
+            }
+
+            setTimeout(() => {
+                toastObj.el.style.animation = 'tmToastFadeOut 0.3s ease forwards';
+                setTimeout(() => {
+                    if (toastObj.el.parentNode) toastObj.el.remove();
+                }, 300);
+            }, 3000);
+        },
+
+        showToast(message, type = 'info') {
+            if (!this.toastContainer) return;
+            const toast = document.createElement('div');
+            toast.className = `${CONFIG.UI_PREFIX}-toast ${type}`;
+            toast.textContent = message;
+            toast.style.animation = 'tmToastFadeIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards';
+            this.toastContainer.appendChild(toast);
+
+            setTimeout(() => {
+                toast.style.animation = 'tmToastFadeOut 0.3s ease forwards';
+                setTimeout(() => {
+                    if (toast.parentNode) toast.remove();
+                }, 300);
+            }, 3000);
         },
 
         _buildSidePanelList(container, data, emptyMessage, isFlavor) {
@@ -1177,7 +1235,7 @@
                 }
             });
 
-            this.searchInput.oninput = debounce((e) => {
+            this.searchInput.oninput = Utils.debounce((e) => {
                 this.updateListData(e.target.value.toLowerCase().trim());
             }, 150);
 
@@ -1434,18 +1492,6 @@
             }
         },
 
-        showToast(message, type = 'info') {
-            if (!this.toastContainer) return;
-            const toast = document.createElement('div');
-            toast.className = `${CONFIG.UI_PREFIX}-toast ${type}`;
-            toast.textContent = message;
-            this.toastContainer.appendChild(toast);
-
-            setTimeout(() => {
-                if (toast.parentNode) toast.remove();
-            }, 3000);
-        },
-
         async triggerCloudSync() {
             if (!CloudAPI.isValid()) return;
 
@@ -1506,11 +1552,6 @@
             layoutWrapper.appendChild(this.createSidePanel('❤️‍🔥 Flavor of the Month', 'right', flavorData, 'No data for this month.', true));
 
             this.overlay.appendChild(layoutWrapper);
-
-            this.toastContainer = document.createElement('div');
-            this.toastContainer.className = `${CONFIG.UI_PREFIX}-toast-container`;
-            this.overlay.appendChild(this.toastContainer);
-
             document.body.appendChild(this.overlay);
 
             this.updateListData('');
@@ -1574,21 +1615,19 @@
             CloudAPI.loadConfig();
             UI.initTemplates();
             Storage.init();
+            UI.injectGlobals();
             UI.injectStyles();
             this.bindEvents();
 
-            Database.init().then(() => {
-                UI.injectFAB();
-            });
+            Database.init();
 
-            // Passive background syncing while tab is fully open but menu is closed
             setInterval(() => {
                 if (document.visibilityState === 'visible' && !UI.overlay) {
                     Storage.fetchCloudBackground();
                 }
             }, CONFIG.CLOUD_HISTORY_THROTTLE_MS);
 
-            Logger.info('Initialized K-Pop Media Downloader v6.8');
+            Logger.info('Initialized K-Pop Media Downloader v6.9');
         },
 
         isDirectMediaPage() {
