@@ -2,8 +2,8 @@
 // @name         [Universal] K-Media Downloader
 // @namespace    https://github.com/myouisaur/Universal
 // @icon         data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23FF4081'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 11h3l-4 4-4-4h3V8h2v5z'/%3E%3C/svg%3E
-// @version      7.0
-// @description  Organizes, tracks, and saves categorized media files through a centralized overlay.
+// @version      7.1
+// @description  Organizes, tracks, and saves categorized K-Pop media files through a centralized overlay.
 // @author       Xiv
 // @match        *://*/*
 // @grant        GM_download
@@ -30,6 +30,7 @@
         CUSTOM_NAMING_FORMAT: '{custom}-{random}.{ext}',
         RANDOM_STRING_LENGTH: 8,
 
+        // AUTO-ROUTING FOLDER
         IDOL_SUBFOLDER: 'Unoptimized',
         PROMPT_ON_IDOL_SAVE: false,
 
@@ -44,7 +45,7 @@
         CLOUD_HISTORY_THROTTLE_MS: 30000,
         CLOUD_MENU_POLL_MS: 10000,
         VIRTUAL_ITEM_HEIGHT: 50,
-        MAX_ACTIVE_TOASTS: 3, // Protection against DOM flood
+        MAX_ACTIVE_TOASTS: 3,
 
         DB_URL: 'https://raw.githubusercontent.com/myouisaur/Universal/refs/heads/main/kmedia-downloader-db.json',
         DB_CACHE_KEY: 'tm_kpop_dl_db_cache',
@@ -439,25 +440,32 @@
                 const cloudData = await CloudAPI.fetch(historyPath);
 
                 if (cloudData && Array.isArray(cloudData)) {
-                    const mergedMap = new Map();
-                    [...this._cache, ...cloudData].forEach(item => {
-                        mergedMap.set(`${item.t}-${item.g}-${item.n}`, item);
-                    });
-
-                    const newCache = Array.from(mergedMap.values()).sort((a, b) => a.t - b.t);
-
-                    const isChanged = newCache.length !== this._cache.length ||
-                                      (newCache.length > 0 && this._cache.length > 0 && newCache[newCache.length - 1].t !== this._cache[this._cache.length - 1].t);
-
-                    if (isChanged || force) {
-                        this._cache = newCache;
+                    if (force) {
+                        // Hard overwrite on Manual Sync to eliminate locally-cached deleted records (Zombie Data)
+                        this._cache = [...cloudData].sort((a, b) => a.t - b.t);
                         this.clean();
                         this._saveLocalDebounced();
                         if (UI.overlay) UI.refreshSidePanels();
+                    } else {
+                        // Gentle merge for passive background syncing to preserve active local session data
+                        const mergedMap = new Map();
+                        [...this._cache, ...cloudData].forEach(item => {
+                            mergedMap.set(`${item.t}-${item.g}-${item.n}`, item);
+                        });
+
+                        const newCache = Array.from(mergedMap.values()).sort((a, b) => a.t - b.t);
+                        const isChanged = newCache.length !== this._cache.length ||
+                                          (newCache.length > 0 && this._cache.length > 0 && newCache[newCache.length - 1].t !== this._cache[this._cache.length - 1].t);
+
+                        if (isChanged) {
+                            this._cache = newCache;
+                            this.clean();
+                            this._saveLocalDebounced();
+                            if (UI.overlay) UI.refreshSidePanels();
+                        }
                     }
                 }
             } catch (e) {
-                // Silently drop background fetch failures unless triggered by direct manual UI action
                 if (force) throw e;
             }
         },
@@ -609,7 +617,10 @@
         },
 
         triggerDownload(url, name, groupContext, nameContext, promptUser = true) {
-            const toastObj = UI.createDownloadToast(name);
+            // Toast explicitly strips out the subfolder routing path for clean visual UX feedback
+            const displayFileName = name.includes('/') ? name.substring(name.lastIndexOf('/') + 1) : name;
+            const toastObj = UI.createDownloadToast(displayFileName);
+
             let hasPathExtension = false;
             try {
                 hasPathExtension = !!new URL(url).pathname.match(/\.[a-zA-Z0-9]+$/);
@@ -625,7 +636,7 @@
         _executeGMDownload(url, name, groupContext, nameContext, toastObj, promptUser) {
             GM_download({
                 url: url,
-                name: name,
+                name: name, // GM_download interprets subfolder paths here natively IF configured correctly by user
                 saveAs: promptUser,
                 onprogress: (e) => {
                     UI.updateDownloadToast(toastObj, e.loaded, e.total);
@@ -660,6 +671,7 @@
                             const a = document.createElement('a');
                             a.href = blobUrl;
 
+                            // Browser security forces stripping of absolute folder paths in manual blob execution
                             const finalFileName = name.substring(name.lastIndexOf('/') + 1);
                             a.download = finalFileName;
 
@@ -699,7 +711,6 @@
 
         mainListWrapper: null,
 
-        // Consolidated Side Panel State
         sidePanels: {
             recent: { data: [], wrapper: null, container: null, inner: null, cachedHeight: 400 },
             flavor: { data: [], wrapper: null, container: null, inner: null, cachedHeight: 400 }
@@ -1964,7 +1975,7 @@
                 }
             }, CONFIG.CLOUD_HISTORY_THROTTLE_MS);
 
-            Logger.info('Initialized K-Pop Media Downloader v7.0');
+            Logger.info('Initialized K-Pop Media Downloader v7.1');
         },
 
         isDirectMediaPage() {
