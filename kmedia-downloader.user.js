@@ -2,8 +2,8 @@
 // @name         [Universal] K-Media Downloader
 // @namespace    https://github.com/myouisaur/Universal
 // @icon         data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23FF4081'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 11h3l-4 4-4-4h3V8h2v5z'/%3E%3C/svg%3E
-// @version      6.14
-// @description  Organizes, tracks, and saves categorized K-Pop media files through a centralized overlay.
+// @version      7.0
+// @description  Organizes, tracks, and saves categorized media files through a centralized overlay.
 // @author       Xiv
 // @match        *://*/*
 // @grant        GM_download
@@ -30,11 +30,8 @@
         CUSTOM_NAMING_FORMAT: '{custom}-{random}.{ext}',
         RANDOM_STRING_LENGTH: 8,
 
-        // AUTO-ROUTING FOLDER
-        // Note: Browsers block absolute paths (like D:\Test1\). This MUST be a relative path
-        // that will be created inside your browser's default Downloads folder.
         IDOL_SUBFOLDER: 'Unoptimized',
-        PROMPT_ON_IDOL_SAVE: false, // Keep false to allow auto-routing to work silently
+        PROMPT_ON_IDOL_SAVE: false,
 
         UI_PREFIX: 'tm-kpop-dl',
         STORAGE_KEY: 'tm_kpop_dl_history',
@@ -47,10 +44,24 @@
         CLOUD_HISTORY_THROTTLE_MS: 30000,
         CLOUD_MENU_POLL_MS: 10000,
         VIRTUAL_ITEM_HEIGHT: 50,
+        MAX_ACTIVE_TOASTS: 3, // Protection against DOM flood
 
         DB_URL: 'https://raw.githubusercontent.com/myouisaur/Universal/refs/heads/main/kmedia-downloader-db.json',
         DB_CACHE_KEY: 'tm_kpop_dl_db_cache',
         DB_CACHE_TTL_MS: 12 * 60 * 60 * 1000
+    };
+
+    // =========================================================
+    // ICONS DICTIONARY (DRY Refactor)
+    // =========================================================
+    const ICONS = {
+        fab: "M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z",
+        back: "M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z",
+        sync: "M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46A7.93 7.93 0 0020 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74A7.93 7.93 0 004 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z",
+        edit: "M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z",
+        config: "M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z",
+        close: "M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z",
+        trash: "M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"
     };
 
     // =========================================================
@@ -85,6 +96,7 @@
     // =========================================================
     const CloudAPI = {
         config: { url: '', token: '', owner: '', repo: '', branch: 'main' },
+        rateLimitResetTime: 0,
 
         loadConfig() {
             this.config.url = GM_getValue('tm_kpop_dl_worker_url', '');
@@ -96,6 +108,20 @@
 
         isValid() {
             return !!(this.config.url && this.config.token && this.config.owner && this.config.repo);
+        },
+
+        isRateLimited() {
+            return Date.now() < this.rateLimitResetTime;
+        },
+
+        handleRateLimit(status) {
+            if (status === 403 || status === 429) {
+                Logger.warn("GitHub API Rate Limit Hit. Pausing network sync for 1 hour to protect credentials.");
+                this.rateLimitResetTime = Date.now() + (60 * 60 * 1000);
+                if (UI.toastContainer) UI.showToast('Cloud API Rate Limit exceeded. Pausing sync.', 'error');
+                return true;
+            }
+            return false;
         },
 
         getHeaders(targetPath) {
@@ -110,12 +136,16 @@
 
         fetch(targetPath) {
             return new Promise((resolve, reject) => {
+                if (this.isRateLimited()) return reject(new Error('API is currently rate limited.'));
+
                 GM_xmlhttpRequest({
                     method: 'GET',
                     url: this.config.url,
                     headers: this.getHeaders(targetPath),
                     responseType: 'json',
                     onload: (res) => {
+                        if (this.handleRateLimit(res.status)) return reject(new Error('Rate Limit Hit'));
+
                         if (res.status === 200) {
                             let data = res.response;
                             if (typeof data === 'string') {
@@ -136,6 +166,8 @@
 
         put(targetPath, payloadData) {
             return new Promise((resolve, reject) => {
+                if (this.isRateLimited()) return reject(new Error('API is currently rate limited.'));
+
                 GM_xmlhttpRequest({
                     method: 'PUT',
                     url: this.config.url,
@@ -146,6 +178,8 @@
                     data: JSON.stringify(payloadData),
                     responseType: 'json',
                     onload: (res) => {
+                        if (this.handleRateLimit(res.status)) return reject(new Error('Rate Limit Hit'));
+
                         if (res.status === 200) {
                             resolve();
                         } else {
@@ -257,9 +291,7 @@
         },
 
         async saveCloud() {
-            if (!CloudAPI.isValid()) {
-                throw new Error('Cloud credentials are incomplete. Please review configurations.');
-            }
+            if (!CloudAPI.isValid()) throw new Error('Cloud credentials missing.');
             const dbPath = GM_getValue('tm_kpop_dl_github_path', 'kmedia-downloader-db.json');
             await CloudAPI.put(dbPath, this.data);
             this.setCache(this.data);
@@ -397,7 +429,7 @@
         },
 
         async fetchCloudBackground(force = false) {
-            if (!CloudAPI.isValid()) return;
+            if (!CloudAPI.isValid() || CloudAPI.isRateLimited()) return;
 
             if (!force && Date.now() - this._lastCloudFetch < CONFIG.CLOUD_HISTORY_THROTTLE_MS) return;
             this._lastCloudFetch = Date.now();
@@ -421,17 +453,17 @@
                         this._cache = newCache;
                         this.clean();
                         this._saveLocalDebounced();
-
                         if (UI.overlay) UI.refreshSidePanels();
                     }
                 }
             } catch (e) {
-                Logger.warn(`Failed to fetch cloud history: ${e.message}`);
+                // Silently drop background fetch failures unless triggered by direct manual UI action
+                if (force) throw e;
             }
         },
 
         async saveCloud() {
-            if (!CloudAPI.isValid()) return;
+            if (!CloudAPI.isValid() || CloudAPI.isRateLimited()) return;
             try {
                 const historyPath = GM_getValue('tm_kpop_dl_history_path', 'kmedia-downloader-history.json');
                 await CloudAPI.put(historyPath, this._cache);
@@ -489,7 +521,6 @@
                 if (!seen.has(identifier)) {
                     seen.add(identifier);
                     result.push(item);
-                    if (result.length >= 10) break;
                 }
             }
             return result;
@@ -504,7 +535,7 @@
                 }
                 frequencies[identifier].count++;
             });
-            return Object.values(frequencies).sort((a, b) => b.count - a.count).slice(0, 10);
+            return Object.values(frequencies).sort((a, b) => b.count - a.count);
         }
     };
 
@@ -666,6 +697,14 @@
         editItemBtnTemplate: null,
         syncInterval: null,
 
+        mainListWrapper: null,
+
+        // Consolidated Side Panel State
+        sidePanels: {
+            recent: { data: [], wrapper: null, container: null, inner: null, cachedHeight: 400 },
+            flavor: { data: [], wrapper: null, container: null, inner: null, cachedHeight: 400 }
+        },
+
         currentListData: [],
         searchContainer: null,
         listContainer: null,
@@ -673,8 +712,6 @@
         footer: null,
         crudBarContainer: null,
         configContainer: null,
-        recentListContainer: null,
-        flavorListContainer: null,
 
         searchInput: null,
         crudInput: null,
@@ -688,15 +725,15 @@
             this.deleteBtnTemplate = document.createElement('button');
             this.deleteBtnTemplate.className = `${CONFIG.UI_PREFIX}-delete-btn`;
             this.deleteBtnTemplate.title = "Delete Entry";
-            this.deleteBtnTemplate.appendChild(this._createSVG('0 0 24 24', 'M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z'));
+            this.deleteBtnTemplate.appendChild(this._createSVG(ICONS.trash));
 
             this.editItemBtnTemplate = document.createElement('button');
             this.editItemBtnTemplate.className = `${CONFIG.UI_PREFIX}-edit-item-btn`;
             this.editItemBtnTemplate.title = "Rename Entry";
-            this.editItemBtnTemplate.appendChild(this._createSVG('0 0 24 24', 'M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z'));
+            this.editItemBtnTemplate.appendChild(this._createSVG(ICONS.edit));
         },
 
-        _createSVG(viewBox, pathD) {
+        _createSVG(pathD, viewBox = '0 0 24 24') {
             const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
             svg.setAttribute('viewBox', viewBox);
             const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
@@ -707,6 +744,25 @@
 
         injectStyles() {
             GM_addStyle(`
+                :root {
+                    --tm-primary: #ff4081;
+                    --tm-primary-hover: #e91e63;
+                    --tm-bg-base: #0d0d0d;
+                    --tm-bg-panel: #0a0a0a;
+                    --tm-bg-input: #161616;
+                    --tm-bg-hover: #1c1c1c;
+                    --tm-bg-hover-subtle: #2a2a2a;
+                    --tm-border: #222;
+                    --tm-border-light: #333;
+                    --tm-border-focus: #555;
+                    --tm-text-main: #fff;
+                    --tm-text-muted: #aaa;
+                    --tm-text-dark: #666;
+                    --tm-danger: #e57373;
+                    --tm-success: #81c784;
+                    --tm-warning: #ffb74d;
+                }
+
                 /* Floating Action Button */
                 .${CONFIG.UI_PREFIX}-fab {
                     position: fixed; bottom: 2.5rem; right: 2.5rem;
@@ -717,7 +773,7 @@
                     z-index: ${CONFIG.FAB_Z_INDEX}; transition: background 0.2s ease;
                 }
                 .${CONFIG.UI_PREFIX}-fab:hover { background: rgba(255, 255, 255, 0.2); }
-                .${CONFIG.UI_PREFIX}-fab svg { width: 1.5rem; height: 1.5rem; fill: #fff; }
+                .${CONFIG.UI_PREFIX}-fab svg { width: 1.5rem; height: 1.5rem; fill: var(--tm-text-main); }
 
                 /* Overlay & Layout */
                 #${CONFIG.UI_PREFIX}-overlay {
@@ -727,39 +783,35 @@
                     font-family: 'Inter', -apple-system, sans-serif; backdrop-filter: blur(8px);
                 }
                 .${CONFIG.UI_PREFIX}-layout {
-                    display: flex;
-                    gap: 1.5rem; max-width: 95vw; max-height: 95vh;
-                    justify-content: center; align-items: stretch; position: relative;
+                    display: flex; gap: 1.5rem; max-width: 95vw; max-height: 95vh;
+                    justify-content: center; align-items: flex-end; position: relative;
                 }
 
-                /* Panels */
-                .${CONFIG.UI_PREFIX}-panel {
-                    background: #0d0d0d;
-                    border-radius: 1.5rem; padding: 1.5rem; border: 1px solid #222;
-                    box-shadow: 0 2rem 4rem rgba(0,0,0,0.8); color: #fff;
-                    display: flex; flex-direction: column;
-                    box-sizing: border-box; overflow: hidden;
+                /* Panels & Containers */
+                .${CONFIG.UI_PREFIX}-main-container {
+                    display: flex; flex-direction: column; order: 2; width: 25rem; height: 80vh; position: relative;
                 }
-                .${CONFIG.UI_PREFIX}-main { width: 25rem; height: 80vh; order: 2; position: relative; }
-                .${CONFIG.UI_PREFIX}-side { width: 20rem; height: 80vh; background: #0a0a0a; }
+                .${CONFIG.UI_PREFIX}-floating-controls {
+                    position: absolute; top: -3.2rem; right: 0; display: flex; gap: 0.5rem; flex-shrink: 0;
+                }
+                .${CONFIG.UI_PREFIX}-panel {
+                    background: var(--tm-bg-base); border-radius: 1.5rem; padding: 1.5rem; border: 1px solid var(--tm-border);
+                    box-shadow: 0 2rem 4rem rgba(0,0,0,0.8); color: var(--tm-text-main);
+                    display: flex; flex-direction: column; box-sizing: border-box; overflow: hidden;
+                }
+                .${CONFIG.UI_PREFIX}-main { width: 100%; height: 100%; position: relative; }
+                .${CONFIG.UI_PREFIX}-side { width: 20rem; height: 80vh; background: var(--tm-bg-panel); }
                 .${CONFIG.UI_PREFIX}-side.left { order: 1; }
                 .${CONFIG.UI_PREFIX}-side.right { order: 3; }
 
-                /* Header & Controls */
+                /* Header */
                 .${CONFIG.UI_PREFIX}-header {
                     display: flex; align-items: center; justify-content: center; gap: 1rem;
                     height: 2.5rem; margin-bottom: 1rem; flex-shrink: 0;
                 }
-                .${CONFIG.UI_PREFIX}-main .${CONFIG.UI_PREFIX}-header {
-                    justify-content: space-between;
-                }
                 .${CONFIG.UI_PREFIX}-header-left {
                     display: flex; align-items: center; gap: 0.8rem; overflow: hidden; flex-grow: 1;
                 }
-                .${CONFIG.UI_PREFIX}-header-right {
-                    display: flex; align-items: center; gap: 0.5rem; flex-shrink: 0;
-                }
-
                 .${CONFIG.UI_PREFIX}-header h2 {
                     font-size: 1.1rem; margin: 0; font-weight: 600; color: #eee; text-align: center;
                 }
@@ -768,13 +820,13 @@
                 }
 
                 .${CONFIG.UI_PREFIX}-icon-btn {
-                    background: #1a1a1a; border: 1px solid #333;
+                    background: #1a1a1a; border: 1px solid var(--tm-border-light);
                     border-radius: 0.7rem; width: 2.5rem; height: 2.5rem; display: flex;
                     align-items: center; justify-content: center; cursor: pointer;
                     transition: 0.2s; flex-shrink: 0;
                 }
-                .${CONFIG.UI_PREFIX}-icon-btn:hover { background: #222; border-color: #555; }
-                .${CONFIG.UI_PREFIX}-icon-btn svg { width: 1.1rem; height: 1.1rem; fill: #fff; }
+                .${CONFIG.UI_PREFIX}-icon-btn:hover { background: var(--tm-border); border-color: var(--tm-border-focus); }
+                .${CONFIG.UI_PREFIX}-icon-btn svg { width: 1.1rem; height: 1.1rem; fill: var(--tm-text-main); }
 
                 /* Spin Animation for Sync Button */
                 @keyframes tmSpin { 100% { transform: rotate(360deg); } }
@@ -783,33 +835,32 @@
                 /* Configuration Notification Dot */
                 .${CONFIG.UI_PREFIX}-notification-dot {
                     position: absolute; top: -2px; right: -2px; width: 10px; height: 10px;
-                    background-color: #e57373; border-radius: 50%; border: 2px solid #1a1a1a; box-sizing: content-box;
+                    background-color: var(--tm-danger); border-radius: 50%; border: 2px solid #1a1a1a; box-sizing: content-box;
                 }
 
-                /* Toast Notifications (Global Level) */
+                /* Toast Notifications */
                 #${CONFIG.UI_PREFIX}-toast-wrapper {
                     position: fixed; bottom: 2rem; left: 50%; transform: translateX(-50%);
                     display: flex; flex-direction: column; gap: 0.8rem; z-index: ${CONFIG.OVERLAY_Z_INDEX + 10};
                     pointer-events: none; align-items: center; font-family: 'Inter', -apple-system, sans-serif;
                 }
                 .${CONFIG.UI_PREFIX}-toast {
-                    background: #111; border: 1px solid #333; color: #fff;
+                    background: #111; border: 1px solid var(--tm-border-light); color: var(--tm-text-main);
                     padding: 0.8rem 1.2rem; border-radius: 2rem; font-size: 0.9rem; font-weight: 500;
                     box-shadow: 0 1rem 2rem rgba(0,0,0,0.6); display: flex; align-items: center; gap: 0.5rem; pointer-events: auto;
                 }
 
-                /* Progress Bar Toast Overrides */
                 .${CONFIG.UI_PREFIX}-dl-toast {
                     flex-direction: column; align-items: stretch; gap: 0.4rem; min-width: 250px; background: #1a1a1a; border-radius: 1rem;
                 }
                 .${CONFIG.UI_PREFIX}-dl-title { font-size: 0.85rem; font-weight: 600; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; max-width: 300px;}
-                .${CONFIG.UI_PREFIX}-progress-bg { width: 100%; height: 6px; background: #333; border-radius: 3px; overflow: hidden; }
-                .${CONFIG.UI_PREFIX}-progress-fill { height: 100%; background: #ff4081; width: 0%; transition: width 0.2s linear, background 0.3s; }
-                .${CONFIG.UI_PREFIX}-dl-status { font-size: 0.75rem; color: #aaa; text-align: right; font-variant-numeric: tabular-nums; }
+                .${CONFIG.UI_PREFIX}-progress-bg { width: 100%; height: 6px; background: var(--tm-border-light); border-radius: 3px; overflow: hidden; }
+                .${CONFIG.UI_PREFIX}-progress-fill { height: 100%; background: var(--tm-primary); width: 0%; transition: width 0.2s linear, background 0.3s; }
+                .${CONFIG.UI_PREFIX}-dl-status { font-size: 0.75rem; color: var(--tm-text-muted); text-align: right; font-variant-numeric: tabular-nums; }
 
-                .${CONFIG.UI_PREFIX}-toast.syncing { border-color: #ffb74d; color: #ffb74d; }
-                .${CONFIG.UI_PREFIX}-toast.success { border-color: #81c784; color: #81c784; }
-                .${CONFIG.UI_PREFIX}-toast.error { border-color: #e57373; color: #e57373; }
+                .${CONFIG.UI_PREFIX}-toast.syncing { border-color: var(--tm-warning); color: var(--tm-warning); }
+                .${CONFIG.UI_PREFIX}-toast.success { border-color: var(--tm-success); color: var(--tm-success); }
+                .${CONFIG.UI_PREFIX}-toast.error { border-color: var(--tm-danger); color: var(--tm-danger); }
 
                 @keyframes tmToastFadeIn { from { opacity: 0; transform: translateY(20px) scale(0.9); } to { opacity: 1; transform: translateY(0) scale(1); } }
                 @keyframes tmToastFadeOut { from { opacity: 1; transform: scale(1); } to { opacity: 0; transform: scale(0.9); } }
@@ -817,20 +868,23 @@
                 /* Search */
                 .${CONFIG.UI_PREFIX}-search-container { margin-bottom: 1rem; flex-shrink: 0; }
                 .${CONFIG.UI_PREFIX}-search-input {
-                    width: 100%; background: #161616; border: 1px solid #333; border-radius: 0.8rem;
-                    padding: 0.8rem 1rem; color: #fff; font-size: 0.95rem; outline: none; box-sizing: border-box; transition: 0.2s;
+                    width: 100%; background: var(--tm-bg-input); border: 1px solid var(--tm-border-light); border-radius: 0.8rem;
+                    padding: 0.8rem 1rem; color: var(--tm-text-main); font-size: 0.95rem; outline: none; box-sizing: border-box; transition: 0.2s;
                 }
-                .${CONFIG.UI_PREFIX}-search-input:focus { border-color: #666; background: #1a1a1a; }
+                .${CONFIG.UI_PREFIX}-search-input:focus { border-color: var(--tm-text-dark); background: #1a1a1a; }
 
                 /* Virtual List Architecture */
+                .${CONFIG.UI_PREFIX}-list-wrapper {
+                    flex-grow: 1; min-height: 0; width: 100%; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-start;
+                }
                 .${CONFIG.UI_PREFIX}-list {
-                    flex-grow: 1; overflow-y: auto; overflow-x: hidden; position: relative; padding-right: 0.5rem; outline: none;
+                    width: 100%; overflow-y: auto; overflow-x: hidden; position: relative; padding-right: 0.5rem; box-sizing: border-box; outline: none;
                 }
                 .${CONFIG.UI_PREFIX}-list::-webkit-scrollbar { width: 6px; }
-                .${CONFIG.UI_PREFIX}-list::-webkit-scrollbar-thumb { background: #333; border-radius: 10px; }
+                .${CONFIG.UI_PREFIX}-list::-webkit-scrollbar-thumb { background: var(--tm-border-light); border-radius: 10px; }
 
                 .${CONFIG.UI_PREFIX}-list-inner { position: relative; width: 100%; min-height: 100%; }
-                .${CONFIG.UI_PREFIX}-empty-state { position: absolute; top: 2rem; width: 100%; text-align: center; color: #666; font-size: 0.9rem; font-style: italic; }
+                .${CONFIG.UI_PREFIX}-empty-state { position: absolute; top: 2rem; width: 100%; text-align: center; color: var(--tm-text-dark); font-size: 0.9rem; font-style: italic; }
 
                 .${CONFIG.UI_PREFIX}-item {
                     position: absolute; top: 0; left: 0; width: 100%; height: 42px;
@@ -838,43 +892,42 @@
                     cursor: pointer; transition: background 0.15s; font-size: 0.95rem; display: flex;
                     justify-content: space-between; align-items: center; box-sizing: border-box; will-change: transform;
                 }
-                .${CONFIG.UI_PREFIX}-item:hover, .${CONFIG.UI_PREFIX}-item.active-focus { background: #1c1c1c; border-color: #555; }
-                .${CONFIG.UI_PREFIX}-static-item { position: relative; margin-bottom: 0.5rem; }
+                .${CONFIG.UI_PREFIX}-item:hover, .${CONFIG.UI_PREFIX}-item.active-focus { background: var(--tm-bg-hover); border-color: var(--tm-border-focus); }
 
                 .${CONFIG.UI_PREFIX}-badge {
                     font-size: 0.7rem; color: #888; background: #1a1a1a; padding: 0.2rem 0.5rem;
                     border-radius: 0.4rem; border: 1px solid #252525; font-weight: 500; transition: 0.2s;
                 }
-                .${CONFIG.UI_PREFIX}-badge.accent { color: #aaa; border-color: #444; background: #222; }
+                .${CONFIG.UI_PREFIX}-badge.accent { color: var(--tm-text-muted); border-color: #444; background: #222; }
 
                 /* Actionable Hover states for Badges */
-                .${CONFIG.UI_PREFIX}-badge-actionable:hover { background: #2a2a2a; border-color: #555; color: #fff; cursor: pointer; }
-                .${CONFIG.UI_PREFIX}-badge-actionable.accent:hover { background: #333; border-color: #666; color: #fff; }
+                .${CONFIG.UI_PREFIX}-badge-actionable:hover { background: var(--tm-bg-hover-subtle); border-color: var(--tm-border-focus); color: var(--tm-text-main); cursor: pointer; }
+                .${CONFIG.UI_PREFIX}-badge-actionable.accent:hover { background: var(--tm-border-light); border-color: var(--tm-text-dark); color: var(--tm-text-main); }
 
                 /* Footer & Actions */
-                .${CONFIG.UI_PREFIX}-footer { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #222; flex-shrink: 0; display: flex; flex-direction: column; gap: 0.5rem; }
+                .${CONFIG.UI_PREFIX}-footer { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--tm-border); flex-shrink: 0; display: flex; flex-direction: column; gap: 0.5rem; }
                 .${CONFIG.UI_PREFIX}-btn-row { display: flex; gap: 0.5rem; width: 100%; }
                 .${CONFIG.UI_PREFIX}-action-btn {
                     flex: 1; background: #1a1a1a; color: #999; border: 1px dashed #444; padding: 0.8rem; border-radius: 0.8rem;
                     cursor: pointer; font-size: 0.9rem; transition: 0.2s; outline: none; display: flex; align-items: center; justify-content: center;
                 }
-                .${CONFIG.UI_PREFIX}-action-btn:hover, .${CONFIG.UI_PREFIX}-action-btn:focus { background: #222; color: #fff; border-color: #666; }
+                .${CONFIG.UI_PREFIX}-action-btn:hover, .${CONFIG.UI_PREFIX}-action-btn:focus { background: #222; color: var(--tm-text-main); border-color: var(--tm-text-dark); }
 
                 /* Custom Input Prompt */
                 .${CONFIG.UI_PREFIX}-custom-wrapper { display: none; width: 100%; gap: 0.5rem; align-items: center; }
-                .${CONFIG.UI_PREFIX}-custom-input { flex: 1; background: #161616; border: 1px solid #333; border-radius: 0.5rem; padding: 0.7rem 0.8rem; color: #fff; font-size: 0.9rem; outline: none; transition: 0.2s; }
-                .${CONFIG.UI_PREFIX}-custom-input:focus { border-color: #666; background: #1a1a1a; }
-                .${CONFIG.UI_PREFIX}-custom-confirm, .${CONFIG.UI_PREFIX}-custom-cancel { background: #1a1a1a; color: #fff; border: 1px solid #444; padding: 0.7rem 1rem; border-radius: 0.5rem; cursor: pointer; font-size: 0.9rem; transition: 0.2s; }
+                .${CONFIG.UI_PREFIX}-custom-input { flex: 1; background: var(--tm-bg-input); border: 1px solid var(--tm-border-light); border-radius: 0.5rem; padding: 0.7rem 0.8rem; color: var(--tm-text-main); font-size: 0.9rem; outline: none; transition: 0.2s; }
+                .${CONFIG.UI_PREFIX}-custom-input:focus { border-color: var(--tm-text-dark); background: #1a1a1a; }
+                .${CONFIG.UI_PREFIX}-custom-confirm, .${CONFIG.UI_PREFIX}-custom-cancel { background: #1a1a1a; color: var(--tm-text-main); border: 1px solid #444; padding: 0.7rem 1rem; border-radius: 0.5rem; cursor: pointer; font-size: 0.9rem; transition: 0.2s; }
                 .${CONFIG.UI_PREFIX}-custom-confirm { background: #1e3a2b; border-color: #2c5941; color: #4ade80; }
                 .${CONFIG.UI_PREFIX}-custom-confirm:hover { background: #244935; }
-                .${CONFIG.UI_PREFIX}-custom-cancel:hover { background: #2a2a2a; border-color: #666; }
+                .${CONFIG.UI_PREFIX}-custom-cancel:hover { background: var(--tm-bg-hover-subtle); border-color: var(--tm-text-dark); }
 
                 /* CRUD UI */
                 .${CONFIG.UI_PREFIX}-crud-bar { display: none; gap: 0.5rem; margin-bottom: 1rem; flex-shrink: 0; transition: opacity 0.2s; }
-                .${CONFIG.UI_PREFIX}-crud-input { flex-grow: 1; background: #161616; border: 1px solid #333; border-radius: 0.6rem; padding: 0.7rem 0.8rem; color: #fff; font-size: 0.9rem; outline: none; transition: 0.2s; }
-                .${CONFIG.UI_PREFIX}-crud-input:focus { border-color: #666; }
-                .${CONFIG.UI_PREFIX}-crud-add-btn { background: #222; color: #fff; border: 1px solid #333; border-radius: 0.6rem; padding: 0.7rem 1rem; font-size: 0.85rem; cursor: pointer; white-space: nowrap; transition: 0.2s; }
-                .${CONFIG.UI_PREFIX}-crud-add-btn:hover:not(:disabled) { background: #333; border-color: #555; }
+                .${CONFIG.UI_PREFIX}-crud-input { flex-grow: 1; background: var(--tm-bg-input); border: 1px solid var(--tm-border-light); border-radius: 0.6rem; padding: 0.7rem 0.8rem; color: var(--tm-text-main); font-size: 0.9rem; outline: none; transition: 0.2s; }
+                .${CONFIG.UI_PREFIX}-crud-input:focus { border-color: var(--tm-text-dark); }
+                .${CONFIG.UI_PREFIX}-crud-add-btn { background: #222; color: var(--tm-text-main); border: 1px solid var(--tm-border-light); border-radius: 0.6rem; padding: 0.7rem 1rem; font-size: 0.85rem; cursor: pointer; white-space: nowrap; transition: 0.2s; }
+                .${CONFIG.UI_PREFIX}-crud-add-btn:hover:not(:disabled) { background: var(--tm-border-light); border-color: var(--tm-border-focus); }
 
                 .${CONFIG.UI_PREFIX}-edit-item-btn, .${CONFIG.UI_PREFIX}-delete-btn {
                     background: transparent; border: none; cursor: pointer; padding: 0.4rem;
@@ -883,27 +936,28 @@
                 }
                 .${CONFIG.UI_PREFIX}-edit-item-btn svg, .${CONFIG.UI_PREFIX}-delete-btn svg { width: 1.1rem; height: 1.1rem; transition: fill 0.2s; }
 
-                .${CONFIG.UI_PREFIX}-edit-item-btn svg { fill: #aaa; }
+                .${CONFIG.UI_PREFIX}-edit-item-btn svg { fill: var(--tm-text-muted); }
                 .${CONFIG.UI_PREFIX}-edit-item-btn:hover { background: rgba(255, 255, 255, 0.15); }
-                .${CONFIG.UI_PREFIX}-edit-item-btn:hover svg { fill: #fff; }
+                .${CONFIG.UI_PREFIX}-edit-item-btn:hover svg { fill: var(--tm-text-main); }
 
-                .${CONFIG.UI_PREFIX}-delete-btn svg { fill: #e57373; }
+                .${CONFIG.UI_PREFIX}-delete-btn svg { fill: var(--tm-danger); }
                 .${CONFIG.UI_PREFIX}-delete-btn:hover { background: rgba(229, 115, 115, 0.15); }
 
                 /* Configuration Panel */
                 .${CONFIG.UI_PREFIX}-config-body { display: none; flex-direction: column; gap: 0.8rem; height: 100%; overflow-y: auto; padding-right: 0.5rem; }
                 .${CONFIG.UI_PREFIX}-settings-field { display: flex; flex-direction: column; gap: 0.3rem; }
-                .${CONFIG.UI_PREFIX}-settings-field label { font-size: 0.8rem; color: #aaa; font-weight: 500; text-align: left; }
-                .${CONFIG.UI_PREFIX}-settings-input { background: #161616; border: 1px solid #333; border-radius: 0.6rem; padding: 0.7rem 0.8rem; color: #fff; font-size: 0.9rem; outline: none; transition: 0.2s; }
-                .${CONFIG.UI_PREFIX}-settings-input:focus { border-color: #ff4081; background: #1a1a1a; }
-                .${CONFIG.UI_PREFIX}-settings-save-btn { background: #ff4081; color: #fff; border: none; border-radius: 0.6rem; padding: 0.8rem; font-size: 0.95rem; font-weight: 600; cursor: pointer; transition: background 0.2s; margin-top: 0.5rem; }
-                .${CONFIG.UI_PREFIX}-settings-save-btn:hover { background: #e91e63; }
+                .${CONFIG.UI_PREFIX}-settings-field label { font-size: 0.8rem; color: var(--tm-text-muted); font-weight: 500; text-align: left; }
+                .${CONFIG.UI_PREFIX}-settings-input { background: var(--tm-bg-input); border: 1px solid var(--tm-border-light); border-radius: 0.6rem; padding: 0.7rem 0.8rem; color: var(--tm-text-main); font-size: 0.9rem; outline: none; transition: 0.2s; }
+                .${CONFIG.UI_PREFIX}-settings-input:focus { border-color: var(--tm-primary); background: #1a1a1a; }
+                .${CONFIG.UI_PREFIX}-settings-save-btn { background: var(--tm-primary); color: var(--tm-text-main); border: none; border-radius: 0.6rem; padding: 0.8rem; font-size: 0.95rem; font-weight: 600; cursor: pointer; transition: background 0.2s; margin-top: 0.5rem; }
+                .${CONFIG.UI_PREFIX}-settings-save-btn:hover { background: var(--tm-primary-hover); }
 
                 @media (max-width: 1100px) {
-                    .${CONFIG.UI_PREFIX}-layout { flex-direction: column; align-items: center; justify-content: flex-start; overflow-y: auto; height: 100vh; max-height: 100vh; width: 100%; padding: 2rem 0 4rem 0; box-sizing: border-box; }
+                    .${CONFIG.UI_PREFIX}-layout { flex-direction: column; justify-content: flex-start; overflow-y: auto; height: 100vh; max-height: 100vh; width: 100%; padding: 4rem 0 4rem 0; box-sizing: border-box; }
                     .${CONFIG.UI_PREFIX}-layout::-webkit-scrollbar { display: none; }
-                    .${CONFIG.UI_PREFIX}-panel { height: 65vh; width: 90vw; max-width: 25rem; flex-shrink: 0; }
-                    .${CONFIG.UI_PREFIX}-main { order: 1; }
+                    .${CONFIG.UI_PREFIX}-side { height: 65vh; width: 90vw; max-width: 25rem; flex-shrink: 0; }
+                    .${CONFIG.UI_PREFIX}-main-container { order: 1; height: auto; width: 90vw; max-width: 25rem; flex-shrink: 0; margin-top: 2rem; }
+                    .${CONFIG.UI_PREFIX}-main { height: 65vh; }
                     .${CONFIG.UI_PREFIX}-side.left { order: 2; }
                     .${CONFIG.UI_PREFIX}-side.right { order: 3; }
                 }
@@ -916,7 +970,7 @@
                 fab.id = `${CONFIG.UI_PREFIX}-fab`;
                 fab.className = `${CONFIG.UI_PREFIX}-fab`;
                 fab.title = "Open Download Manager (Ctrl+S)";
-                fab.appendChild(this._createSVG('0 0 24 24', 'M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z'));
+                fab.appendChild(this._createSVG(ICONS.fab));
                 fab.onclick = () => this.showMenu();
                 document.body.appendChild(fab);
             }
@@ -927,8 +981,18 @@
             }
         },
 
+        manageToastCount() {
+            if (!this.toastContainer) return;
+            while (this.toastContainer.childElementCount >= CONFIG.MAX_ACTIVE_TOASTS) {
+                const oldest = this.toastContainer.firstElementChild;
+                if (oldest) oldest.remove();
+            }
+        },
+
         createDownloadToast(filename) {
             if (!this.toastContainer) return null;
+            this.manageToastCount();
+
             const toast = document.createElement('div');
             toast.className = `${CONFIG.UI_PREFIX}-toast ${CONFIG.UI_PREFIX}-dl-toast`;
 
@@ -972,23 +1036,27 @@
             toastObj.fill.style.width = '100%';
 
             if (type === 'success') {
-                toastObj.fill.style.background = '#81c784';
+                toastObj.fill.style.background = 'var(--tm-success)';
                 toastObj.status.textContent = message || 'Complete!';
             } else {
-                toastObj.fill.style.background = '#e57373';
+                toastObj.fill.style.background = 'var(--tm-danger)';
                 toastObj.status.textContent = message || 'Failed';
             }
 
             setTimeout(() => {
-                toastObj.el.style.animation = 'tmToastFadeOut 0.3s ease forwards';
-                setTimeout(() => {
-                    if (toastObj.el.parentNode) toastObj.el.remove();
-                }, 300);
+                if (toastObj.el && toastObj.el.parentNode) {
+                    toastObj.el.style.animation = 'tmToastFadeOut 0.3s ease forwards';
+                    setTimeout(() => {
+                        if (toastObj.el.parentNode) toastObj.el.remove();
+                    }, 300);
+                }
             }, 3000);
         },
 
         showToast(message, type = 'info') {
             if (!this.toastContainer) return;
+            this.manageToastCount();
+
             const toast = document.createElement('div');
             toast.className = `${CONFIG.UI_PREFIX}-toast ${type}`;
             toast.textContent = message;
@@ -996,55 +1064,69 @@
             this.toastContainer.appendChild(toast);
 
             setTimeout(() => {
-                toast.style.animation = 'tmToastFadeOut 0.3s ease forwards';
-                setTimeout(() => {
-                    if (toast.parentNode) toast.remove();
-                }, 300);
+                if (toast && toast.parentNode) {
+                    toast.style.animation = 'tmToastFadeOut 0.3s ease forwards';
+                    setTimeout(() => {
+                        if (toast.parentNode) toast.remove();
+                    }, 300);
+                }
             }, 3000);
         },
 
-        _buildSidePanelList(container, data, emptyMessage, isFlavor) {
-            container.textContent = '';
-            if (data.length === 0) {
+        _renderSidePanelVirtual(type) {
+            const panelObj = this.sidePanels[type];
+            if (!panelObj.container || !panelObj.inner) return;
+
+            const totalItems = panelObj.data.length;
+            const emptyMsg = type === 'recent' ? 'No recent saves.' : 'No data for this month.';
+
+            if (totalItems === 0) {
+                panelObj.inner.style.height = '100%';
+                panelObj.inner.textContent = '';
                 const emptyState = document.createElement('div');
                 emptyState.className = `${CONFIG.UI_PREFIX}-empty-state`;
-                emptyState.textContent = emptyMessage;
-                emptyState.style.position = 'relative';
-                container.appendChild(emptyState);
-            } else {
-                data.forEach(item => {
-                    const btn = document.createElement('div');
-                    btn.className = `${CONFIG.UI_PREFIX}-item ${CONFIG.UI_PREFIX}-static-item`;
-
-                    const nameSpan = document.createElement('span');
-                    nameSpan.textContent = item.n;
-
-                    const badgeText = isFlavor ? `${item.count}x • ${item.g}` : item.g;
-                    const badgeClass = isFlavor ? `${CONFIG.UI_PREFIX}-badge accent` : `${CONFIG.UI_PREFIX}-badge`;
-                    const badgeSpan = document.createElement('span');
-
-                    // Make the side panel group badges redirect to the group
-                    badgeSpan.className = badgeClass + ` ${CONFIG.UI_PREFIX}-badge-actionable`;
-                    badgeSpan.textContent = badgeText;
-                    badgeSpan.title = `View ${item.g}`;
-
-                    badgeSpan.onclick = (e) => {
-                        e.stopPropagation();
-                        this.selectedGroup = item.g;
-                        this.currentView = 'members';
-                        if (this.searchInput) this.searchInput.value = '';
-                        this.updateListData('');
-                    };
-
-                    btn.appendChild(nameSpan);
-                    btn.appendChild(badgeSpan);
-                    btn.onclick = () => Downloader.executeIdolSave(item.g, item.n);
-                    container.appendChild(btn);
-                });
+                emptyState.textContent = emptyMsg;
+                panelObj.inner.appendChild(emptyState);
+                return;
             }
+
+            const itemHeight = CONFIG.VIRTUAL_ITEM_HEIGHT;
+            panelObj.inner.style.height = `${totalItems * itemHeight}px`;
+
+            const scrollTop = panelObj.container.scrollTop;
+            const contHeight = panelObj.cachedHeight || 400;
+
+            const startIndex = Math.max(0, Math.floor(scrollTop / itemHeight) - 5);
+            const endIndex = Math.min(totalItems, Math.floor((scrollTop + contHeight) / itemHeight) + 5);
+
+            panelObj.inner.textContent = '';
+            const fragment = document.createDocumentFragment();
+
+            for (let i = startIndex; i < endIndex; i++) {
+                const itemData = panelObj.data[i];
+                const btn = document.createElement('div');
+                btn.className = `${CONFIG.UI_PREFIX}-item`;
+                btn.style.transform = `translate3d(0, ${i * itemHeight}px, 0)`;
+                btn.dataset.index = i;
+
+                const nameSpan = document.createElement('span');
+                nameSpan.textContent = itemData.n;
+
+                const badgeText = type !== 'recent' ? `${itemData.count}x • ${itemData.g}` : itemData.g;
+                const badgeClass = type !== 'recent' ? `${CONFIG.UI_PREFIX}-badge accent ${CONFIG.UI_PREFIX}-badge-actionable` : `${CONFIG.UI_PREFIX}-badge ${CONFIG.UI_PREFIX}-badge-actionable`;
+                const badgeSpan = document.createElement('span');
+                badgeSpan.className = badgeClass;
+                badgeSpan.textContent = badgeText;
+                badgeSpan.title = `View ${itemData.g}`;
+
+                btn.appendChild(nameSpan);
+                btn.appendChild(badgeSpan);
+                fragment.appendChild(btn);
+            }
+            panelObj.inner.appendChild(fragment);
         },
 
-        createSidePanel(title, customClass, data, emptyMessage, isFlavor = false) {
+        createSidePanel(title, customClass, type) {
             const panel = document.createElement('div');
             panel.className = `${CONFIG.UI_PREFIX}-panel ${CONFIG.UI_PREFIX}-side ${customClass}`;
 
@@ -1055,30 +1137,66 @@
             header.appendChild(h2);
             panel.appendChild(header);
 
+            const wrapper = document.createElement('div');
+            wrapper.className = `${CONFIG.UI_PREFIX}-list-wrapper`;
+
             const list = document.createElement('div');
             list.className = `${CONFIG.UI_PREFIX}-list`;
 
-            // Cache reference for silent background reloading
-            if (customClass === 'left') this.recentListContainer = list;
-            if (customClass === 'right') this.flavorListContainer = list;
+            const inner = document.createElement('div');
+            inner.className = `${CONFIG.UI_PREFIX}-list-inner`;
 
-            this._buildSidePanelList(list, data, emptyMessage, isFlavor);
+            list.appendChild(inner);
+            wrapper.appendChild(list);
 
-            panel.appendChild(list);
+            this.sidePanels[type].wrapper = wrapper;
+            this.sidePanels[type].container = list;
+            this.sidePanels[type].inner = inner;
+
+            list.addEventListener('scroll', () => {
+                requestAnimationFrame(() => this._renderSidePanelVirtual(type));
+            });
+
+            inner.addEventListener('click', (e) => {
+                const badge = e.target.closest(`.${CONFIG.UI_PREFIX}-badge-actionable`);
+                if (badge) {
+                    e.stopPropagation();
+                    const index = parseInt(badge.closest(`.${CONFIG.UI_PREFIX}-item`).dataset.index, 10);
+                    const itemData = this.sidePanels[type].data[index];
+                    this.selectedGroup = itemData.g;
+                    this.currentView = 'members';
+                    if (this.searchInput) this.searchInput.value = '';
+                    this.updateListData('');
+                    return;
+                }
+
+                const itemEl = e.target.closest(`.${CONFIG.UI_PREFIX}-item`);
+                if (itemEl) {
+                    const index = parseInt(itemEl.dataset.index, 10);
+                    const itemData = this.sidePanels[type].data[index];
+                    Downloader.executeIdolSave(itemData.g, itemData.n);
+                }
+            });
+
+            panel.appendChild(wrapper);
             return panel;
         },
 
         refreshSidePanels() {
             if (!this.overlay) return;
-            if (this.recentListContainer) {
-                this._buildSidePanelList(this.recentListContainer, Storage.getRecentStats(), 'No recent saves.', false);
-            }
-            if (this.flavorListContainer) {
-                this._buildSidePanelList(this.flavorListContainer, Storage.getFlavorStats(), 'No data for this month.', true);
-            }
+            this.sidePanels.recent.data = Storage.getRecentStats();
+            this.sidePanels.flavor.data = Storage.getFlavorStats();
+            this._renderSidePanelVirtual('recent');
+            this._renderSidePanelVirtual('flavor');
         },
 
         createMainPanel() {
+            const container = document.createElement('div');
+            container.className = `${CONFIG.UI_PREFIX}-main-container`;
+
+            const floatingControls = document.createElement('div');
+            floatingControls.className = `${CONFIG.UI_PREFIX}-floating-controls`;
+
             const panel = document.createElement('div');
             panel.className = `${CONFIG.UI_PREFIX}-panel ${CONFIG.UI_PREFIX}-main`;
 
@@ -1091,7 +1209,7 @@
 
             this.headerBackBtn = document.createElement('div');
             this.headerBackBtn.className = `${CONFIG.UI_PREFIX}-icon-btn`;
-            this.headerBackBtn.appendChild(this._createSVG('0 0 24 24', 'M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z'));
+            this.headerBackBtn.appendChild(this._createSVG(ICONS.back));
             this.headerBackBtn.title = "Back";
             this.headerBackBtn.onclick = (e) => {
                 e.stopPropagation();
@@ -1110,12 +1228,13 @@
             this.headerTitle = document.createElement('h2');
             leftGroup.appendChild(this.headerTitle);
 
-            const rightGroup = document.createElement('div');
-            rightGroup.className = `${CONFIG.UI_PREFIX}-header-right`;
+            header.appendChild(leftGroup);
+            panel.appendChild(header);
 
+            // --- Floating Action Buttons ---
             const syncBtn = document.createElement('div');
             syncBtn.className = `${CONFIG.UI_PREFIX}-icon-btn`;
-            syncBtn.appendChild(this._createSVG('0 0 24 24', 'M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46A7.93 7.93 0 0020 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74A7.93 7.93 0 004 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z'));
+            syncBtn.appendChild(this._createSVG(ICONS.sync));
             syncBtn.title = "Force Manual Sync";
             syncBtn.onclick = () => {
                 if (!CloudAPI.isValid()) {
@@ -1139,7 +1258,7 @@
 
             const editBtn = document.createElement('div');
             editBtn.className = `${CONFIG.UI_PREFIX}-icon-btn`;
-            editBtn.appendChild(this._createSVG('0 0 24 24', 'M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z'));
+            editBtn.appendChild(this._createSVG(ICONS.edit));
             editBtn.title = "Toggle CRUD Editing";
             editBtn.onclick = () => {
                 if (!CloudAPI.isValid()) {
@@ -1156,7 +1275,7 @@
             const configBtn = document.createElement('div');
             configBtn.className = `${CONFIG.UI_PREFIX}-icon-btn`;
             configBtn.style.position = 'relative';
-            configBtn.appendChild(this._createSVG('0 0 24 24', 'M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z'));
+            configBtn.appendChild(this._createSVG(ICONS.config));
             configBtn.title = "Cloud Engine Config";
             configBtn.onclick = () => {
                 this.currentView = this.currentView === 'config' ? (this.selectedGroup ? 'members' : 'groups') : 'config';
@@ -1171,18 +1290,16 @@
 
             const closeBtn = document.createElement('div');
             closeBtn.className = `${CONFIG.UI_PREFIX}-icon-btn`;
-            closeBtn.appendChild(this._createSVG('0 0 24 24', 'M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z'));
+            closeBtn.appendChild(this._createSVG(ICONS.close));
             closeBtn.title = "Close";
             closeBtn.onclick = () => this.closeMenu();
 
-            rightGroup.appendChild(syncBtn);
-            rightGroup.appendChild(editBtn);
-            rightGroup.appendChild(configBtn);
-            rightGroup.appendChild(closeBtn);
+            floatingControls.appendChild(syncBtn);
+            floatingControls.appendChild(editBtn);
+            floatingControls.appendChild(configBtn);
+            floatingControls.appendChild(closeBtn);
 
-            header.appendChild(leftGroup);
-            header.appendChild(rightGroup);
-            panel.appendChild(header);
+            container.appendChild(floatingControls);
 
             // --- Config View ---
             this.configContainer = document.createElement('div');
@@ -1224,7 +1341,7 @@
                 GM_setValue('tm_kpop_dl_history_path', historyPathInput.value.trim() || 'kmedia-downloader-history.json');
                 GM_setValue('tm_kpop_dl_github_branch', branchInput.value.trim() || 'main');
 
-                CloudAPI.loadConfig(); // Immediately ingest new credentials
+                CloudAPI.loadConfig();
                 this.showToast('Configurations saved. Re-synchronizing environments...');
                 this.currentView = 'groups';
 
@@ -1291,7 +1408,10 @@
             this.crudBarContainer.appendChild(this.crudBtn);
             panel.appendChild(this.crudBarContainer);
 
-            // --- List View ---
+            // --- List View Wrapper Architecture ---
+            this.mainListWrapper = document.createElement('div');
+            this.mainListWrapper.className = `${CONFIG.UI_PREFIX}-list-wrapper`;
+
             this.listContainer = document.createElement('div');
             this.listContainer.className = `${CONFIG.UI_PREFIX}-list`;
 
@@ -1299,15 +1419,7 @@
             this.listInner.className = `${CONFIG.UI_PREFIX}-list-inner`;
             this.listContainer.appendChild(this.listInner);
 
-            if (typeof ResizeObserver !== 'undefined') {
-                this.resizeObserver = new ResizeObserver(entries => {
-                    for (let entry of entries) {
-                        this.cachedContainerHeight = entry.contentRect.height;
-                        this.renderVirtualList();
-                    }
-                });
-                this.resizeObserver.observe(this.listContainer);
-            }
+            this.mainListWrapper.appendChild(this.listContainer);
 
             this.listContainer.addEventListener('scroll', () => {
                 requestAnimationFrame(() => this.renderVirtualList());
@@ -1315,6 +1427,19 @@
 
             // Event Delegation for List Items & Delete/Edit Buttons
             this.listInner.addEventListener('click', (e) => {
+                // Handle Group Badge Nav Click
+                const badge = e.target.closest(`.${CONFIG.UI_PREFIX}-badge-actionable`);
+                if (badge) {
+                    e.stopPropagation();
+                    const index = parseInt(badge.closest(`.${CONFIG.UI_PREFIX}-item`).dataset.index, 10);
+                    const itemData = this.currentListData[index];
+                    this.selectedGroup = itemData.group;
+                    this.currentView = 'members';
+                    this.searchInput.value = '';
+                    this.updateListData('');
+                    return;
+                }
+
                 // Handle Delete
                 const delBtn = e.target.closest(`.${CONFIG.UI_PREFIX}-delete-btn`);
                 if (delBtn) {
@@ -1485,10 +1610,12 @@
                 }
             });
 
-            panel.appendChild(this.listContainer);
+            panel.appendChild(this.mainListWrapper);
             panel.appendChild(this.footer);
 
-            return panel;
+            container.appendChild(panel);
+
+            return container;
         },
 
         updateVisibility() {
@@ -1496,14 +1623,14 @@
                 this.headerTitle.textContent = 'Cloud Engine Config';
                 this.headerBackBtn.style.display = 'flex';
                 this.searchContainer.style.display = 'none';
-                this.listContainer.style.display = 'none';
+                this.mainListWrapper.style.display = 'none';
                 this.footer.style.display = 'none';
                 this.crudBarContainer.style.display = 'none';
                 this.configContainer.style.display = 'flex';
             } else {
                 this.configContainer.style.display = 'none';
                 this.searchContainer.style.display = 'block';
-                this.listContainer.style.display = 'block';
+                this.mainListWrapper.style.display = 'flex';
                 this.footer.style.display = 'flex';
 
                 if (this.currentView === 'groups') {
@@ -1615,7 +1742,6 @@
                     badgeSpan.className = `${CONFIG.UI_PREFIX}-badge`;
                     badgeSpan.textContent = itemData.badge;
 
-                    // Make the global search group badges redirect to the group
                     if (itemData.type === 'member' && this.currentView === 'groups') {
                         badgeSpan.classList.add(`${CONFIG.UI_PREFIX}-badge-actionable`);
                         badgeSpan.title = `View ${itemData.group}`;
@@ -1679,7 +1805,7 @@
         },
 
         async triggerCloudSync() {
-            if (!CloudAPI.isValid()) return;
+            if (!CloudAPI.isValid() || CloudAPI.isRateLimited()) return;
 
             this.updateCloudStatus('syncing');
             try {
@@ -1730,20 +1856,45 @@
             const layoutWrapper = document.createElement('div');
             layoutWrapper.className = `${CONFIG.UI_PREFIX}-layout`;
 
-            const recentData = Storage.getRecentStats();
-            const flavorData = Storage.getFlavorStats();
+            if (typeof ResizeObserver !== 'undefined') {
+                this.resizeObserver = new ResizeObserver(entries => {
+                    for (let entry of entries) {
+                        const h = entry.contentRect.height;
+                        const snappedHeight = Math.floor(h / CONFIG.VIRTUAL_ITEM_HEIGHT) * CONFIG.VIRTUAL_ITEM_HEIGHT;
+                        const finalHeight = Math.max(CONFIG.VIRTUAL_ITEM_HEIGHT, snappedHeight);
 
-            layoutWrapper.appendChild(this.createSidePanel('🕒 Recent Saves', 'left', recentData, 'No recent saves.', false));
+                        if (entry.target === this.mainListWrapper) {
+                            this.listContainer.style.height = `${finalHeight}px`;
+                            this.cachedContainerHeight = finalHeight;
+                            this.renderVirtualList();
+                        } else if (entry.target === this.sidePanels.recent.wrapper) {
+                            this.sidePanels.recent.container.style.height = `${finalHeight}px`;
+                            this.sidePanels.recent.cachedHeight = finalHeight;
+                            this._renderSidePanelVirtual('recent');
+                        } else if (entry.target === this.sidePanels.flavor.wrapper) {
+                            this.sidePanels.flavor.container.style.height = `${finalHeight}px`;
+                            this.sidePanels.flavor.cachedHeight = finalHeight;
+                            this._renderSidePanelVirtual('flavor');
+                        }
+                    }
+                });
+            }
+
+            layoutWrapper.appendChild(this.createSidePanel('🕒 Recent Saves', 'left', 'recent'));
             layoutWrapper.appendChild(this.createMainPanel());
-            layoutWrapper.appendChild(this.createSidePanel('❤️‍🔥 Flavor of the Month', 'right', flavorData, 'No data for this month.', true));
+            layoutWrapper.appendChild(this.createSidePanel('❤️‍🔥 Flavor of the Month', 'right', 'flavor'));
+
+            if (this.resizeObserver) {
+                if (this.mainListWrapper) this.resizeObserver.observe(this.mainListWrapper);
+                if (this.sidePanels.recent.wrapper) this.resizeObserver.observe(this.sidePanels.recent.wrapper);
+                if (this.sidePanels.flavor.wrapper) this.resizeObserver.observe(this.sidePanels.flavor.wrapper);
+            }
 
             this.overlay.appendChild(layoutWrapper);
             document.body.appendChild(this.overlay);
 
             this.updateListData('');
-            if (this.listContainer) {
-                this.cachedContainerHeight = this.listContainer.clientHeight;
-            }
+            this.refreshSidePanels();
 
             setTimeout(() => { if (this.searchInput) this.searchInput.focus(); }, 50);
         },
@@ -1751,7 +1902,7 @@
         async showMenu() {
             if (this.overlay) return;
 
-            if (CloudAPI.isValid()) {
+            if (CloudAPI.isValid() && !CloudAPI.isRateLimited()) {
                 Storage.fetchCloudBackground(true);
             }
 
@@ -1767,7 +1918,7 @@
             this.render();
 
             this.syncInterval = setInterval(() => {
-                if (CloudAPI.isValid()) {
+                if (CloudAPI.isValid() && !CloudAPI.isRateLimited()) {
                     Storage.fetchCloudBackground(true);
                 }
             }, CONFIG.CLOUD_MENU_POLL_MS);
@@ -1796,7 +1947,7 @@
     const App = {
         init() {
             if (window.__KpopDlInitialized || !this.isDirectMediaPage()) return;
-            window.__KpopDlInitialized = true;
+            window.__KpopInitialized = true;
 
             CloudAPI.loadConfig();
             UI.initTemplates();
@@ -1813,7 +1964,7 @@
                 }
             }, CONFIG.CLOUD_HISTORY_THROTTLE_MS);
 
-            Logger.info('Initialized K-Pop Media Downloader v6.14');
+            Logger.info('Initialized K-Pop Media Downloader v7.0');
         },
 
         isDirectMediaPage() {
