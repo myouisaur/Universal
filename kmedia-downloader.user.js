@@ -2,7 +2,7 @@
 // @name         [Universal] K-Media Downloader
 // @namespace    https://github.com/myouisaur/Universal
 // @icon         data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23FF4081'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 11h3l-4 4-4-4h3V8h2v5z'/%3E%3C/svg%3E
-// @version      7.1
+// @version      7.3
 // @description  Organizes, tracks, and saves categorized K-Pop media files through a centralized overlay.
 // @author       Xiv
 // @match        *://*/*
@@ -12,6 +12,7 @@
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @grant        GM_addValueChangeListener
+// @grant        window.close
 // @connect      raw.githubusercontent.com
 // @connect      *
 // @noframes
@@ -30,7 +31,6 @@
         CUSTOM_NAMING_FORMAT: '{custom}-{random}.{ext}',
         RANDOM_STRING_LENGTH: 8,
 
-        // AUTO-ROUTING FOLDER
         IDOL_SUBFOLDER: 'Unoptimized',
         PROMPT_ON_IDOL_SAVE: false,
 
@@ -47,13 +47,15 @@
         VIRTUAL_ITEM_HEIGHT: 50,
         MAX_ACTIVE_TOASTS: 3,
 
+        AUTO_CLOSE_TAB: false,
+
         DB_URL: 'https://raw.githubusercontent.com/myouisaur/Universal/refs/heads/main/kmedia-downloader-db.json',
         DB_CACHE_KEY: 'tm_kpop_dl_db_cache',
         DB_CACHE_TTL_MS: 12 * 60 * 60 * 1000
     };
 
     // =========================================================
-    // ICONS DICTIONARY (DRY Refactor)
+    // ICONS DICTIONARY
     // =========================================================
     const ICONS = {
         fab: "M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z",
@@ -441,13 +443,11 @@
 
                 if (cloudData && Array.isArray(cloudData)) {
                     if (force) {
-                        // Hard overwrite on Manual Sync to eliminate locally-cached deleted records (Zombie Data)
                         this._cache = [...cloudData].sort((a, b) => a.t - b.t);
                         this.clean();
                         this._saveLocalDebounced();
                         if (UI.overlay) UI.refreshSidePanels();
                     } else {
-                        // Gentle merge for passive background syncing to preserve active local session data
                         const mergedMap = new Map();
                         [...this._cache, ...cloudData].forEach(item => {
                             mergedMap.set(`${item.t}-${item.g}-${item.n}`, item);
@@ -478,6 +478,7 @@
                 Logger.info('History cache successfully pushed to remote branch.');
             } catch (e) {
                 Logger.warn(`History cloud sync failure: ${e.message}`);
+                throw e; // Rethrow so auto-close sequence can catch it
             }
         },
 
@@ -486,7 +487,10 @@
             this._cache.push({ g: group, n: name, t: Date.now() });
             this.clean();
 
-            this._saveLocalDebounced();
+            // Immediately secure to local memory cache to handle optimistic syncing
+            GM_setValue(CONFIG.STORAGE_KEY, JSON.stringify(this._cache));
+
+            // Standard background sync queue
             this._saveCloudDebounced();
         },
 
@@ -617,9 +621,13 @@
         },
 
         triggerDownload(url, name, groupContext, nameContext, promptUser = true) {
-            // Toast explicitly strips out the subfolder routing path for clean visual UX feedback
             const displayFileName = name.includes('/') ? name.substring(name.lastIndexOf('/') + 1) : name;
             const toastObj = UI.createDownloadToast(displayFileName);
+
+            // --- OPTIMISTIC LOCAL SAVING ---
+            if (groupContext && nameContext) {
+                Storage.recordSuccess(groupContext, nameContext);
+            }
 
             let hasPathExtension = false;
             try {
@@ -636,14 +644,14 @@
         _executeGMDownload(url, name, groupContext, nameContext, toastObj, promptUser) {
             GM_download({
                 url: url,
-                name: name, // GM_download interprets subfolder paths here natively IF configured correctly by user
+                name: name,
                 saveAs: promptUser,
                 onprogress: (e) => {
                     UI.updateDownloadToast(toastObj, e.loaded, e.total);
                 },
                 onload: () => {
                     UI.finishDownloadToast(toastObj, 'success', 'Saved Successfully!');
-                    if (groupContext && nameContext) Storage.recordSuccess(groupContext, nameContext);
+                    UI.startAutoCloseSequence();
                 },
                 onerror: () => {
                     UI.updateDownloadToast(toastObj, 0, 0, 'GM Engine blocked, triggering XHR override...');
@@ -671,14 +679,13 @@
                             const a = document.createElement('a');
                             a.href = blobUrl;
 
-                            // Browser security forces stripping of absolute folder paths in manual blob execution
                             const finalFileName = name.substring(name.lastIndexOf('/') + 1);
                             a.download = finalFileName;
 
                             a.click();
                             URL.revokeObjectURL(blobUrl);
                             UI.finishDownloadToast(toastObj, 'success', 'Saved Successfully!');
-                            if (groupContext && nameContext) Storage.recordSuccess(groupContext, nameContext);
+                            UI.startAutoCloseSequence();
                         } else {
                             UI.finishDownloadToast(toastObj, 'error', `HTTP ${res.status}`);
                         }
@@ -722,7 +729,10 @@
         listInner: null,
         footer: null,
         crudBarContainer: null,
+
         configContainer: null,
+        configInputs: {},
+        initialConfigState: null,
 
         searchInput: null,
         crudInput: null,
@@ -954,13 +964,29 @@
                 .${CONFIG.UI_PREFIX}-delete-btn svg { fill: var(--tm-danger); }
                 .${CONFIG.UI_PREFIX}-delete-btn:hover { background: rgba(229, 115, 115, 0.15); }
 
-                /* Configuration Panel */
-                .${CONFIG.UI_PREFIX}-config-body { display: none; flex-direction: column; gap: 0.8rem; height: 100%; overflow-y: auto; padding-right: 0.5rem; }
+                /* Configuration Panel Architecture */
+                .${CONFIG.UI_PREFIX}-config-wrapper { display: none; flex-direction: column; height: 100%; overflow: hidden; }
+                .${CONFIG.UI_PREFIX}-config-body { flex-grow: 1; overflow-y: auto; padding-right: 0.5rem; display: flex; flex-direction: column; gap: 0.8rem; }
+                .${CONFIG.UI_PREFIX}-config-body::-webkit-scrollbar { width: 6px; }
+                .${CONFIG.UI_PREFIX}-config-body::-webkit-scrollbar-thumb { background: var(--tm-border-light); border-radius: 10px; }
+                .${CONFIG.UI_PREFIX}-config-footer { flex-shrink: 0; padding-top: 1rem; margin-top: 0.5rem; border-top: 1px solid var(--tm-border); display: flex; }
+
+                /* Config Inputs & Toggles */
                 .${CONFIG.UI_PREFIX}-settings-field { display: flex; flex-direction: column; gap: 0.3rem; }
                 .${CONFIG.UI_PREFIX}-settings-field label { font-size: 0.8rem; color: var(--tm-text-muted); font-weight: 500; text-align: left; }
                 .${CONFIG.UI_PREFIX}-settings-input { background: var(--tm-bg-input); border: 1px solid var(--tm-border-light); border-radius: 0.6rem; padding: 0.7rem 0.8rem; color: var(--tm-text-main); font-size: 0.9rem; outline: none; transition: 0.2s; }
                 .${CONFIG.UI_PREFIX}-settings-input:focus { border-color: var(--tm-primary); background: #1a1a1a; }
-                .${CONFIG.UI_PREFIX}-settings-save-btn { background: var(--tm-primary); color: var(--tm-text-main); border: none; border-radius: 0.6rem; padding: 0.8rem; font-size: 0.95rem; font-weight: 600; cursor: pointer; transition: background 0.2s; margin-top: 0.5rem; }
+
+                .${CONFIG.UI_PREFIX}-toggle-field { flex-direction: row !important; justify-content: space-between; align-items: center; background: var(--tm-bg-input); padding: 0.8rem 1rem; border-radius: 0.6rem; border: 1px solid var(--tm-border-light); }
+                .${CONFIG.UI_PREFIX}-toggle-field label { margin: 0; color: var(--tm-text-main); font-size: 0.9rem; }
+                .${CONFIG.UI_PREFIX}-switch { position: relative; display: inline-block; width: 42px; height: 24px; flex-shrink: 0; }
+                .${CONFIG.UI_PREFIX}-switch input { opacity: 0; width: 0; height: 0; }
+                .${CONFIG.UI_PREFIX}-slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #333; transition: .2s; border-radius: 24px; }
+                .${CONFIG.UI_PREFIX}-slider:before { position: absolute; content: ""; height: 16px; width: 16px; left: 4px; bottom: 4px; background-color: var(--tm-text-muted); transition: .2s; border-radius: 50%; }
+                .${CONFIG.UI_PREFIX}-switch input:checked + .${CONFIG.UI_PREFIX}-slider { background-color: var(--tm-primary); }
+                .${CONFIG.UI_PREFIX}-switch input:checked + .${CONFIG.UI_PREFIX}-slider:before { transform: translateX(18px); background-color: #fff; }
+
+                .${CONFIG.UI_PREFIX}-settings-save-btn { width: 100%; background: var(--tm-primary); color: var(--tm-text-main); border: none; border-radius: 0.6rem; padding: 0.8rem; font-size: 0.95rem; font-weight: 600; cursor: pointer; transition: background 0.2s; }
                 .${CONFIG.UI_PREFIX}-settings-save-btn:hover { background: var(--tm-primary-hover); }
 
                 @media (max-width: 1100px) {
@@ -1084,6 +1110,38 @@
             }, 3000);
         },
 
+        async startAutoCloseSequence() {
+            if (!CONFIG.AUTO_CLOSE_TAB) return;
+
+            this.manageToastCount();
+            const toast = document.createElement('div');
+            toast.className = `${CONFIG.UI_PREFIX}-toast syncing`;
+            toast.innerHTML = `<svg style="width:1.2rem; height:1.2rem; fill:var(--tm-warning); animation: tmSpin 1s linear infinite;" viewBox="0 0 24 24"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46A7.93 7.93 0 0020 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74A7.93 7.93 0 004 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"></path></svg>
+                               Securing to cloud...`;
+            toast.style.animation = 'tmToastFadeIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards';
+
+            if (this.toastContainer) this.toastContainer.appendChild(toast);
+
+            try {
+                // Hook into the actual network promise. No more arbitrary timeouts!
+                if (CloudAPI.isValid() && !CloudAPI.isRateLimited()) {
+                    await Storage.saveCloud();
+                }
+
+                toast.className = `${CONFIG.UI_PREFIX}-toast success`;
+                toast.innerHTML = `Data secured! Closing tab...`;
+
+                // Allow a brief moment so the user sees the green success message before closing
+                setTimeout(() => {
+                    try { window.close(); } catch (e) { Logger.warn("Window close blocked by browser."); }
+                }, 600);
+            } catch (e) {
+                toast.className = `${CONFIG.UI_PREFIX}-toast error`;
+                toast.innerHTML = `Sync failed. Auto-close aborted.`;
+                setTimeout(() => { if (toast.parentNode) toast.remove(); }, 3000);
+            }
+        },
+
         _renderSidePanelVirtual(type) {
             const panelObj = this.sidePanels[type];
             if (!panelObj.container || !panelObj.inner) return;
@@ -1201,6 +1259,25 @@
             this._renderSidePanelVirtual('flavor');
         },
 
+        get currentConfigState() {
+            if (!this.configInputs) return {};
+            return {
+                url: this.configInputs.url.value.trim(),
+                token: this.configInputs.token.value.trim(),
+                owner: this.configInputs.owner.value.trim(),
+                repo: this.configInputs.repo.value.trim(),
+                path: this.configInputs.path.value.trim(),
+                historyPath: this.configInputs.historyPath.value.trim(),
+                branch: this.configInputs.branch.value.trim(),
+                autoClose: this.configInputs.autoClose.checked
+            };
+        },
+
+        hasUnsavedChanges() {
+            if (!this.initialConfigState || !this.configInputs) return false;
+            return JSON.stringify(this.currentConfigState) !== JSON.stringify(this.initialConfigState);
+        },
+
         createMainPanel() {
             const container = document.createElement('div');
             container.className = `${CONFIG.UI_PREFIX}-main-container`;
@@ -1225,6 +1302,7 @@
             this.headerBackBtn.onclick = (e) => {
                 e.stopPropagation();
                 if (this.currentView === 'config') {
+                    if (this.hasUnsavedChanges() && !confirm("You have unsaved changes. Discard them?")) return;
                     this.currentView = this.selectedGroup ? 'members' : 'groups';
                 } else if (this.currentView === 'members') {
                     this.currentView = 'groups';
@@ -1274,7 +1352,10 @@
             editBtn.onclick = () => {
                 if (!CloudAPI.isValid()) {
                     this.showToast('Configure Cloud Engine credentials first to enable CRUD.', 'error');
-                    this.currentView = 'config';
+                    if (this.currentView !== 'config') {
+                        this.currentView = 'config';
+                        this.initialConfigState = this.currentConfigState;
+                    }
                     this.updateVisibility();
                     return;
                 }
@@ -1289,7 +1370,13 @@
             configBtn.appendChild(this._createSVG(ICONS.config));
             configBtn.title = "Cloud Engine Config";
             configBtn.onclick = () => {
-                this.currentView = this.currentView === 'config' ? (this.selectedGroup ? 'members' : 'groups') : 'config';
+                if (this.currentView === 'config') {
+                    if (this.hasUnsavedChanges() && !confirm("You have unsaved changes. Discard them?")) return;
+                    this.currentView = this.selectedGroup ? 'members' : 'groups';
+                } else {
+                    this.currentView = 'config';
+                    this.initialConfigState = this.currentConfigState;
+                }
                 this.updateVisibility();
             };
 
@@ -1312,9 +1399,15 @@
 
             container.appendChild(floatingControls);
 
-            // --- Config View ---
+            // --- Config View Architecture ---
             this.configContainer = document.createElement('div');
-            this.configContainer.className = `${CONFIG.UI_PREFIX}-config-body`;
+            this.configContainer.className = `${CONFIG.UI_PREFIX}-config-wrapper`;
+
+            const configBody = document.createElement('div');
+            configBody.className = `${CONFIG.UI_PREFIX}-config-body`;
+
+            const configFooter = document.createElement('div');
+            configFooter.className = `${CONFIG.UI_PREFIX}-config-footer`;
 
             const createSettingsField = (labelTxt, inputType, inputId, defaultVal, placeholder) => {
                 const field = document.createElement('div');
@@ -1326,31 +1419,71 @@
                 input.className = `${CONFIG.UI_PREFIX}-settings-input`;
                 input.placeholder = placeholder || '';
                 input.value = GM_getValue(inputId, defaultVal);
-                input.dataset.key = inputId;
                 field.appendChild(label);
                 field.appendChild(input);
-                return input;
+                return { fieldWrapper: field, inputElement: input };
             };
 
-            const workerUrlInput = createSettingsField('Cloudflare Worker End-Point', 'text', 'tm_kpop_dl_worker_url', '', 'https://your-worker.workers.dev');
-            const tokenInput = createSettingsField('GitHub Fine-Grained Token', 'password', 'tm_kpop_dl_github_token', '', 'github_pat_...');
-            const ownerInput = createSettingsField('Repository Structural Owner', 'text', 'tm_kpop_dl_github_owner', '', 'GitHub Username');
-            const repoInput = createSettingsField('Target Repository Domain', 'text', 'tm_kpop_dl_github_repo', '', 'Repository Name');
-            const dbPathInput = createSettingsField('Database Target Path Mapping', 'text', 'tm_kpop_dl_github_path', 'kmedia-downloader-db.json', 'kmedia-downloader-db.json');
-            const historyPathInput = createSettingsField('History Target Path Mapping', 'text', 'tm_kpop_dl_history_path', 'kmedia-downloader-history.json', 'kmedia-downloader-history.json');
-            const branchInput = createSettingsField('Target Remote Tree Branch', 'text', 'tm_kpop_dl_github_branch', 'main', 'main');
+            const createToggleField = (labelTxt, inputId, defaultVal) => {
+                const field = document.createElement('div');
+                field.className = `${CONFIG.UI_PREFIX}-settings-field ${CONFIG.UI_PREFIX}-toggle-field`;
+                const label = document.createElement('label');
+                label.textContent = labelTxt;
+
+                const switchLabel = document.createElement('label');
+                switchLabel.className = `${CONFIG.UI_PREFIX}-switch`;
+
+                const input = document.createElement('input');
+                input.type = 'checkbox';
+                input.checked = GM_getValue(inputId, defaultVal);
+
+                const slider = document.createElement('span');
+                slider.className = `${CONFIG.UI_PREFIX}-slider`;
+
+                switchLabel.appendChild(input);
+                switchLabel.appendChild(slider);
+                field.appendChild(label);
+                field.appendChild(switchLabel);
+
+                return { fieldWrapper: field, inputElement: input };
+            };
+
+            const workerUrl = createSettingsField('Cloudflare Worker End-Point', 'text', 'tm_kpop_dl_worker_url', '', 'https://your-worker.workers.dev');
+            const token = createSettingsField('GitHub Fine-Grained Token', 'password', 'tm_kpop_dl_github_token', '', 'github_pat_...');
+            const owner = createSettingsField('Repository Structural Owner', 'text', 'tm_kpop_dl_github_owner', '', 'GitHub Username');
+            const repo = createSettingsField('Target Repository Domain', 'text', 'tm_kpop_dl_github_repo', '', 'Repository Name');
+            const dbPath = createSettingsField('Database Target Path Mapping', 'text', 'tm_kpop_dl_github_path', 'kmedia-downloader-db.json', 'kmedia-downloader-db.json');
+            const historyPath = createSettingsField('History Target Path Mapping', 'text', 'tm_kpop_dl_history_path', 'kmedia-downloader-history.json', 'kmedia-downloader-history.json');
+            const branch = createSettingsField('Target Remote Tree Branch', 'text', 'tm_kpop_dl_github_branch', 'main', 'main');
+            const autoClose = createToggleField('Auto-Close Tab on Success', 'tm_kpop_dl_auto_close', false);
+
+            this.configInputs = {
+                url: workerUrl.inputElement,
+                token: token.inputElement,
+                owner: owner.inputElement,
+                repo: repo.inputElement,
+                path: dbPath.inputElement,
+                historyPath: historyPath.inputElement,
+                branch: branch.inputElement,
+                autoClose: autoClose.inputElement
+            };
 
             const saveConfigBtn = document.createElement('button');
             saveConfigBtn.className = `${CONFIG.UI_PREFIX}-settings-save-btn`;
             saveConfigBtn.textContent = 'Save Configuration';
             saveConfigBtn.onclick = () => {
-                GM_setValue('tm_kpop_dl_worker_url', workerUrlInput.value.trim());
-                GM_setValue('tm_kpop_dl_github_token', tokenInput.value.trim());
-                GM_setValue('tm_kpop_dl_github_owner', ownerInput.value.trim());
-                GM_setValue('tm_kpop_dl_github_repo', repoInput.value.trim());
-                GM_setValue('tm_kpop_dl_github_path', dbPathInput.value.trim() || 'kmedia-downloader-db.json');
-                GM_setValue('tm_kpop_dl_history_path', historyPathInput.value.trim() || 'kmedia-downloader-history.json');
-                GM_setValue('tm_kpop_dl_github_branch', branchInput.value.trim() || 'main');
+                GM_setValue('tm_kpop_dl_worker_url', this.configInputs.url.value.trim());
+                GM_setValue('tm_kpop_dl_github_token', this.configInputs.token.value.trim());
+                GM_setValue('tm_kpop_dl_github_owner', this.configInputs.owner.value.trim());
+                GM_setValue('tm_kpop_dl_github_repo', this.configInputs.repo.value.trim());
+                GM_setValue('tm_kpop_dl_github_path', this.configInputs.path.value.trim() || 'kmedia-downloader-db.json');
+                GM_setValue('tm_kpop_dl_history_path', this.configInputs.historyPath.value.trim() || 'kmedia-downloader-history.json');
+                GM_setValue('tm_kpop_dl_github_branch', this.configInputs.branch.value.trim() || 'main');
+
+                CONFIG.AUTO_CLOSE_TAB = this.configInputs.autoClose.checked;
+                GM_setValue('tm_kpop_dl_auto_close', CONFIG.AUTO_CLOSE_TAB);
+
+                this.initialConfigState = this.currentConfigState;
 
                 CloudAPI.loadConfig();
                 this.showToast('Configurations saved. Re-synchronizing environments...');
@@ -1368,14 +1501,19 @@
                 });
             };
 
-            this.configContainer.appendChild(workerUrlInput.parentNode);
-            this.configContainer.appendChild(tokenInput.parentNode);
-            this.configContainer.appendChild(ownerInput.parentNode);
-            this.configContainer.appendChild(repoInput.parentNode);
-            this.configContainer.appendChild(dbPathInput.parentNode);
-            this.configContainer.appendChild(historyPathInput.parentNode);
-            this.configContainer.appendChild(branchInput.parentNode);
-            this.configContainer.appendChild(saveConfigBtn);
+            configBody.appendChild(workerUrl.fieldWrapper);
+            configBody.appendChild(token.fieldWrapper);
+            configBody.appendChild(owner.fieldWrapper);
+            configBody.appendChild(repo.fieldWrapper);
+            configBody.appendChild(dbPath.fieldWrapper);
+            configBody.appendChild(historyPath.fieldWrapper);
+            configBody.appendChild(branch.fieldWrapper);
+            configBody.appendChild(autoClose.fieldWrapper);
+
+            configFooter.appendChild(saveConfigBtn);
+
+            this.configContainer.appendChild(configBody);
+            this.configContainer.appendChild(configFooter);
             panel.appendChild(this.configContainer);
 
             // --- Search ---
@@ -1936,6 +2074,9 @@
         },
 
         closeMenu() {
+            if (this.currentView === 'config' && this.hasUnsavedChanges()) {
+                if (!confirm("You have unsaved changes. Discard them?")) return;
+            }
             if (this.overlay) {
                 this.overlay.remove();
                 this.overlay = null;
@@ -1960,6 +2101,7 @@
             if (window.__KpopDlInitialized || !this.isDirectMediaPage()) return;
             window.__KpopInitialized = true;
 
+            CONFIG.AUTO_CLOSE_TAB = GM_getValue('tm_kpop_dl_auto_close', false);
             CloudAPI.loadConfig();
             UI.initTemplates();
             Storage.init();
@@ -1975,7 +2117,7 @@
                 }
             }, CONFIG.CLOUD_HISTORY_THROTTLE_MS);
 
-            Logger.info('Initialized K-Pop Media Downloader v7.1');
+            Logger.info('Initialized K-Pop Media Downloader v7.3');
         },
 
         isDirectMediaPage() {
