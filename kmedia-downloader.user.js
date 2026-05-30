@@ -2,7 +2,7 @@
 // @name         [Universal] K-Media Downloader
 // @namespace    https://github.com/myouisaur/Universal
 // @icon         data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23FF4081'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 11h3l-4 4-4-4h3V8h2v5z'/%3E%3C/svg%3E
-// @version      7.4
+// @version      7.5
 // @description  Organizes, tracks, and saves categorized K-Pop media files through a centralized overlay.
 // @author       Xiv
 // @match        *://*/*
@@ -479,7 +479,7 @@
                 Logger.info('History cache successfully pushed to remote branch.');
             } catch (e) {
                 Logger.warn(`History cloud sync failure: ${e.message}`);
-                throw e; // Rethrow so auto-close sequence can catch it
+                throw e;
             }
         },
 
@@ -488,10 +488,7 @@
             this._cache.push({ g: group, n: name, t: Date.now() });
             this.clean();
 
-            // Immediately secure to local memory cache to handle optimistic syncing
             GM_setValue(CONFIG.STORAGE_KEY, JSON.stringify(this._cache));
-
-            // Standard background sync queue
             this._saveCloudDebounced();
         },
 
@@ -630,6 +627,12 @@
                 Storage.recordSuccess(groupContext, nameContext);
             }
 
+            // --- LOCAL FILE INTERCEPT ---
+            if (url.startsWith('file://')) {
+                this.bufferLocalFile(url, name, groupContext, nameContext, toastObj, promptUser);
+                return;
+            }
+
             let hasPathExtension = false;
             try {
                 hasPathExtension = !!new URL(url).pathname.match(/\.[a-zA-Z0-9]+$/);
@@ -639,6 +642,104 @@
                 this._executeGMDownload(url, name, groupContext, nameContext, toastObj, promptUser);
             } else {
                 this.fallbackDownload(url, name, groupContext, nameContext, toastObj);
+            }
+        },
+
+        bufferLocalFile(url, name, groupContext, nameContext, toastObj, promptUser) {
+            Logger.info('Buffering local file to bypass browser name enforcement...');
+            UI.updateDownloadToast(toastObj, 0, 0, 'Buffering local file into memory...');
+
+            const ext = name.substring(name.lastIndexOf('.') + 1).toLowerCase();
+            const staticImages = ['jpg', 'jpeg', 'png', 'webp'];
+
+            // Bypass network completely for static images via DOM Canvas extraction
+            if (staticImages.includes(ext)) {
+                const imgNode = document.querySelector('img');
+                if (imgNode && imgNode.complete) {
+                    try {
+                        const canvas = document.createElement('canvas');
+                        canvas.width = imgNode.naturalWidth;
+                        canvas.height = imgNode.naturalHeight;
+                        canvas.getContext('2d').drawImage(imgNode, 0, 0);
+
+                        let mimeType = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : `image/${ext}`;
+                        canvas.toBlob((blob) => {
+                            if (blob) {
+                                this._saveBlob(blob, name, groupContext, nameContext, toastObj, promptUser);
+                            } else {
+                                this._bufferViaNetwork(url, name, groupContext, nameContext, toastObj, promptUser);
+                            }
+                        }, mimeType, 1.0);
+                        return;
+                    } catch (e) {
+                        Logger.warn("Canvas fallback failed, routing to network buffer.");
+                    }
+                }
+            }
+
+            this._bufferViaNetwork(url, name, groupContext, nameContext, toastObj, promptUser);
+        },
+
+        async _bufferViaNetwork(url, name, groupContext, nameContext, toastObj, promptUser) {
+            // 1. Try Native Fetch (works in some browsers/forks on file://)
+            try {
+                const res = await fetch(url);
+                if (res.ok) {
+                    const blob = await res.blob();
+                    this._saveBlob(blob, name, groupContext, nameContext, toastObj, promptUser);
+                    return;
+                }
+            } catch (e) {}
+
+            // 2. Try GM_xmlhttpRequest (Requires explicit TM Security permission)
+            if (typeof GM_xmlhttpRequest === 'function') {
+                GM_xmlhttpRequest({
+                    method: 'GET',
+                    url: url,
+                    responseType: 'blob',
+                    onload: (res) => {
+                        if (res.status >= 200 && res.status < 300 || res.status === 0) {
+                            this._saveBlob(res.response, name, groupContext, nameContext, toastObj, promptUser);
+                        } else {
+                            UI.finishDownloadToast(toastObj, 'error', 'Failed to read local file.');
+                        }
+                    },
+                    onerror: (err) => {
+                        Logger.error('Local buffer failed', err);
+                        // Explicitly tell the user the exact TM setting needed to bypass the permission block
+                        UI.finishDownloadToast(toastObj, 'error', 'Enable "Allow local files" in TM Security Settings');
+                    }
+                });
+            } else {
+                UI.finishDownloadToast(toastObj, 'error', 'Missing TM network engine.');
+            }
+        },
+
+        _saveBlob(blob, name, groupContext, nameContext, toastObj, promptUser) {
+            const blobUrl = URL.createObjectURL(blob);
+            if (typeof GM_download === 'function') {
+                GM_download({
+                    url: blobUrl,
+                    name: name,
+                    saveAs: promptUser,
+                    onload: () => {
+                        URL.revokeObjectURL(blobUrl);
+                        UI.finishDownloadToast(toastObj, 'success', 'Saved Successfully!');
+                        UI.startAutoCloseSequence();
+                    },
+                    onerror: () => {
+                        URL.revokeObjectURL(blobUrl);
+                        UI.finishDownloadToast(toastObj, 'error', 'Local Blob save failed.');
+                    }
+                });
+            } else {
+                const a = document.createElement('a');
+                a.href = blobUrl;
+                a.download = name.substring(name.lastIndexOf('/') + 1);
+                a.click();
+                URL.revokeObjectURL(blobUrl);
+                UI.finishDownloadToast(toastObj, 'success', 'Saved Successfully!');
+                UI.startAutoCloseSequence();
             }
         },
 
@@ -1124,7 +1225,6 @@
             if (this.toastContainer) this.toastContainer.appendChild(toast);
 
             try {
-                // Hook into the actual network promise. No more arbitrary timeouts!
                 if (CloudAPI.isValid() && !CloudAPI.isRateLimited()) {
                     await Storage.saveCloud();
                 }
@@ -1132,7 +1232,6 @@
                 toast.className = `${CONFIG.UI_PREFIX}-toast success`;
                 toast.innerHTML = `Data secured! Closing tab...`;
 
-                // Allow a brief moment so the user sees the green success message before closing
                 setTimeout(() => {
                     try { window.close(); } catch (e) { Logger.warn("Window close blocked by browser."); }
                 }, 600);
@@ -2118,7 +2217,7 @@
                 }
             }, CONFIG.CLOUD_HISTORY_THROTTLE_MS);
 
-            Logger.info('Initialized K-Pop Media Downloader v7.3');
+            Logger.info('Initialized K-Pop Media Downloader v7.5');
         },
 
         isDirectMediaPage() {
