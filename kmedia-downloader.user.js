@@ -2,7 +2,7 @@
 // @name         [Universal] K-Media Downloader
 // @namespace    https://github.com/myouisaur/Universal
 // @icon         data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23FF4081'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 11h3l-4 4-4-4h3V8h2v5z'/%3E%3C/svg%3E
-// @version      7.9
+// @version      8.2
 // @description  Organizes, tracks, and saves categorized K-Pop media files through a centralized overlay.
 // @author       Xiv
 // @match        *://*/*
@@ -32,7 +32,6 @@
         CUSTOM_NAMING_FORMAT: '{custom}-{random}.{ext}',
         RANDOM_STRING_LENGTH: 8,
 
-        IDOL_SUBFOLDER: '', //planning to remove this
         PROMPT_ON_IDOL_SAVE: false,
 
         UI_PREFIX: 'tm-kpop-dl',
@@ -209,7 +208,7 @@
 
         async init() {
             this.isLoading = true;
-            if (UI.overlay) UI.renderVirtualList();
+            if (UI.overlay) UI.updateListData(UI.searchInput ? UI.searchInput.value.toLowerCase().trim() : '');
 
             try {
                 const cached = this.getCache();
@@ -232,7 +231,9 @@
                     this.isLoading = false;
                 }
             }
-            if (UI.overlay) UI.renderVirtualList();
+            if (UI.overlay) {
+                UI.updateListData(UI.searchInput ? UI.searchInput.value.toLowerCase().trim() : '');
+            }
         },
 
         getCache() {
@@ -266,7 +267,6 @@
 
         fetch() {
             const dbPath = GM_getValue('tm_kpop_dl_github_path', 'kmedia-downloader-db.json');
-
             if (CloudAPI.isValid()) {
                 return CloudAPI.fetch(dbPath).then(data => data || {});
             }
@@ -380,15 +380,12 @@
 
         init() {
             this.syncFromStorage();
-
             this._saveLocalDebounced = Utils.debounce(() => {
                 GM_setValue(CONFIG.STORAGE_KEY, JSON.stringify(this._cache));
             }, CONFIG.SAVE_DEBOUNCE_MS);
-
             this._saveCloudDebounced = Utils.debounce(() => {
                 this.saveCloud();
             }, CONFIG.CLOUD_HISTORY_DEBOUNCE_MS);
-
             this.clean();
             this.setupCrossTabSync();
             this.fetchCloudBackground();
@@ -425,7 +422,6 @@
             this._cache = this._cache
                 .filter(item => item.t >= cutoffDate)
                 .slice(-CONFIG.HISTORY_MAX_ENTRIES);
-
             if (this._cache.length !== initialLength) {
                 this._saveLocalDebounced();
             }
@@ -434,10 +430,8 @@
 
         async fetchCloudBackground(force = false) {
             if (!CloudAPI.isValid() || CloudAPI.isRateLimited()) return;
-
             if (!force && Date.now() - this._lastCloudFetch < CONFIG.CLOUD_HISTORY_THROTTLE_MS) return;
             this._lastCloudFetch = Date.now();
-
             try {
                 const historyPath = GM_getValue('tm_kpop_dl_history_path', 'kmedia-downloader-history.json');
                 const cloudData = await CloudAPI.fetch(historyPath);
@@ -453,11 +447,9 @@
                         [...this._cache, ...cloudData].forEach(item => {
                             mergedMap.set(`${item.t}-${item.g}-${item.n}`, item);
                         });
-
                         const newCache = Array.from(mergedMap.values()).sort((a, b) => a.t - b.t);
                         const isChanged = newCache.length !== this._cache.length ||
-                                          (newCache.length > 0 && this._cache.length > 0 && newCache[newCache.length - 1].t !== this._cache[this._cache.length - 1].t);
-
+                        (newCache.length > 0 && this._cache.length > 0 && newCache[newCache.length - 1].t !== this._cache[this._cache.length - 1].t);
                         if (isChanged) {
                             this._cache = newCache;
                             this.clean();
@@ -543,6 +535,7 @@
                 if (!frequencies[identifier]) {
                     frequencies[identifier] = { g: item.g, n: item.n, count: 0 };
                 }
+
                 frequencies[identifier].count++;
             });
             return Object.values(frequencies).sort((a, b) => b.count - a.count);
@@ -605,21 +598,13 @@
 
         executeIdolSave(group, name) {
             const fileName = this.generateFileName(group, name);
-            let finalName = fileName;
-
-            if (CONFIG.IDOL_SUBFOLDER) {
-                const cleanFolder = CONFIG.IDOL_SUBFOLDER.replace(/\\/g, '/').replace(/\/$/, '');
-                if (cleanFolder) {
-                    finalName = `${cleanFolder}/${fileName}`;
-                }
-            }
-
             UI.closeMenu();
-            this.triggerDownload(window.location.href, finalName, group, name, CONFIG.PROMPT_ON_IDOL_SAVE);
+            this.triggerDownload(window.location.href, fileName, group, name, CONFIG.PROMPT_ON_IDOL_SAVE);
         },
 
         triggerDownload(url, name, groupContext, nameContext, promptUser = true) {
-            const displayFileName = name.includes('/') ? name.substring(name.lastIndexOf('/') + 1) : name;
+            const displayFileName = name.includes('/') ?
+            name.substring(name.lastIndexOf('/') + 1) : name;
             const toastObj = UI.createDownloadToast(displayFileName);
 
             // --- OPTIMISTIC LOCAL SAVING ---
@@ -662,10 +647,12 @@
                         canvas.height = imgNode.naturalHeight;
                         canvas.getContext('2d').drawImage(imgNode, 0, 0);
 
-                        let mimeType = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : `image/${ext}`;
+                        let mimeType = ext === 'jpg' || ext === 'jpeg' ?
+                        'image/jpeg' : `image/${ext}`;
                         canvas.toBlob((blob) => {
                             if (blob) {
                                 this._saveBlob(blob, name, groupContext, nameContext, toastObj, promptUser);
+
                             } else {
                                 this._bufferViaNetwork(url, name, groupContext, nameContext, toastObj, promptUser);
                             }
@@ -699,7 +686,7 @@
                     responseType: 'blob',
                     onload: (res) => {
                         if (res.status >= 200 && res.status < 300 || res.status === 0) {
-                            this._saveBlob(res.response, name, groupContext, nameContext, toastObj, promptUser);
+                             this._saveBlob(res.response, name, groupContext, nameContext, toastObj, promptUser);
                         } else {
                             UI.finishDownloadToast(toastObj, 'error', 'Failed to read local file.');
                         }
@@ -889,7 +876,8 @@
                 /* Floating Action Button */
                 .${CONFIG.UI_PREFIX}-fab {
                     position: fixed; bottom: 2.5rem; right: 2.5rem;
-                    width: 3.5rem; height: 3.5rem; background: rgba(255, 255, 255, 0.1);
+                    width: 3.5rem; height: 3.5rem;
+                    background: rgba(255, 255, 255, 0.1);
                     border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 50%;
                     display: flex; align-items: center; justify-content: center;
                     cursor: pointer; box-shadow: 0 0.5rem 1.5rem rgba(0,0,0,0.6);
@@ -900,27 +888,33 @@
 
                 /* Overlay & Layout */
                 #${CONFIG.UI_PREFIX}-overlay {
-                    position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+                    position: fixed;
+                    top: 0; left: 0; width: 100vw; height: 100vh;
                     background: rgba(0,0,0,0.85); z-index: ${CONFIG.OVERLAY_Z_INDEX};
                     display: flex; align-items: center; justify-content: center;
                     font-family: 'Inter', -apple-system, sans-serif; backdrop-filter: blur(8px);
                 }
                 .${CONFIG.UI_PREFIX}-layout {
-                    display: flex; gap: 1.5rem; max-width: 95vw; max-height: 95vh;
+                    display: flex;
+                    gap: 1.5rem; max-width: 95vw; max-height: 95vh;
                     justify-content: center; align-items: flex-end; position: relative;
                 }
 
                 /* Panels & Containers */
                 .${CONFIG.UI_PREFIX}-main-container {
-                    display: flex; flex-direction: column; order: 2; width: 25rem; height: 80vh; position: relative;
+                    display: flex;
+                    flex-direction: column; order: 2; width: 25rem; height: 80vh; position: relative;
                 }
                 .${CONFIG.UI_PREFIX}-floating-controls {
-                    position: absolute; top: -3.2rem; right: 0; display: flex; gap: 0.5rem; flex-shrink: 0;
+                    position: absolute;
+                    top: -3.2rem; right: 0; display: flex; gap: 0.5rem; flex-shrink: 0;
                 }
                 .${CONFIG.UI_PREFIX}-panel {
-                    background: var(--tm-bg-base); border-radius: 1.5rem; padding: 1.5rem; border: 1px solid var(--tm-border);
+                    background: var(--tm-bg-base);
+                    border-radius: 1.5rem; padding: 1.5rem; border: 1px solid var(--tm-border);
                     box-shadow: 0 2rem 4rem rgba(0,0,0,0.8); color: var(--tm-text-main);
-                    display: flex; flex-direction: column; box-sizing: border-box; overflow: hidden;
+                    display: flex; flex-direction: column;
+                    box-sizing: border-box; overflow: hidden;
                 }
                 .${CONFIG.UI_PREFIX}-main { width: 100%; height: 100%; position: relative; }
                 .${CONFIG.UI_PREFIX}-side { width: 20rem; height: 80vh; background: var(--tm-bg-panel); }
@@ -929,24 +923,30 @@
 
                 /* Header */
                 .${CONFIG.UI_PREFIX}-header {
-                    display: flex; align-items: center; justify-content: center; gap: 1rem;
+                    display: flex;
+                    align-items: center; justify-content: center; gap: 1rem;
                     height: 2.5rem; margin-bottom: 1rem; flex-shrink: 0;
                 }
                 .${CONFIG.UI_PREFIX}-header-left {
-                    display: flex; align-items: center; gap: 0.8rem; overflow: hidden; flex-grow: 1;
+                    display: flex;
+                    align-items: center; gap: 0.8rem; overflow: hidden; flex-grow: 1;
                 }
                 .${CONFIG.UI_PREFIX}-header h2 {
-                    font-size: 1.1rem; margin: 0; font-weight: 600; color: #eee; text-align: center;
+                    font-size: 1.1rem;
+                    margin: 0; font-weight: 600; color: #eee; text-align: center;
                 }
                 .${CONFIG.UI_PREFIX}-main .${CONFIG.UI_PREFIX}-header h2 {
-                    text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+                    text-align: left;
+                    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
                 }
 
                 .${CONFIG.UI_PREFIX}-icon-btn {
-                    background: #1a1a1a; border: 1px solid var(--tm-border-light);
+                    background: #1a1a1a;
+                    border: 1px solid var(--tm-border-light);
                     border-radius: 0.7rem; width: 2.5rem; height: 2.5rem; display: flex;
                     align-items: center; justify-content: center; cursor: pointer;
-                    transition: 0.2s; flex-shrink: 0;
+                    transition: 0.2s;
+                    flex-shrink: 0;
                 }
                 .${CONFIG.UI_PREFIX}-icon-btn:hover { background: var(--tm-border); border-color: var(--tm-border-focus); }
                 .${CONFIG.UI_PREFIX}-icon-btn svg { width: 1.1rem; height: 1.1rem; fill: var(--tm-text-main); }
@@ -957,26 +957,33 @@
 
                 /* Configuration Notification Dot */
                 .${CONFIG.UI_PREFIX}-notification-dot {
-                    position: absolute; top: -2px; right: -2px; width: 10px; height: 10px;
+                    position: absolute;
+                    top: -2px; right: -2px; width: 10px; height: 10px;
                     background-color: var(--tm-danger); border-radius: 50%; border: 2px solid #1a1a1a; box-sizing: content-box;
                 }
 
                 /* Toast Notifications */
                 #${CONFIG.UI_PREFIX}-toast-wrapper {
-                    position: fixed; bottom: 2rem; left: 50%; transform: translateX(-50%);
+                    position: fixed;
+                    bottom: 2rem; left: 50%; transform: translateX(-50%);
                     display: flex; flex-direction: column; gap: 0.8rem; z-index: ${CONFIG.OVERLAY_Z_INDEX + 10};
-                    pointer-events: none; align-items: center; font-family: 'Inter', -apple-system, sans-serif;
+                    pointer-events: none; align-items: center;
+                    font-family: 'Inter', -apple-system, sans-serif;
                 }
                 .${CONFIG.UI_PREFIX}-toast {
-                    background: #111; border: 1px solid var(--tm-border-light); color: var(--tm-text-main);
+                    background: #111;
+                    border: 1px solid var(--tm-border-light); color: var(--tm-text-main);
                     padding: 0.8rem 1.2rem; border-radius: 2rem; font-size: 0.9rem; font-weight: 500;
-                    box-shadow: 0 1rem 2rem rgba(0,0,0,0.6); display: flex; align-items: center; gap: 0.5rem; pointer-events: auto;
+                    box-shadow: 0 1rem 2rem rgba(0,0,0,0.6);
+                    display: flex; align-items: center; gap: 0.5rem; pointer-events: auto;
                 }
 
                 .${CONFIG.UI_PREFIX}-dl-toast {
-                    flex-direction: column; align-items: stretch; gap: 0.4rem; min-width: 250px; background: #1a1a1a; border-radius: 1rem;
+                    flex-direction: column;
+                    align-items: stretch; gap: 0.4rem; min-width: 250px; background: #1a1a1a; border-radius: 1rem;
                 }
-                .${CONFIG.UI_PREFIX}-dl-title { font-size: 0.85rem; font-weight: 600; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; max-width: 300px;}
+                .${CONFIG.UI_PREFIX}-dl-title { font-size: 0.85rem;
+                    font-weight: 600; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; max-width: 300px;}
                 .${CONFIG.UI_PREFIX}-progress-bg { width: 100%; height: 6px; background: var(--tm-border-light); border-radius: 3px; overflow: hidden; }
                 .${CONFIG.UI_PREFIX}-progress-fill { height: 100%; background: var(--tm-primary); width: 0%; transition: width 0.2s linear, background 0.3s; }
                 .${CONFIG.UI_PREFIX}-dl-status { font-size: 0.75rem; color: var(--tm-text-muted); text-align: right; font-variant-numeric: tabular-nums; }
@@ -991,17 +998,21 @@
                 /* Search */
                 .${CONFIG.UI_PREFIX}-search-container { margin-bottom: 1rem; flex-shrink: 0; }
                 .${CONFIG.UI_PREFIX}-search-input {
-                    width: 100%; background: var(--tm-bg-input); border: 1px solid var(--tm-border-light); border-radius: 0.8rem;
-                    padding: 0.8rem 1rem; color: var(--tm-text-main); font-size: 0.95rem; outline: none; box-sizing: border-box; transition: 0.2s;
+                    width: 100%;
+                    background: var(--tm-bg-input); border: 1px solid var(--tm-border-light); border-radius: 0.8rem;
+                    padding: 0.8rem 1rem; color: var(--tm-text-main); font-size: 0.95rem; outline: none; box-sizing: border-box;
+                    transition: 0.2s;
                 }
                 .${CONFIG.UI_PREFIX}-search-input:focus { border-color: var(--tm-text-dark); background: #1a1a1a; }
 
                 /* Virtual List Architecture */
                 .${CONFIG.UI_PREFIX}-list-wrapper {
-                    flex-grow: 1; min-height: 0; width: 100%; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-start;
+                    flex-grow: 1;
+                    min-height: 0; width: 100%; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-start;
                 }
                 .${CONFIG.UI_PREFIX}-list {
-                    width: 100%; overflow-y: auto; overflow-x: hidden; position: relative; padding-right: 0.5rem; box-sizing: border-box; outline: none;
+                    width: 100%;
+                    overflow-y: auto; overflow-x: hidden; position: relative; padding-right: 0.5rem; box-sizing: border-box; outline: none;
                 }
                 .${CONFIG.UI_PREFIX}-list::-webkit-scrollbar { width: 6px; }
                 .${CONFIG.UI_PREFIX}-list::-webkit-scrollbar-thumb { background: var(--tm-border-light); border-radius: 10px; }
@@ -1010,7 +1021,8 @@
                 .${CONFIG.UI_PREFIX}-empty-state { position: absolute; top: 2rem; width: 100%; text-align: center; color: var(--tm-text-dark); font-size: 0.9rem; font-style: italic; }
 
                 .${CONFIG.UI_PREFIX}-item {
-                    position: absolute; top: 0; left: 0; width: 100%; height: 42px;
+                    position: absolute;
+                    top: 0; left: 0; width: 100%; height: 42px;
                     background: #141414; border: 1px solid transparent; padding: 0 1rem; border-radius: 0.8rem;
                     cursor: pointer; transition: background 0.15s; font-size: 0.95rem; display: flex;
                     justify-content: space-between; align-items: center; box-sizing: border-box; will-change: transform;
@@ -1018,7 +1030,8 @@
                 .${CONFIG.UI_PREFIX}-item:hover, .${CONFIG.UI_PREFIX}-item.active-focus { background: var(--tm-bg-hover); border-color: var(--tm-border-focus); }
 
                 .${CONFIG.UI_PREFIX}-badge {
-                    font-size: 0.7rem; color: #888; background: #1a1a1a; padding: 0.2rem 0.5rem;
+                    font-size: 0.7rem;
+                    color: #888; background: #1a1a1a; padding: 0.2rem 0.5rem;
                     border-radius: 0.4rem; border: 1px solid #252525; font-weight: 500; transition: 0.2s;
                 }
                 .${CONFIG.UI_PREFIX}-badge.accent { color: var(--tm-text-muted); border-color: #444; background: #222; }
@@ -1031,8 +1044,10 @@
                 .${CONFIG.UI_PREFIX}-footer { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--tm-border); flex-shrink: 0; display: flex; flex-direction: column; gap: 0.5rem; }
                 .${CONFIG.UI_PREFIX}-btn-row { display: flex; gap: 0.5rem; width: 100%; }
                 .${CONFIG.UI_PREFIX}-action-btn {
-                    flex: 1; background: #1a1a1a; color: #999; border: 1px dashed #444; padding: 0.8rem; border-radius: 0.8rem;
-                    cursor: pointer; font-size: 0.9rem; transition: 0.2s; outline: none; display: flex; align-items: center; justify-content: center;
+                    flex: 1;
+                    background: #1a1a1a; color: #999; border: 1px dashed #444; padding: 0.8rem; border-radius: 0.8rem;
+                    cursor: pointer; font-size: 0.9rem; transition: 0.2s; outline: none;
+                    display: flex; align-items: center; justify-content: center;
                 }
                 .${CONFIG.UI_PREFIX}-action-btn:hover, .${CONFIG.UI_PREFIX}-action-btn:focus { background: #222; color: var(--tm-text-main); border-color: var(--tm-text-dark); }
 
@@ -1053,7 +1068,8 @@
                 .${CONFIG.UI_PREFIX}-crud-add-btn:hover:not(:disabled) { background: var(--tm-border-light); border-color: var(--tm-border-focus); }
 
                 .${CONFIG.UI_PREFIX}-edit-item-btn, .${CONFIG.UI_PREFIX}-delete-btn {
-                    background: transparent; border: none; cursor: pointer; padding: 0.4rem;
+                    background: transparent;
+                    border: none; cursor: pointer; padding: 0.4rem;
                     display: flex; align-items: center; justify-content: center; border-radius: 0.4rem; transition: background 0.2s;
                     margin-left: 0.2rem;
                 }
@@ -1201,7 +1217,6 @@
             toast.textContent = message;
             toast.style.animation = 'tmToastFadeIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards';
             this.toastContainer.appendChild(toast);
-
             setTimeout(() => {
                 if (toast && toast.parentNode) {
                     toast.style.animation = 'tmToastFadeOut 0.3s ease forwards';
@@ -1214,7 +1229,6 @@
 
         async startAutoCloseSequence() {
             if (!CONFIG.AUTO_CLOSE_TAB) return;
-
             this.manageToastCount();
             const toast = document.createElement('div');
             toast.className = `${CONFIG.UI_PREFIX}-toast syncing`;
@@ -1223,7 +1237,6 @@
             toast.style.animation = 'tmToastFadeIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards';
 
             if (this.toastContainer) this.toastContainer.appendChild(toast);
-
             try {
                 if (CloudAPI.isValid() && !CloudAPI.isRateLimited()) {
                     await Storage.saveCloud();
@@ -1264,10 +1277,8 @@
 
             const scrollTop = panelObj.container.scrollTop;
             const contHeight = panelObj.cachedHeight || 400;
-
             const startIndex = Math.max(0, Math.floor(scrollTop / itemHeight) - 5);
             const endIndex = Math.min(totalItems, Math.floor((scrollTop + contHeight) / itemHeight) + 5);
-
             panelObj.inner.textContent = '';
             const fragment = document.createDocumentFragment();
 
@@ -1277,7 +1288,6 @@
                 btn.className = `${CONFIG.UI_PREFIX}-item`;
                 btn.style.transform = `translate3d(0, ${i * itemHeight}px, 0)`;
                 btn.dataset.index = i;
-
                 const nameSpan = document.createElement('span');
                 nameSpan.textContent = itemData.n;
 
@@ -1321,11 +1331,9 @@
             this.sidePanels[type].wrapper = wrapper;
             this.sidePanels[type].container = list;
             this.sidePanels[type].inner = inner;
-
             list.addEventListener('scroll', () => {
                 requestAnimationFrame(() => this._renderSidePanelVirtual(type));
             });
-
             inner.addEventListener('click', (e) => {
                 const badge = e.target.closest(`.${CONFIG.UI_PREFIX}-badge-actionable`);
                 if (badge) {
@@ -1346,7 +1354,6 @@
                     Downloader.executeIdolSave(itemData.g, itemData.n);
                 }
             });
-
             panel.appendChild(wrapper);
             return panel;
         },
@@ -1387,7 +1394,6 @@
 
             const panel = document.createElement('div');
             panel.className = `${CONFIG.UI_PREFIX}-panel ${CONFIG.UI_PREFIX}-main`;
-
             // --- Header ---
             const header = document.createElement('div');
             header.className = `${CONFIG.UI_PREFIX}-header`;
@@ -1498,7 +1504,6 @@
             floatingControls.appendChild(closeBtn);
 
             container.appendChild(floatingControls);
-
             // --- Config View Architecture ---
             this.configContainer = document.createElement('div');
             this.configContainer.className = `${CONFIG.UI_PREFIX}-config-wrapper`;
@@ -1508,7 +1513,6 @@
 
             const configFooter = document.createElement('div');
             configFooter.className = `${CONFIG.UI_PREFIX}-config-footer`;
-
             const createSettingsField = (labelTxt, inputType, inputId, defaultVal, placeholder) => {
                 const field = document.createElement('div');
                 field.className = `${CONFIG.UI_PREFIX}-settings-field`;
@@ -1523,7 +1527,6 @@
                 field.appendChild(input);
                 return { fieldWrapper: field, inputElement: input };
             };
-
             const createToggleField = (labelTxt, inputId, defaultVal) => {
                 const field = document.createElement('div');
                 field.className = `${CONFIG.UI_PREFIX}-settings-field ${CONFIG.UI_PREFIX}-toggle-field`;
@@ -1532,7 +1535,6 @@
 
                 const switchLabel = document.createElement('label');
                 switchLabel.className = `${CONFIG.UI_PREFIX}-switch`;
-
                 const input = document.createElement('input');
                 input.type = 'checkbox';
                 input.checked = GM_getValue(inputId, defaultVal);
@@ -1556,7 +1558,6 @@
             const historyPath = createSettingsField('History Target Path Mapping', 'text', 'tm_kpop_dl_history_path', 'kmedia-downloader-history.json', 'kmedia-downloader-history.json');
             const branch = createSettingsField('Target Remote Tree Branch', 'text', 'tm_kpop_dl_github_branch', 'main', 'main');
             const autoClose = createToggleField('Auto-Close Tab on Success', 'tm_kpop_dl_auto_close', false);
-
             this.configInputs = {
                 url: workerUrl.inputElement,
                 token: token.inputElement,
@@ -1567,7 +1568,6 @@
                 branch: branch.inputElement,
                 autoClose: autoClose.inputElement
             };
-
             const saveConfigBtn = document.createElement('button');
             saveConfigBtn.className = `${CONFIG.UI_PREFIX}-settings-save-btn`;
             saveConfigBtn.textContent = 'Save Configuration';
@@ -1579,7 +1579,6 @@
                 GM_setValue('tm_kpop_dl_github_path', this.configInputs.path.value.trim() || 'kmedia-downloader-db.json');
                 GM_setValue('tm_kpop_dl_history_path', this.configInputs.historyPath.value.trim() || 'kmedia-downloader-history.json');
                 GM_setValue('tm_kpop_dl_github_branch', this.configInputs.branch.value.trim() || 'main');
-
                 CONFIG.AUTO_CLOSE_TAB = this.configInputs.autoClose.checked;
                 GM_setValue('tm_kpop_dl_auto_close', CONFIG.AUTO_CLOSE_TAB);
 
@@ -1588,7 +1587,6 @@
                 CloudAPI.loadConfig();
                 this.showToast('Configurations saved. Re-synchronizing environments...');
                 this.currentView = 'groups';
-
                 if (CloudAPI.isValid()) {
                     const dot = configBtn.querySelector(`.${CONFIG.UI_PREFIX}-notification-dot`);
                     if (dot) dot.remove();
@@ -1615,7 +1613,6 @@
             this.configContainer.appendChild(configBody);
             this.configContainer.appendChild(configFooter);
             panel.appendChild(this.configContainer);
-
             // --- Search ---
             this.searchContainer = document.createElement('div');
             this.searchContainer.className = `${CONFIG.UI_PREFIX}-search-container`;
@@ -1624,7 +1621,6 @@
             this.searchInput.placeholder = "Search idols or groups...";
             this.searchContainer.appendChild(this.searchInput);
             panel.appendChild(this.searchContainer);
-
             // --- CRUD Bar ---
             this.crudBarContainer = document.createElement('div');
             this.crudBarContainer.className = `${CONFIG.UI_PREFIX}-crud-bar`;
@@ -1656,7 +1652,6 @@
             this.crudBarContainer.appendChild(this.crudInput);
             this.crudBarContainer.appendChild(this.crudBtn);
             panel.appendChild(this.crudBarContainer);
-
             // --- List View Wrapper Architecture ---
             this.mainListWrapper = document.createElement('div');
             this.mainListWrapper.className = `${CONFIG.UI_PREFIX}-list-wrapper`;
@@ -1669,11 +1664,9 @@
             this.listContainer.appendChild(this.listInner);
 
             this.mainListWrapper.appendChild(this.listContainer);
-
             this.listContainer.addEventListener('scroll', () => {
                 requestAnimationFrame(() => this.renderVirtualList());
             });
-
             // Event Delegation for List Items & Delete/Edit Buttons
             this.listInner.addEventListener('click', (e) => {
                 // Handle Group Badge Nav Click
@@ -1705,7 +1698,7 @@
                         }
                     } else if (itemData.type === 'member') {
                         if (confirm(`Confirm target detachment and deletion of profile structural reference: "${itemData.member}"?`)) {
-                            if (Database.deleteMember(itemData.group, itemData.member)) {
+                             if (Database.deleteMember(itemData.group, itemData.member)) {
                                 this.updateListData(this.searchInput.value.toLowerCase().trim());
                                 this.triggerCloudSync();
                             }
@@ -1755,7 +1748,6 @@
                     this.handleItemClick(this.currentListData[index]);
                 }
             });
-
             this.searchInput.addEventListener('keydown', (e) => {
                 if (this.currentView === 'config') return;
                 if (this.currentListData.length === 0) return;
@@ -1774,11 +1766,9 @@
                     if (activeItem) this.handleItemClick(activeItem);
                 }
             });
-
             this.searchInput.oninput = Utils.debounce((e) => {
                 this.updateListData(e.target.value.toLowerCase().trim());
             }, 150);
-
             // --- Footer ---
             this.footer = document.createElement('div');
             this.footer.className = `${CONFIG.UI_PREFIX}-footer`;
@@ -1791,7 +1781,6 @@
             stdBtn.innerText = "Standard Save";
             stdBtn.title = "Save with the original file name";
             stdBtn.onclick = () => Downloader.executeStandardSave();
-
             const customBtn = document.createElement('button');
             customBtn.className = `${CONFIG.UI_PREFIX}-action-btn`;
             customBtn.innerText = "Custom Save";
@@ -1799,7 +1788,6 @@
 
             btnRow.appendChild(stdBtn);
             btnRow.appendChild(customBtn);
-
             const customWrapper = document.createElement('div');
             customWrapper.className = `${CONFIG.UI_PREFIX}-custom-wrapper`;
 
@@ -1822,7 +1810,6 @@
 
             this.footer.appendChild(btnRow);
             this.footer.appendChild(customWrapper);
-
             const resetCustomInput = () => {
                 customWrapper.style.display = 'none';
                 btnRow.style.display = 'flex';
@@ -1837,7 +1824,6 @@
                     customNameInput.focus();
                 }
             };
-
             customBtn.onclick = () => {
                 btnRow.style.display = 'none';
                 customWrapper.style.display = 'flex';
@@ -1846,7 +1832,6 @@
 
             customCancelBtn.onclick = resetCustomInput;
             customConfirmBtn.onclick = submitCustomSave;
-
             customNameInput.addEventListener('keydown', (e) => {
                 if (e.key === 'Enter') {
                     e.preventDefault();
@@ -1858,7 +1843,6 @@
                     this.searchInput.focus();
                 }
             });
-
             panel.appendChild(this.mainListWrapper);
             panel.appendChild(this.footer);
 
@@ -1936,7 +1920,6 @@
 
         renderVirtualList() {
             if (!this.listContainer || !this.listInner || this.currentView === 'config') return;
-
             if (Database.isLoading) {
                 this.listInner.style.height = '100%';
                 this.listInner.textContent = '';
@@ -1963,10 +1946,8 @@
 
             const scrollTop = this.listContainer.scrollTop;
             const containerHeight = this.cachedContainerHeight || 400;
-
             const startIndex = Math.max(0, Math.floor(scrollTop / itemHeight) - 5);
             const endIndex = Math.min(totalItems, Math.floor((scrollTop + containerHeight) / itemHeight) + 5);
-
             this.listInner.textContent = '';
             const fragment = document.createDocumentFragment();
 
@@ -1981,11 +1962,9 @@
                 const nameSpan = document.createElement('span');
                 nameSpan.textContent = itemData.label;
                 btn.appendChild(nameSpan);
-
                 const rightWrapper = document.createElement('div');
                 rightWrapper.style.display = 'flex';
                 rightWrapper.style.alignItems = 'center';
-
                 if (itemData.badge) {
                     const badgeSpan = document.createElement('span');
                     badgeSpan.className = `${CONFIG.UI_PREFIX}-badge`;
@@ -2055,7 +2034,6 @@
 
         async triggerCloudSync() {
             if (!CloudAPI.isValid() || CloudAPI.isRateLimited()) return;
-
             this.updateCloudStatus('syncing');
             try {
                 await Database.saveCloud();
@@ -2082,7 +2060,6 @@
             }
 
             if (text) this.showToast(text, type);
-
             if (this.crudInput && this.crudBtn) {
                 const isSyncing = (status === 'syncing');
                 this.crudInput.disabled = isSyncing;
@@ -2104,7 +2081,6 @@
             document.body.style.overflow = 'hidden';
             const layoutWrapper = document.createElement('div');
             layoutWrapper.className = `${CONFIG.UI_PREFIX}-layout`;
-
             if (typeof ResizeObserver !== 'undefined') {
                 this.resizeObserver = new ResizeObserver(entries => {
                     for (let entry of entries) {
@@ -2141,7 +2117,6 @@
 
             this.overlay.appendChild(layoutWrapper);
             document.body.appendChild(this.overlay);
-
             this.updateListData('');
             this.refreshSidePanels();
 
@@ -2150,12 +2125,11 @@
 
         async showMenu() {
             if (this.overlay) return;
-
             if (CloudAPI.isValid() && !CloudAPI.isRateLimited()) {
                 Storage.fetchCloudBackground(true);
             }
 
-            if (!Database.isLoaded && !Database.isLoading) {
+            if (!Database.isLoaded) {
                 document.body.style.cursor = 'wait';
                 await Database.waitForLoad();
                 document.body.style.cursor = '';
@@ -2210,14 +2184,12 @@
             this.bindEvents();
 
             Database.init();
-
             setInterval(() => {
                 if (document.visibilityState === 'visible' && !UI.overlay) {
                     Storage.fetchCloudBackground();
                 }
             }, CONFIG.CLOUD_HISTORY_THROTTLE_MS);
-
-            Logger.info('Initialized K-Pop Media Downloader v7.5');
+            Logger.info('Initialized K-Pop Media Downloader v8.2');
         },
 
         isDirectMediaPage() {
@@ -2231,7 +2203,6 @@
                     Storage.fetchCloudBackground();
                 }
             });
-
             window.addEventListener('keydown', (e) => {
                 if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
                     e.preventDefault();
