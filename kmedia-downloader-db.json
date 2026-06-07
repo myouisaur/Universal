@@ -880,15 +880,6 @@
     "Yoonji",
     "Yeryung"
   ],
-  "Madein": [
-    "Mashiro",
-    "MiU",
-    "Suhye",
-    "Yeseo",
-    "Gaeun",
-    "Serina",
-    "Nagomi"
-  ],
   "MAJORS": [
     "Vita",
     "Ida",
@@ -1606,5 +1597,14 @@
     "Myah",
     "Summer",
     "Yeeum"
+  ],
+  "MADEIN": [
+    "Mashiro",
+    "MiU",
+    "Suhye",
+    "Yeseo",
+    "Gaeun",
+    "Serina",
+    "Nagomi"
   ]
 }
