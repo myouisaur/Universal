@@ -729,20 +729,6 @@
     "Liz",
     "Leeseo"
   ],
-  "IZ*ONE": [
-    "Chaewon",
-    "Chaeyeon",
-    "Eunbi",
-    "Hitomi",
-    "Hyewon",
-    "Minju",
-    "Nako",
-    "Sakura",
-    "Wonyoung",
-    "Yena",
-    "Yujin",
-    "Yuri"
-  ],
   "KARA": [
     "Gyuri",
     "Seungyeon",
@@ -1606,5 +1592,19 @@
     "Soojin",
     "Soyeon",
     "Yuqi"
+  ],
+  "IZONE": [
+    "Chaewon",
+    "Chaeyeon",
+    "Eunbi",
+    "Hitomi",
+    "Hyewon",
+    "Minju",
+    "Nako",
+    "Sakura",
+    "Wonyoung",
+    "Yena",
+    "Yujin",
+    "Yuri"
   ]
 }
