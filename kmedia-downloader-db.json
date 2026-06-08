@@ -1428,14 +1428,6 @@
     "Doeun",
     "Jieun"
   ],
-  "(G)I-DLE": [
-    "Minnie",
-    "Miyeon",
-    "Shuhua",
-    "Soojin",
-    "Soyeon",
-    "Yuqi"
-  ],
   "MEOVV": [
     "Anna",
     "Ella",
@@ -1606,5 +1598,13 @@
     "Gaeun",
     "Serina",
     "Nagomi"
+  ],
+  "GIDLE": [
+    "Minnie",
+    "Miyeon",
+    "Shuhua",
+    "Soojin",
+    "Soyeon",
+    "Yuqi"
   ]
 }
