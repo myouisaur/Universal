@@ -2,7 +2,7 @@
 // @name         [Universal] K-Media Downloader
 // @namespace    https://github.com/myouisaur/Universal
 // @icon         data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23FF4081'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 11h3l-4 4-4-4h3V8h2v5z'/%3E%3C/svg%3E
-// @version      10.3
+// @version      10.5
 // @description  Organizes, tracks, and saves categorized K-Pop media files through a centralized overlay.
 // @author       Xiv
 // @match        *://*/*
@@ -149,6 +149,7 @@
                     url: this.config.url,
                     headers: this.getHeaders(targetPath),
                     responseType: 'json',
+                    timeout: 15000,
                     onload: (res) => {
                         if (this.handleRateLimit(res.status)) return reject(new Error('Rate Limit Hit'));
 
@@ -183,6 +184,7 @@
                     },
                     data: JSON.stringify(payloadData),
                     responseType: 'json',
+                    timeout: 15000,
                     onload: (res) => {
                         if (this.handleRateLimit(res.status)) return reject(new Error('Rate Limit Hit'));
 
@@ -194,7 +196,8 @@
                             reject(new Error(msg));
                         }
                     },
-                    onerror: (err) => reject(err)
+                    onerror: (err) => reject(err),
+                    ontimeout: () => reject(new Error('Cloud Proxy Upload Timeout'))
                 });
             });
         }
@@ -279,6 +282,7 @@
                     method: 'GET',
                     url: CONFIG.DB_URL,
                     responseType: 'json',
+                    timeout: 15000,
                     onload: (res) => {
                         if (res.status >= 200 && res.status < 300) {
                             let responseData = res.response;
@@ -491,8 +495,6 @@
 
                 if (cloudData && Array.isArray(cloudData)) {
                     await this._queueTask(() => this._withLock(async () => {
-                        // ALWAYS use the map-merge, never blindly overwrite (even on force)
-                        // to prevent cloud anomalies from erasing local unsynced data.
                         const mergedMap = new Map();
                         [...this._cache, ...cloudData].forEach(item => {
                             mergedMap.set(`${item.t}-${item.g}-${item.n}`, item);
@@ -521,8 +523,6 @@
             const syncLockKey = `${CONFIG.UI_PREFIX}_cloud_sync_lock`;
             let shouldUpload = false;
 
-            // Protect the sync lock check inside the global mutex so simultaneous
-            // tabs do not bypass the guard and DDOS the GitHub API.
             await this._withLock(async () => {
                 if (Date.now() - GM_getValue(syncLockKey, 0) < 5000) {
                     GM_setValue(`${CONFIG.UI_PREFIX}_sync_dirty`, true);
@@ -538,7 +538,10 @@
 
             try {
                 let pushing = true;
-                while (pushing) {
+                let loops = 0;
+
+                while (pushing && loops < 3) {
+                    loops++;
                     await this._queueTask(() => this._withLock(async () => {
                         this.syncFromStorage();
                     }));
@@ -844,6 +847,7 @@
                     method: 'GET',
                     url: url,
                     responseType: 'blob',
+                    timeout: 30000,
                     onload: (res) => {
                         if (res.status >= 200 && res.status < 300 || res.status === 0) {
                             this._saveBlob(res.response, name, groupContext, nameContext, toastObj, promptUser, skipCloudSync);
@@ -854,6 +858,9 @@
                     onerror: (err) => {
                         Logger.error('Local buffer failed', err);
                         UI.finishDownloadToast(toastObj, 'error', 'Enable "Allow local files" in TM Security Settings');
+                    },
+                    ontimeout: () => {
+                        UI.finishDownloadToast(toastObj, 'error', 'Local buffer request timed out.');
                     }
                 });
             } else {
@@ -925,6 +932,7 @@
                     method: 'GET',
                     url: url,
                     responseType: 'blob',
+                    timeout: 30000,
                     onprogress: (e) => {
                         UI.updateDownloadToast(toastObj, e.loaded, e.total);
                     },
@@ -946,6 +954,9 @@
                     onerror: (err) => {
                         Logger.error('Fallback download failed', err);
                         UI.finishDownloadToast(toastObj, 'error', 'Network failure.');
+                    },
+                    ontimeout: () => {
+                        UI.finishDownloadToast(toastObj, 'error', 'Download request timed out.');
                     }
                 });
             } else {
@@ -1476,10 +1487,8 @@
                         syncResult = await Storage.saveCloud();
                     }
                 } catch (e) {
-                    toast.className = `${CONFIG.UI_PREFIX}-toast error`;
-                    toast.innerHTML = `<span>Sync failed. Auto-close aborted.</span>`;
-                    setTimeout(() => { if (toast.parentNode) toast.remove(); }, 3000);
-                    return;
+                    syncResult = 'failed';
+                    Logger.warn("Cloud sync failed or timed out. Proceeding to auto-close sequence locally.");
                 }
             } else {
                 toast = document.createElement('div');
@@ -1496,7 +1505,13 @@
                     actionText = 'Queued for Cloud!';
                 } else if (syncResult === 'synced') {
                     actionText = 'Secured!';
+                } else if (syncResult === 'failed') {
+                    actionText = 'Saved Locally!';
                 }
+            }
+
+            if (syncResult === 'failed') {
+                toast.style.borderLeftColor = 'var(--tm-danger)';
             }
 
             toast.innerHTML = `
@@ -2757,7 +2772,7 @@
                 }
             }, CONFIG.CLOUD_HISTORY_THROTTLE_MS);
 
-            Logger.info('Initialized K-Pop Media Downloader v10.3');
+            Logger.info('Initialized K-Pop Media Downloader v10.5');
         },
 
         isDirectMediaPage() {
