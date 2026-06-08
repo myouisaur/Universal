@@ -2,7 +2,7 @@
 // @name         [Universal] K-Media Downloader
 // @namespace    https://github.com/myouisaur/Universal
 // @icon         data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23FF4081'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 11h3l-4 4-4-4h3V8h2v5z'/%3E%3C/svg%3E
-// @version      10.7
+// @version      10.8
 // @description  Organizes, tracks, and saves categorized K-Pop media files through a centralized overlay.
 // @author       Xiv
 // @match        *://*/*
@@ -404,7 +404,7 @@
         _lastCloudFetch: 0,
         _taskQueue: Promise.resolve(),
 
-        init() {
+        init(isSilentMode = false) {
             this.syncFromStorage();
             this._saveLocalDebounced = Utils.debounce(() => {
                 GM_setValue(CONFIG.STORAGE_KEY, JSON.stringify(this._cache));
@@ -416,7 +416,11 @@
 
             this.clean();
             this.setupCrossTabSync();
-            this.fetchCloudBackground();
+            this.setupDirtyListener();
+
+            if (!isSilentMode) {
+                this.fetchCloudBackground();
+            }
         },
 
         _queueTask(taskFn) {
@@ -489,6 +493,22 @@
                     }
                 });
             }
+        },
+
+        setupDirtyListener() {
+            if (typeof GM_addValueChangeListener === 'function') {
+                GM_addValueChangeListener(`${CONFIG.UI_PREFIX}_sync_dirty`, (key, oldValue, newValue, remote) => {
+                    if (newValue === true && document.visibilityState === 'visible') {
+                        setTimeout(() => this.saveCloud(), 200);
+                    }
+                });
+            }
+
+            document.addEventListener('visibilitychange', () => {
+                if (document.visibilityState === 'visible' && GM_getValue(`${CONFIG.UI_PREFIX}_sync_dirty`, false)) {
+                    setTimeout(() => this.saveCloud(), 200);
+                }
+            });
         },
 
         clean() {
@@ -593,7 +613,10 @@
                 await this._withLock(async () => { GM_setValue(syncLockKey, 0); });
                 return 'synced';
             } catch (e) {
-                await this._withLock(async () => { GM_setValue(syncLockKey, 0); });
+                await this._withLock(async () => {
+                    GM_setValue(syncLockKey, 0);
+                    GM_setValue(`${CONFIG.UI_PREFIX}_sync_dirty`, true);
+                });
                 Logger.warn(`History cloud sync failure: ${e.message}`);
                 throw e;
             }
@@ -1531,59 +1554,25 @@
             // to the hard drive before we even think about evaluating network locks or closing the tab.
             await Storage._taskQueue;
 
-            let toast;
-            let syncResult = 'skipped';
+            let toast = document.createElement('div');
+            if (this.toastContainer) this.toastContainer.appendChild(toast);
+
+            let actionText = 'Saved!';
 
             if (!skipCloudSync && CloudAPI.isValid() && !CloudAPI.isRateLimited()) {
-                const syncLockKey = `${CONFIG.UI_PREFIX}_cloud_sync_lock`;
-                const lastSync = GM_getValue(syncLockKey, 0);
-
-                // TAG AND BAIL: If another tab claimed the Master lock recently, do not wait for the network.
-                // This instantly frees background tabs from browser-throttled polling locks.
-                if (Date.now() - lastSync < 5000) {
-                    syncResult = 'queued';
-                    GM_setValue(`${CONFIG.UI_PREFIX}_sync_dirty`, true); // Flag the active Master to pick up our data
-
-                    toast = document.createElement('div');
-                    if (this.toastContainer) this.toastContainer.appendChild(toast);
-                } else {
-                    // MASTER TAB: We must perform the network request.
-                    toast = document.createElement('div');
-                    toast.className = `${CONFIG.UI_PREFIX}-toast syncing`;
-                    toast.innerHTML = `<span>Securing to cloud...</span>`;
-                    toast.style.animation = 'tmToastFadeIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards';
-                    if (this.toastContainer) this.toastContainer.appendChild(toast);
-
-                    try {
-                        syncResult = await Storage.saveCloud();
-                    } catch (e) {
-                        syncResult = 'failed';
-                        Logger.warn("Cloud sync failed or timed out. Proceeding to auto-close sequence locally.");
-                    }
-                }
-            } else {
-                toast = document.createElement('div');
-                if (this.toastContainer) this.toastContainer.appendChild(toast);
+                // TAG AND BAIL: We instantly tag the database as dirty. We completely abandon
+                // the Cloudflare network request to the Silent Gallery Worker.
+                actionText = 'Queued for Cloud!';
+                toast.style.borderLeftColor = 'var(--tm-warning)';
+                GM_setValue(`${CONFIG.UI_PREFIX}_sync_dirty`, true);
+            } else if (skipCloudSync) {
+                actionText = 'Saved Locally!';
+                toast.style.borderLeftColor = 'var(--tm-danger)';
             }
 
             const duration = CONFIG.AUTO_CLOSE_COUNTDOWN_MS;
             toast.className = `${CONFIG.UI_PREFIX}-toast ${CONFIG.UI_PREFIX}-dl-toast`;
             toast.style.animation = `tmToastFadeIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards, tmCountdownBorder ${duration}ms linear forwards`;
-
-            let actionText = 'Saved!';
-            if (!skipCloudSync) {
-                if (syncResult === 'queued') {
-                    actionText = 'Queued for Cloud!';
-                } else if (syncResult === 'synced') {
-                    actionText = 'Secured!';
-                } else if (syncResult === 'failed') {
-                    actionText = 'Saved Locally!';
-                }
-            }
-
-            if (syncResult === 'failed') {
-                toast.style.borderLeftColor = 'var(--tm-danger)';
-            }
 
             toast.innerHTML = `
                 <div style="display:flex; justify-content:space-between; align-items:center; width:100%; gap: 1rem;">
@@ -3048,13 +3037,23 @@
     // CORE APPLICATION MODULE
     // =========================================================
     const App = {
+        isSilentMode: false,
+
         init() {
-            if (window.__KpopDlInitialized || !this.isDirectMediaPage()) return;
+            if (window.__KpopDlInitialized) return;
             window.__KpopDlInitialized = true;
 
+            this.isSilentMode = !this.isDirectMediaPage();
+
             CloudAPI.loadConfig();
+            Storage.init(this.isSilentMode);
+
+            if (this.isSilentMode) {
+                Logger.info('Initialized Silent Cloud Worker v10.8');
+                return;
+            }
+
             UI.initTemplates();
-            Storage.init();
             UI.injectGlobals();
             UI.injectStyles();
             this.bindEvents();
@@ -3067,7 +3066,7 @@
                 }
             }, CONFIG.CLOUD_HISTORY_THROTTLE_MS);
 
-            Logger.info('Initialized K-Pop Media Downloader v10.7');
+            Logger.info('Initialized K-Pop Media Downloader v10.8');
         },
 
         isDirectMediaPage() {
