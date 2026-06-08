@@ -2,7 +2,7 @@
 // @name         [Universal] K-Media Downloader
 // @namespace    https://github.com/myouisaur/Universal
 // @icon         data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23FF4081'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 11h3l-4 4-4-4h3V8h2v5z'/%3E%3C/svg%3E
-// @version      10.5
+// @version      10.7
 // @description  Organizes, tracks, and saves categorized K-Pop media files through a centralized overlay.
 // @author       Xiv
 // @match        *://*/*
@@ -67,7 +67,8 @@
         close: "M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z",
         trash: "M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z",
         checklist: "M3 13h2v-2H3v2zm0 4h2v-2H3v2zm0-8h2V7H3v2zm4 4h14v-2H7v2zm0 4h14v-2H7v2zM7 7v2h14V7H7z",
-        clipboard: "M19 3h-4.18C14.4 1.84 13.3 1 12 1c-1.3 0-2.4.84-2.82 2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 0c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zm2 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"
+        history: "M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z",
+        recent: "M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"
     };
 
     // =========================================================
@@ -94,6 +95,23 @@
             const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
             const i = Math.floor(Math.log(bytes) / Math.log(k));
             return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
+        },
+        timeAgo(dateMs) {
+            const seconds = Math.floor((new Date() - dateMs) / 1000);
+            if (seconds < 60) return "just now";
+            let interval = seconds / 31536000;
+            if (interval > 1) return Math.floor(interval) + " years ago";
+            interval = seconds / 2592000;
+            if (interval > 1) return Math.floor(interval) + " months ago";
+            interval = seconds / 604800;
+            if (interval > 1) return Math.floor(interval) + " weeks ago";
+            interval = seconds / 86400;
+            if (interval > 1) return Math.floor(interval) + " days ago";
+            interval = seconds / 3600;
+            if (interval > 1) return Math.floor(interval) + " hours ago";
+            interval = seconds / 60;
+            if (interval > 1) return Math.floor(interval) + " minutes ago";
+            return Math.floor(seconds) + " seconds ago";
         }
     };
 
@@ -461,7 +479,10 @@
                     if (remote) {
                         try {
                             this._cache = JSON.parse(newValue || '[]');
-                            if (UI.overlay) UI.refreshSidePanels();
+                            if (UI.overlay) {
+                                UI.refreshSidePanels();
+                                UI.updateSyncTimeUI();
+                            }
                         } catch (e) {
                             Logger.warn('Failed to sync cross-tab storage change.', e);
                         }
@@ -494,6 +515,9 @@
                 const cloudData = await CloudAPI.fetch(historyPath);
 
                 if (cloudData && Array.isArray(cloudData)) {
+                    GM_setValue(`${CONFIG.UI_PREFIX}_last_sync_time`, Date.now());
+                    if (UI.overlay) UI.updateSyncTimeUI();
+
                     await this._queueTask(() => this._withLock(async () => {
                         const mergedMap = new Map();
                         [...this._cache, ...cloudData].forEach(item => {
@@ -553,6 +577,9 @@
                     const historyPath = GM_getValue('tm_kpop_dl_history_path', 'kmedia-downloader-history.json');
                     await CloudAPI.put(historyPath, this._cache);
                     Logger.info('History cache successfully pushed to remote branch.');
+
+                    GM_setValue(`${CONFIG.UI_PREFIX}_last_sync_time`, Date.now());
+                    if (UI.overlay) UI.updateSyncTimeUI();
 
                     await this._withLock(async () => {
                         if (!GM_getValue(`${CONFIG.UI_PREFIX}_sync_dirty`, false)) {
@@ -639,6 +666,22 @@
             }));
         },
 
+        deleteRawHistory(idsSet) {
+            if (!idsSet || idsSet.size === 0) return;
+
+            this._queueTask(() => this._withLock(async () => {
+                this.syncFromStorage();
+                const originalLength = this._cache.length;
+                this._cache = this._cache.filter(item => !idsSet.has(`${item.t}-${item.g}-${item.n}`));
+
+                if (this._cache.length !== originalLength) {
+                    GM_setValue(CONFIG.STORAGE_KEY, JSON.stringify(this._cache));
+                    this._saveCloudDebounced();
+                    if (UI.overlay) UI.refreshSidePanels();
+                }
+            }));
+        },
+
         getRecentStats() {
             const data = [...this._cache].reverse();
             const seen = new Set();
@@ -651,6 +694,10 @@
                 }
             }
             return result;
+        },
+
+        getRawHistory() {
+            return [...this._cache].reverse();
         },
 
         getFlavorStats() {
@@ -977,6 +1024,10 @@
         isMultiSelectMode: false,
         cart: [],
 
+        recentPanelMode: 'recent',
+        historySelected: new Set(),
+        syncTimeInterval: null,
+
         selectedGroup: null,
         activeIndex: -1,
         deleteBtnTemplate: null,
@@ -1121,6 +1172,10 @@
                     font-size: 1.1rem; margin: 0; font-weight: 600; color: #eee; text-align: left;
                     overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex-grow: 1;
                 }
+                .${CONFIG.UI_PREFIX}-history-subtitle {
+                    font-size: 0.7rem; color: var(--tm-text-dark); margin-top: 0.2rem;
+                    font-weight: 500; cursor: help; display: none;
+                }
 
                 .${CONFIG.UI_PREFIX}-icon-btn {
                     background: #1a1a1a; border: 1px solid var(--tm-border-light);
@@ -1236,6 +1291,9 @@
                     box-sizing: border-box; will-change: transform;
                 }
                 .${CONFIG.UI_PREFIX}-queue-item:hover { background: var(--tm-bg-hover); border-color: var(--tm-border-focus); }
+
+                .${CONFIG.UI_PREFIX}-history-selected { border-color: var(--tm-danger) !important; background: rgba(229, 115, 115, 0.1) !important; }
+
                 .${CONFIG.UI_PREFIX}-queue-remove {
                     background: none; border: none; color: var(--tm-danger); cursor: pointer;
                     padding: 0 0.5rem 0 0; font-size: 1rem; font-weight: bold; line-height: 1; transition: 0.2s;
@@ -1285,6 +1343,9 @@
 
                 /* Footer & Actions */
                 .${CONFIG.UI_PREFIX}-footer { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--tm-border); flex-shrink: 0; display: flex; flex-direction: column; gap: 0.5rem; }
+
+                .${CONFIG.UI_PREFIX}-panel-footer { margin-top: auto; padding-top: 1rem; border-top: 1px solid var(--tm-border); display: none; }
+
                 .${CONFIG.UI_PREFIX}-btn-row { display: flex; gap: 0.5rem; width: 100%; }
                 .${CONFIG.UI_PREFIX}-action-btn {
                     flex: 1; background: #1a1a1a; color: #999; border: 1px dashed #444; padding: 0.8rem; border-radius: 0.8rem;
@@ -1335,7 +1396,10 @@
 
                 .${CONFIG.UI_PREFIX}-settings-save-btn { width: 100%; background: var(--tm-primary); color: var(--tm-text-main); border: none; border-radius: 0.6rem; padding: 0.8rem; font-size: 0.95rem; font-weight: 600; cursor: pointer; transition: background 0.2s; }
                 .${CONFIG.UI_PREFIX}-settings-save-btn:hover:not(:disabled) { background: var(--tm-primary-hover); }
-                .${CONFIG.UI_PREFIX}-settings-save-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+                .${CONFIG.UI_PREFIX}-history-delete-btn { width: 100%; background: rgba(229, 115, 115, 0.15); color: var(--tm-danger); border: 1px solid var(--tm-danger); border-radius: 0.6rem; padding: 0.8rem; font-size: 0.95rem; font-weight: 600; cursor: pointer; transition: 0.2s; }
+                .${CONFIG.UI_PREFIX}-history-delete-btn:hover:not(:disabled) { background: var(--tm-danger); color: #fff; }
+                .${CONFIG.UI_PREFIX}-settings-save-btn:disabled, .${CONFIG.UI_PREFIX}-history-delete-btn:disabled { opacity: 0.4; cursor: not-allowed; border-color: #444; color: #666; background: #1a1a1a; }
 
                 @media (max-width: 1100px) {
                     .${CONFIG.UI_PREFIX}-layout { flex-direction: column; justify-content: flex-start; overflow-y: auto; height: 100vh; max-height: 100vh; width: 100%; padding: 4rem 0 4rem 0; box-sizing: border-box; }
@@ -1462,33 +1526,40 @@
 
         async startAutoCloseSequence(skipCloudSync = false) {
             this.manageToastCount();
+
+            // SECURITY: Await the local Promise queue to ensure GM_setValue writes are fully committed
+            // to the hard drive before we even think about evaluating network locks or closing the tab.
+            await Storage._taskQueue;
+
             let toast;
             let syncResult = 'skipped';
 
-            if (!skipCloudSync) {
+            if (!skipCloudSync && CloudAPI.isValid() && !CloudAPI.isRateLimited()) {
                 const syncLockKey = `${CONFIG.UI_PREFIX}_cloud_sync_lock`;
                 const lastSync = GM_getValue(syncLockKey, 0);
-                const isQueued = (Date.now() - lastSync < 5000);
 
-                toast = document.createElement('div');
-                toast.className = `${CONFIG.UI_PREFIX}-toast syncing`;
+                // TAG AND BAIL: If another tab claimed the Master lock recently, do not wait for the network.
+                // This instantly frees background tabs from browser-throttled polling locks.
+                if (Date.now() - lastSync < 5000) {
+                    syncResult = 'queued';
+                    GM_setValue(`${CONFIG.UI_PREFIX}_sync_dirty`, true); // Flag the active Master to pick up our data
 
-                if (isQueued) {
-                    toast.innerHTML = `<span>Bundled with active sync...</span>`;
+                    toast = document.createElement('div');
+                    if (this.toastContainer) this.toastContainer.appendChild(toast);
                 } else {
+                    // MASTER TAB: We must perform the network request.
+                    toast = document.createElement('div');
+                    toast.className = `${CONFIG.UI_PREFIX}-toast syncing`;
                     toast.innerHTML = `<span>Securing to cloud...</span>`;
-                }
+                    toast.style.animation = 'tmToastFadeIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards';
+                    if (this.toastContainer) this.toastContainer.appendChild(toast);
 
-                toast.style.animation = 'tmToastFadeIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards';
-                if (this.toastContainer) this.toastContainer.appendChild(toast);
-
-                try {
-                    if (CloudAPI.isValid() && !CloudAPI.isRateLimited()) {
+                    try {
                         syncResult = await Storage.saveCloud();
+                    } catch (e) {
+                        syncResult = 'failed';
+                        Logger.warn("Cloud sync failed or timed out. Proceeding to auto-close sequence locally.");
                     }
-                } catch (e) {
-                    syncResult = 'failed';
-                    Logger.warn("Cloud sync failed or timed out. Proceeding to auto-close sequence locally.");
                 }
             } else {
                 toast = document.createElement('div');
@@ -1501,7 +1572,7 @@
 
             let actionText = 'Saved!';
             if (!skipCloudSync) {
-                if (syncResult === 'queued' || (Date.now() - GM_getValue(`${CONFIG.UI_PREFIX}_cloud_sync_lock`, 0) < 5000)) {
+                if (syncResult === 'queued') {
                     actionText = 'Queued for Cloud!';
                 } else if (syncResult === 'synced') {
                     actionText = 'Secured!';
@@ -1576,12 +1647,38 @@
             };
         },
 
+        updateSyncTimeUI() {
+            const timeEl = document.getElementById(`${CONFIG.UI_PREFIX}-sync-time`);
+            if (!timeEl) return;
+            const lastSync = GM_getValue(`${CONFIG.UI_PREFIX}_last_sync_time`, 0);
+            if (!lastSync) {
+                timeEl.textContent = '(last synced: never)';
+                timeEl.title = 'No successful sync yet.';
+            } else {
+                timeEl.textContent = `(last synced: ${Utils.timeAgo(lastSync)})`;
+                timeEl.title = new Date(lastSync).toLocaleString();
+            }
+        },
+
+        updateHistoryDeleteBtn() {
+            const btn = document.getElementById(`${CONFIG.UI_PREFIX}-history-delete-btn`);
+            if (!btn) return;
+
+            if (this.historySelected.size > 0) {
+                btn.disabled = false;
+                btn.textContent = `Delete Selected (${this.historySelected.size})`;
+            } else {
+                btn.disabled = true;
+                btn.textContent = `Delete Selected`;
+            }
+        },
+
         _renderSidePanelVirtual(type) {
             const panelObj = this.sidePanels[type];
             if (!panelObj.container || !panelObj.inner) return;
 
             const totalItems = panelObj.data.length;
-            const emptyMsg = type === 'recent' ? 'No recent saves.' : 'No data for this month.';
+            const emptyMsg = type === 'recent' ? (this.recentPanelMode === 'history' ? 'No history found.' : 'No recent saves.') : 'No data for this month.';
 
             if (totalItems === 0) {
                 panelObj.inner.style.height = '100%';
@@ -1611,21 +1708,199 @@
                 btn.style.transform = `translate3d(0, ${i * itemHeight}px, 0)`;
                 btn.dataset.index = i;
 
-                const nameSpan = document.createElement('span');
-                nameSpan.textContent = itemData.n;
+                if (type === 'recent' && this.recentPanelMode === 'history') {
+                    const id = `${itemData.t}-${itemData.g}-${itemData.n}`;
+                    if (this.historySelected.has(id)) {
+                        btn.classList.add(`${CONFIG.UI_PREFIX}-history-selected`);
+                    }
 
-                const badgeText = type !== 'recent' ? `${itemData.count}x • ${itemData.g}` : itemData.g;
-                const badgeClass = type !== 'recent' ? `${CONFIG.UI_PREFIX}-badge accent ${CONFIG.UI_PREFIX}-badge-actionable` : `${CONFIG.UI_PREFIX}-badge ${CONFIG.UI_PREFIX}-badge-actionable`;
-                const badgeSpan = document.createElement('span');
-                badgeSpan.className = badgeClass;
-                badgeSpan.textContent = badgeText;
-                badgeSpan.title = `View ${itemData.g}`;
+                    btn.innerHTML = `
+                        <div style="display:flex; align-items:center; gap:0.5rem; overflow:hidden;">
+                            <button class="${CONFIG.UI_PREFIX}-queue-remove" data-id="${id}">✕</button>
+                            <span style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${itemData.n}</span>
+                        </div>
+                        <span class="${CONFIG.UI_PREFIX}-badge accent" style="flex-shrink:0;">${itemData.g}</span>
+                    `;
+                } else {
+                    const nameSpan = document.createElement('span');
+                    nameSpan.textContent = itemData.n;
 
-                btn.appendChild(nameSpan);
-                btn.appendChild(badgeSpan);
+                    const badgeText = type !== 'recent' ? `${itemData.count}x • ${itemData.g}` : itemData.g;
+                    const badgeClass = type !== 'recent' ? `${CONFIG.UI_PREFIX}-badge accent ${CONFIG.UI_PREFIX}-badge-actionable` : `${CONFIG.UI_PREFIX}-badge ${CONFIG.UI_PREFIX}-badge-actionable`;
+                    const badgeSpan = document.createElement('span');
+                    badgeSpan.className = badgeClass;
+                    badgeSpan.textContent = badgeText;
+                    badgeSpan.title = `View ${itemData.g}`;
+
+                    btn.appendChild(nameSpan);
+                    btn.appendChild(badgeSpan);
+                }
+
                 fragment.appendChild(btn);
             }
             panelObj.inner.appendChild(fragment);
+        },
+
+        createRecentHistoryPanel() {
+            const panel = document.createElement('div');
+            panel.id = `${CONFIG.UI_PREFIX}-left-panel`;
+            panel.className = `${CONFIG.UI_PREFIX}-panel ${CONFIG.UI_PREFIX}-side left`;
+
+            const header = document.createElement('div');
+            header.className = `${CONFIG.UI_PREFIX}-header`;
+
+            const leftGroup = document.createElement('div');
+            leftGroup.className = `${CONFIG.UI_PREFIX}-header-left`;
+            leftGroup.style.flexDirection = 'column';
+            leftGroup.style.alignItems = 'flex-start';
+            leftGroup.style.gap = '0';
+
+            const title = document.createElement('h2');
+            title.textContent = '🕒 Recent Saves';
+
+            const subtitle = document.createElement('div');
+            subtitle.id = `${CONFIG.UI_PREFIX}-sync-time`;
+            subtitle.className = `${CONFIG.UI_PREFIX}-history-subtitle`;
+
+            leftGroup.appendChild(title);
+            leftGroup.appendChild(subtitle);
+
+            const rightGroup = document.createElement('div');
+            rightGroup.className = `${CONFIG.UI_PREFIX}-header-right`;
+
+            const toggleBtn = document.createElement('div');
+            toggleBtn.className = `${CONFIG.UI_PREFIX}-icon-btn`;
+            toggleBtn.title = "View Raw History";
+            toggleBtn.appendChild(this._createSVG(ICONS.history));
+
+            toggleBtn.onclick = () => {
+                this.recentPanelMode = this.recentPanelMode === 'recent' ? 'history' : 'recent';
+                this.historySelected.clear();
+
+                if (this.recentPanelMode === 'history') {
+                    title.textContent = '📜 Raw History';
+                    subtitle.style.display = 'block';
+                    toggleBtn.innerHTML = '';
+                    toggleBtn.appendChild(this._createSVG(ICONS.recent));
+                    toggleBtn.title = "View Recent Saves";
+                    footer.style.display = 'flex';
+                } else {
+                    title.textContent = '🕒 Recent Saves';
+                    subtitle.style.display = 'none';
+                    toggleBtn.innerHTML = '';
+                    toggleBtn.appendChild(this._createSVG(ICONS.history));
+                    toggleBtn.title = "View Raw History";
+                    footer.style.display = 'none';
+                }
+
+                this.refreshSidePanels();
+                this.updateHistoryDeleteBtn();
+            };
+
+            rightGroup.appendChild(toggleBtn);
+            header.appendChild(leftGroup);
+            header.appendChild(rightGroup);
+            panel.appendChild(header);
+
+            const wrapper = document.createElement('div');
+            wrapper.className = `${CONFIG.UI_PREFIX}-list-wrapper`;
+
+            const list = document.createElement('div');
+            list.className = `${CONFIG.UI_PREFIX}-list`;
+
+            const inner = document.createElement('div');
+            inner.className = `${CONFIG.UI_PREFIX}-list-inner`;
+
+            list.appendChild(inner);
+            wrapper.appendChild(list);
+
+            this.sidePanels['recent'].wrapper = wrapper;
+            this.sidePanels['recent'].container = list;
+            this.sidePanels['recent'].inner = inner;
+
+            list.addEventListener('scroll', () => {
+                requestAnimationFrame(() => this._renderSidePanelVirtual('recent'));
+            });
+
+            inner.addEventListener('click', (e) => {
+                if (this.recentPanelMode === 'history') {
+                    const removeBtn = e.target.closest(`.${CONFIG.UI_PREFIX}-queue-remove`);
+                    const itemEl = e.target.closest(`.${CONFIG.UI_PREFIX}-item`);
+
+                    if (removeBtn || itemEl) {
+                        e.stopPropagation();
+                        let id;
+                        if (removeBtn) {
+                            id = removeBtn.dataset.id;
+                        } else {
+                            const index = parseInt(itemEl.dataset.index, 10);
+                            const itemData = this.sidePanels.recent.data[index];
+                            id = `${itemData.t}-${itemData.g}-${itemData.n}`;
+                        }
+
+                        if (this.historySelected.has(id)) {
+                            this.historySelected.delete(id);
+                        } else {
+                            this.historySelected.add(id);
+                        }
+                        this._renderSidePanelVirtual('recent');
+                        this.updateHistoryDeleteBtn();
+                    }
+                    return;
+                }
+
+                const badge = e.target.closest(`.${CONFIG.UI_PREFIX}-badge-actionable`);
+                if (badge) {
+                    e.stopPropagation();
+                    const index = parseInt(badge.closest(`.${CONFIG.UI_PREFIX}-item`).dataset.index, 10);
+                    const itemData = this.sidePanels['recent'].data[index];
+                    this.selectedGroup = itemData.g;
+                    this.currentView = 'members';
+                    if (this.searchInput) this.searchInput.value = '';
+                    this.updateListData('');
+                    return;
+                }
+
+                const itemEl = e.target.closest(`.${CONFIG.UI_PREFIX}-item`);
+                if (itemEl) {
+                    const index = parseInt(itemEl.dataset.index, 10);
+                    const itemData = this.sidePanels['recent'].data[index];
+
+                    if (this.isMultiSelectMode) {
+                        const exists = this.cart.some(c => c.g === itemData.g && c.n === itemData.n);
+                        if (!exists) {
+                            this.cart.push({ g: itemData.g, n: itemData.n });
+                            this.renderCart();
+                        }
+                    } else {
+                        Downloader.executeIdolSave(itemData.g, itemData.n);
+                    }
+                }
+            });
+
+            panel.appendChild(wrapper);
+
+            const footer = document.createElement('div');
+            footer.className = `${CONFIG.UI_PREFIX}-panel-footer`;
+
+            const deleteBtn = document.createElement('button');
+            deleteBtn.id = `${CONFIG.UI_PREFIX}-history-delete-btn`;
+            deleteBtn.className = `${CONFIG.UI_PREFIX}-history-delete-btn`;
+            deleteBtn.textContent = 'Delete Selected';
+            deleteBtn.disabled = true;
+
+            deleteBtn.onclick = () => {
+                if (this.historySelected.size === 0) return;
+                Storage.deleteRawHistory(this.historySelected);
+                this.historySelected.clear();
+                this.updateHistoryDeleteBtn();
+                this.refreshSidePanels();
+            };
+
+            footer.appendChild(deleteBtn);
+            panel.appendChild(footer);
+
+            return panel;
         },
 
         createSidePanel(title, customClass, type) {
@@ -1695,10 +1970,17 @@
 
         refreshSidePanels() {
             if (!this.overlay) return;
-            this.sidePanels.recent.data = Storage.getRecentStats();
+
+            if (this.recentPanelMode === 'history') {
+                this.sidePanels.recent.data = Storage.getRawHistory();
+            } else {
+                this.sidePanels.recent.data = Storage.getRecentStats();
+            }
+
             this.sidePanels.flavor.data = Storage.getFlavorStats();
             this._renderSidePanelVirtual('recent');
             this._renderSidePanelVirtual('flavor');
+            this.updateSyncTimeUI();
         },
 
         get currentConfigState() {
@@ -2680,9 +2962,9 @@
             cartFooter.appendChild(this.cartSaveBtn);
             this.cartContainer.appendChild(cartFooter);
 
-            // Assemble layout order: 0 Queue -> 1 Recent -> 2 Main -> 3 Flavor
+            // Assemble layout order: 0 Queue -> 1 Recent/History -> 2 Main -> 3 Flavor
             layoutWrapper.appendChild(this.cartContainer);
-            layoutWrapper.appendChild(this.createSidePanel('🕒 Recent Saves', 'left', 'recent'));
+            layoutWrapper.appendChild(this.createRecentHistoryPanel());
             layoutWrapper.appendChild(this.createMainPanel());
             layoutWrapper.appendChild(this.createSidePanel('❤️‍🔥 Flavor of the Month', 'right', 'flavor'));
 
@@ -2719,6 +3001,9 @@
             this.isCrudMode = false;
             this.isMultiSelectMode = false;
             this.cart = [];
+            this.historySelected.clear();
+            this.recentPanelMode = 'recent';
+
             this.render();
 
             this.syncInterval = setInterval(() => {
@@ -2726,6 +3011,12 @@
                     Storage.fetchCloudBackground(true);
                 }
             }, CONFIG.CLOUD_MENU_POLL_MS);
+
+            this.syncTimeInterval = setInterval(() => {
+                if (this.recentPanelMode === 'history') {
+                    this.updateSyncTimeUI();
+                }
+            }, 15000);
         },
 
         closeMenu() {
@@ -2744,6 +3035,10 @@
                 if (this.syncInterval) {
                     clearInterval(this.syncInterval);
                     this.syncInterval = null;
+                }
+                if (this.syncTimeInterval) {
+                    clearInterval(this.syncTimeInterval);
+                    this.syncTimeInterval = null;
                 }
             }
         }
@@ -2772,7 +3067,7 @@
                 }
             }, CONFIG.CLOUD_HISTORY_THROTTLE_MS);
 
-            Logger.info('Initialized K-Pop Media Downloader v10.5');
+            Logger.info('Initialized K-Pop Media Downloader v10.7');
         },
 
         isDirectMediaPage() {
