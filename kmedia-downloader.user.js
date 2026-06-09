@@ -2,7 +2,7 @@
 // @name         [Universal] K-Media Downloader
 // @namespace    https://github.com/myouisaur/Universal
 // @icon         data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23FF4081'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 11h3l-4 4-4-4h3V8h2v5z'/%3E%3C/svg%3E
-// @version      10.8
+// @version      11.6
 // @description  Organizes, tracks, and saves categorized K-Pop media files through a centralized overlay.
 // @author       Xiv
 // @match        *://*/*
@@ -409,11 +409,9 @@
             this._saveLocalDebounced = Utils.debounce(() => {
                 GM_setValue(CONFIG.STORAGE_KEY, JSON.stringify(this._cache));
             }, CONFIG.SAVE_DEBOUNCE_MS);
-
             this._saveCloudDebounced = Utils.debounce(() => {
                 this.saveCloud();
             }, CONFIG.CLOUD_HISTORY_DEBOUNCE_MS);
-
             this.clean();
             this.setupCrossTabSync();
             this.setupDirtyListener();
@@ -518,7 +516,6 @@
             this._cache = this._cache
                 .filter(item => item.t >= cutoffDate)
                 .slice(-CONFIG.HISTORY_MAX_ENTRIES);
-
             if (this._cache.length !== initialLength) {
                 this._saveLocalDebounced();
             }
@@ -529,7 +526,6 @@
             if (!CloudAPI.isValid() || CloudAPI.isRateLimited()) return;
             if (!force && Date.now() - this._lastCloudFetch < CONFIG.CLOUD_HISTORY_THROTTLE_MS) return;
             this._lastCloudFetch = Date.now();
-
             try {
                 const historyPath = GM_getValue('tm_kpop_dl_history_path', 'kmedia-downloader-history.json');
                 const cloudData = await CloudAPI.fetch(historyPath);
@@ -563,7 +559,6 @@
 
         async saveCloud() {
             if (!CloudAPI.isValid() || CloudAPI.isRateLimited()) return 'skipped';
-
             const syncLockKey = `${CONFIG.UI_PREFIX}_cloud_sync_lock`;
             let shouldUpload = false;
 
@@ -577,7 +572,6 @@
                     shouldUpload = true;
                 }
             });
-
             if (!shouldUpload) return 'queued';
 
             try {
@@ -589,18 +583,15 @@
                     await this._queueTask(() => this._withLock(async () => {
                         this.syncFromStorage();
                     }));
-
                     await this._withLock(async () => {
                         GM_setValue(`${CONFIG.UI_PREFIX}_sync_dirty`, false);
                     });
-
                     const historyPath = GM_getValue('tm_kpop_dl_history_path', 'kmedia-downloader-history.json');
                     await CloudAPI.put(historyPath, this._cache);
                     Logger.info('History cache successfully pushed to remote branch.');
 
                     GM_setValue(`${CONFIG.UI_PREFIX}_last_sync_time`, Date.now());
                     if (UI.overlay) UI.updateSyncTimeUI();
-
                     await this._withLock(async () => {
                         if (!GM_getValue(`${CONFIG.UI_PREFIX}_sync_dirty`, false)) {
                             pushing = false;
@@ -624,31 +615,37 @@
 
         recordSuccess(group, name) {
             if (!group || !name) return;
-
-            this._queueTask(() => this._withLock(async () => {
+            try {
                 this.syncFromStorage();
                 this._cache.push({ g: group, n: name, t: Date.now() });
                 this.clean();
-
                 GM_setValue(CONFIG.STORAGE_KEY, JSON.stringify(this._cache));
-                this._saveCloudDebounced();
-            }));
+
+                // Immediately tag network dirtiness so the 24/7 background tab picks it up
+                GM_setValue(`${CONFIG.UI_PREFIX}_sync_dirty`, true);
+                if (UI.overlay) UI.refreshSidePanels();
+            } catch (e) {
+                Logger.error('Fast local sync write failed', e);
+            }
         },
 
         recordBatchSuccess(cartArray) {
             if (!cartArray || cartArray.length === 0) return;
-
-            this._queueTask(() => this._withLock(async () => {
+            try {
                 this.syncFromStorage();
                 const now = Date.now();
                 cartArray.forEach(item => {
                     this._cache.push({ g: item.g, n: item.n, t: now });
                 });
-
                 this.clean();
                 GM_setValue(CONFIG.STORAGE_KEY, JSON.stringify(this._cache));
-                this._saveCloudDebounced();
-            }));
+
+                // Immediately tag network dirtiness so the 24/7 background tab picks it up
+                GM_setValue(`${CONFIG.UI_PREFIX}_sync_dirty`, true);
+                if (UI.overlay) UI.refreshSidePanels();
+            } catch (e) {
+                Logger.error('Fast local batch sync write failed', e);
+            }
         },
 
         renameGroupHistory(oldName, newName) {
@@ -691,16 +688,19 @@
 
         deleteRawHistory(idsSet) {
             if (!idsSet || idsSet.size === 0) return;
-
+            const idsClone = new Set(idsSet);
             this._queueTask(() => this._withLock(async () => {
                 this.syncFromStorage();
                 const originalLength = this._cache.length;
-                this._cache = this._cache.filter(item => !idsSet.has(`${item.t}-${item.g}-${item.n}`));
+                this._cache = this._cache.filter(item => !idsClone.has(`${item.t}-${item.g}-${item.n}`));
 
                 if (this._cache.length !== originalLength) {
                     GM_setValue(CONFIG.STORAGE_KEY, JSON.stringify(this._cache));
                     this._saveCloudDebounced();
-                    if (UI.overlay) UI.refreshSidePanels();
+                    if (UI.overlay) {
+                        UI.refreshSidePanels();
+                        UI.showToast(`Deleted ${idsClone.size} item(s) from history.`, 'success');
+                    }
                 }
             }));
         },
@@ -754,7 +754,6 @@
                 if (format) return format.toLowerCase();
                 const match = url.pathname.match(/\.([a-zA-Z0-9]+)$/);
                 if (match) return match[1].toLowerCase();
-
                 const type = document.contentType || '';
                 if (type.startsWith('image/')) return type.split('/')[1].toLowerCase();
                 if (type.startsWith('video/')) return type.split('/')[1].toLowerCase();
@@ -780,7 +779,6 @@
                 // Force lowercase for all members in a batch save
                 groups[item.g].push(item.n.toLowerCase());
             });
-
             const groupNames = Object.keys(groups);
             let baseName = "";
 
@@ -806,7 +804,7 @@
             const url = window.location.href;
             const originalName = url.substring(url.lastIndexOf('/') + 1).split(/[?#]/)[0] || 'download';
             UI.closeMenu();
-            this.triggerDownload(url, originalName, null, null, true, true);
+            this.triggerDownload(url, originalName, null, null, true, true, null);
         },
 
         executeCustomSave(customName, cart = null) {
@@ -816,59 +814,55 @@
                 .replace('{custom}', safeName)
                 .replace('{random}', this.generateRandomString(CONFIG.RANDOM_STRING_LENGTH))
                 .replace('{ext}', ext);
-
             UI.closeMenu();
 
             let skipCloudSync = true;
             if (cart && cart.length > 0) {
-                Storage.recordBatchSuccess(cart);
                 skipCloudSync = false;
             }
 
-            this.triggerDownload(window.location.href, fileName, null, null, true, skipCloudSync);
+            this.triggerDownload(window.location.href, fileName, null, null, true, skipCloudSync, cart);
         },
 
         executeIdolSave(group, name) {
             const fileName = this.generateFileName(group, name);
             UI.closeMenu();
-            this.triggerDownload(window.location.href, fileName, group, name, CONFIG.PROMPT_ON_IDOL_SAVE, false);
+            this.triggerDownload(window.location.href, fileName, group, name, CONFIG.PROMPT_ON_IDOL_SAVE, false, null);
         },
 
         executeBatchSave(cart) {
             if (!cart || cart.length === 0) return;
             const fileName = this.generateBatchFileName(cart);
             UI.closeMenu();
-            Storage.recordBatchSuccess(cart);
 
-            this.triggerDownload(window.location.href, fileName, null, null, CONFIG.PROMPT_ON_IDOL_SAVE, false);
+            this.triggerDownload(window.location.href, fileName, null, null, CONFIG.PROMPT_ON_IDOL_SAVE, false, cart);
         },
 
-        triggerDownload(url, name, groupContext, nameContext, promptUser = true, skipCloudSync = false) {
+        triggerDownload(url, name, groupContext, nameContext, promptUser = true, skipCloudSync = false, cartContext = null) {
             const displayFileName = name.includes('/') ? name.substring(name.lastIndexOf('/') + 1) : name;
             const toastObj = UI.createDownloadToast(displayFileName);
 
-            if (groupContext && nameContext) {
-                Storage.recordSuccess(groupContext, nameContext);
-            }
-
             if (url.startsWith('file://')) {
-                this.bufferLocalFile(url, name, groupContext, nameContext, toastObj, promptUser, skipCloudSync);
+                this.bufferLocalFile(url, name, groupContext, nameContext, toastObj, promptUser, skipCloudSync, cartContext);
                 return;
             }
 
-            let hasPathExtension = false;
+            let isSafeImage = false;
             try {
-                hasPathExtension = !!new URL(url).pathname.match(/\.[a-zA-Z0-9]+$/);
+                // Trust GM_download purely for explicitly static image types to prevent Chromium JSON renaming
+                isSafeImage = !!new URL(url).pathname.match(/\.(jpg|jpeg|png|webp|avif|gif)$/i);
             } catch (e) {}
 
-            if (hasPathExtension && typeof GM_download === 'function') {
-                this._executeGMDownload(url, name, groupContext, nameContext, toastObj, promptUser, skipCloudSync);
+            if (isSafeImage && typeof GM_download === 'function') {
+                this._executeGMDownload(url, name, groupContext, nameContext, toastObj, promptUser, skipCloudSync, cartContext);
             } else {
-                this.fallbackDownload(url, name, groupContext, nameContext, toastObj, skipCloudSync);
+                // Instantly route complex media straight to the fast RAM buffer fallback.
+                // We accept the loss of OS cancel-detection in exchange for pure speed and stability.
+                this.fallbackDownload(url, name, groupContext, nameContext, toastObj, promptUser, skipCloudSync, cartContext);
             }
         },
 
-        bufferLocalFile(url, name, groupContext, nameContext, toastObj, promptUser, skipCloudSync) {
+        bufferLocalFile(url, name, groupContext, nameContext, toastObj, promptUser, skipCloudSync, cartContext) {
             Logger.info('Buffering local file to bypass browser name enforcement...');
             UI.updateDownloadToast(toastObj, 0, 0, 'Buffering local file into memory...');
 
@@ -887,9 +881,9 @@
                         let mimeType = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : `image/${ext}`;
                         canvas.toBlob((blob) => {
                             if (blob) {
-                                this._saveBlob(blob, name, groupContext, nameContext, toastObj, promptUser, skipCloudSync);
+                                this._saveBlob(blob, name, groupContext, nameContext, toastObj, promptUser, skipCloudSync, cartContext);
                             } else {
-                                this._bufferViaNetwork(url, name, groupContext, nameContext, toastObj, promptUser, skipCloudSync);
+                                this._bufferViaNetwork(url, name, groupContext, nameContext, toastObj, promptUser, skipCloudSync, cartContext);
                             }
                         }, mimeType, 1.0);
                         return;
@@ -899,15 +893,15 @@
                 }
             }
 
-            this._bufferViaNetwork(url, name, groupContext, nameContext, toastObj, promptUser, skipCloudSync);
+            this._bufferViaNetwork(url, name, groupContext, nameContext, toastObj, promptUser, skipCloudSync, cartContext);
         },
 
-        async _bufferViaNetwork(url, name, groupContext, nameContext, toastObj, promptUser, skipCloudSync) {
+        async _bufferViaNetwork(url, name, groupContext, nameContext, toastObj, promptUser, skipCloudSync, cartContext) {
             try {
                 const res = await fetch(url);
                 if (res.ok) {
                     const blob = await res.blob();
-                    this._saveBlob(blob, name, groupContext, nameContext, toastObj, promptUser, skipCloudSync);
+                    this._saveBlob(blob, name, groupContext, nameContext, toastObj, promptUser, skipCloudSync, cartContext);
                     return;
                 }
             } catch (e) {}
@@ -920,7 +914,7 @@
                     timeout: 30000,
                     onload: (res) => {
                         if (res.status >= 200 && res.status < 300 || res.status === 0) {
-                            this._saveBlob(res.response, name, groupContext, nameContext, toastObj, promptUser, skipCloudSync);
+                            this._saveBlob(res.response, name, groupContext, nameContext, toastObj, promptUser, skipCloudSync, cartContext);
                         } else {
                             UI.finishDownloadToast(toastObj, 'error', 'Failed to read local file.');
                         }
@@ -938,35 +932,26 @@
             }
         },
 
-        _saveBlob(blob, name, groupContext, nameContext, toastObj, promptUser, skipCloudSync) {
+        _saveBlob(blob, name, groupContext, nameContext, toastObj, promptUser, skipCloudSync, cartContext) {
+            // Raw memory blobs fallback to generic a.click().
+            // It is fire-and-forget, bypassing security checks but losing OS Cancel detection.
             const blobUrl = URL.createObjectURL(blob);
-            if (typeof GM_download === 'function') {
-                GM_download({
-                    url: blobUrl,
-                    name: name,
-                    saveAs: promptUser,
-                    onload: () => {
-                        URL.revokeObjectURL(blobUrl);
-                        UI.finishDownloadToast(toastObj, 'success', 'Saved Successfully!');
-                        UI.startAutoCloseSequence(skipCloudSync);
-                    },
-                    onerror: () => {
-                        URL.revokeObjectURL(blobUrl);
-                        UI.finishDownloadToast(toastObj, 'error', 'Local Blob save failed.');
-                    }
-                });
-            } else {
-                const a = document.createElement('a');
-                a.href = blobUrl;
-                a.download = name.substring(name.lastIndexOf('/') + 1);
-                a.click();
-                URL.revokeObjectURL(blobUrl);
-                UI.finishDownloadToast(toastObj, 'success', 'Saved Successfully!');
-                UI.startAutoCloseSequence(skipCloudSync);
-            }
+            const a = document.createElement('a');
+            a.href = blobUrl;
+            a.download = name.substring(name.lastIndexOf('/') + 1);
+            a.click();
+
+            // Clean up the memory blob shortly after execution
+            setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+
+            if (cartContext && cartContext.length > 0) Storage.recordBatchSuccess(cartContext);
+            else if (groupContext && nameContext) Storage.recordSuccess(groupContext, nameContext);
+
+            UI.finishDownloadToast(toastObj, 'success', 'Saved Successfully!');
+            UI.startAutoCloseSequence(skipCloudSync);
         },
 
-        _executeGMDownload(url, name, groupContext, nameContext, toastObj, promptUser, skipCloudSync) {
+        _executeGMDownload(url, name, groupContext, nameContext, toastObj, promptUser, skipCloudSync, cartContext) {
             let hasStarted = false;
             GM_download({
                 url: url,
@@ -978,6 +963,9 @@
                 },
                 onload: () => {
                     hasStarted = true;
+                    if (cartContext && cartContext.length > 0) Storage.recordBatchSuccess(cartContext);
+                    else if (groupContext && nameContext) Storage.recordSuccess(groupContext, nameContext);
+
                     UI.finishDownloadToast(toastObj, 'success', 'Saved Successfully!');
                     UI.startAutoCloseSequence(skipCloudSync);
                 },
@@ -985,8 +973,8 @@
                     if (hasStarted) {
                         UI.finishDownloadToast(toastObj, 'error', 'Download interrupted or blocked.');
                     } else {
-                        UI.updateDownloadToast(toastObj, 0, 0, 'GM Engine blocked, triggering XHR override...');
-                        this.fallbackDownload(url, name, groupContext, nameContext, toastObj, skipCloudSync);
+                        UI.updateDownloadToast(toastObj, 0, 0, 'GM Engine blocked, triggering fallback override...');
+                        this.fallbackDownload(url, name, groupContext, nameContext, toastObj, promptUser, skipCloudSync, cartContext);
                     }
                 },
                 ontimeout: () => {
@@ -995,8 +983,8 @@
             });
         },
 
-        fallbackDownload(url, name, groupContext, nameContext, toastObj, skipCloudSync) {
-            Logger.info('Using fallback XHR download method...');
+        fallbackDownload(url, name, groupContext, nameContext, toastObj, promptUser, skipCloudSync, cartContext) {
+            Logger.info('Using generic XHR fallback download method...');
             if (typeof GM_xmlhttpRequest === 'function') {
                 GM_xmlhttpRequest({
                     method: 'GET',
@@ -1008,15 +996,7 @@
                     },
                     onload: (res) => {
                         if (res.status >= 200 && res.status < 300) {
-                            const blobUrl = URL.createObjectURL(res.response);
-                            const a = document.createElement('a');
-                            a.href = blobUrl;
-                            const finalFileName = name.substring(name.lastIndexOf('/') + 1);
-                            a.download = finalFileName;
-                            a.click();
-                            URL.revokeObjectURL(blobUrl);
-                            UI.finishDownloadToast(toastObj, 'success', 'Saved Successfully!');
-                            UI.startAutoCloseSequence(skipCloudSync);
+                            this._saveBlob(res.response, name, groupContext, nameContext, toastObj, promptUser, skipCloudSync, cartContext);
                         } else {
                             UI.finishDownloadToast(toastObj, 'error', `HTTP ${res.status}`);
                         }
@@ -1049,6 +1029,7 @@
 
         recentPanelMode: 'recent',
         historySelected: new Set(),
+
         syncTimeInterval: null,
 
         selectedGroup: null,
@@ -1171,7 +1152,8 @@
                     display: flex; flex-direction: column; order: 2; width: 25rem; height: 80vh; position: relative;
                 }
                 .${CONFIG.UI_PREFIX}-panel {
-                    background: var(--tm-bg-base); border-radius: 1.5rem; padding: 1.5rem; border: 1px solid var(--tm-border);
+                    background: var(--tm-bg-base);
+                    border-radius: 1.5rem; padding: 1.5rem; border: 1px solid var(--tm-border);
                     box-shadow: 0 2rem 4rem rgba(0,0,0,0.8); color: var(--tm-text-main);
                     display: flex; flex-direction: column; box-sizing: border-box; overflow: hidden;
                 }
@@ -1211,8 +1193,7 @@
 
                 /* Multi-Select Button Transition Animation */
                 .${CONFIG.UI_PREFIX}-multi-btn {
-                    transition: transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1), background 0.2s, border-color 0.2s !important;
-                    z-index: 10;
+                    transition: transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1), background 0.2s, border-color 0.2s !important; z-index: 10;
                 }
                 .${CONFIG.UI_PREFIX}-multi-active {
                     /* Queue width(20) + Layout gap(1.5) + Recent width(20) + Layout gap(1.5) = 43rem */
@@ -1254,7 +1235,7 @@
                 .${CONFIG.UI_PREFIX}-dl-status { font-size: 0.75rem; color: var(--tm-text-muted); font-variant-numeric: tabular-nums; }
 
                 .${CONFIG.UI_PREFIX}-progress-bg { position: absolute; bottom: 0; left: 0; width: 100%; height: 3px; background: rgba(255,255,255,0.1); }
-                .${CONFIG.UI_PREFIX}-progress-fill { height: 100%; background: var(--tm-primary); width: 0%; transition: width 0.2s ease-out, background 0.3s; }
+                .${CONFIG.UI_PREFIX}-progress-fill { height: 100%; background: var(--tm-primary); border-radius: 2px; }
 
                 /* Status Overrides */
                 .${CONFIG.UI_PREFIX}-toast.syncing { border-left-color: var(--tm-warning); color: var(--tm-text-main); }
@@ -1284,6 +1265,10 @@
                     0% { background-color: var(--tm-success); }
                     50% { background-color: var(--tm-warning); }
                     100% { background-color: var(--tm-danger); }
+                }
+                @keyframes tmCountdownWidth {
+                    0% { width: 100%; }
+                    100% { width: 0%; }
                 }
 
                 .${CONFIG.UI_PREFIX}-cancel-btn {
@@ -1547,24 +1532,16 @@
             }, 3000);
         },
 
-        async startAutoCloseSequence(skipCloudSync = false) {
+        startAutoCloseSequence(skipCloudSync = false) {
             this.manageToastCount();
-
-            // SECURITY: Await the local Promise queue to ensure GM_setValue writes are fully committed
-            // to the hard drive before we even think about evaluating network locks or closing the tab.
-            await Storage._taskQueue;
 
             let toast = document.createElement('div');
             if (this.toastContainer) this.toastContainer.appendChild(toast);
 
             let actionText = 'Saved!';
-
             if (!skipCloudSync && CloudAPI.isValid() && !CloudAPI.isRateLimited()) {
-                // TAG AND BAIL: We instantly tag the database as dirty. We completely abandon
-                // the Cloudflare network request to the Silent Gallery Worker.
                 actionText = 'Queued for Cloud!';
                 toast.style.borderLeftColor = 'var(--tm-warning)';
-                GM_setValue(`${CONFIG.UI_PREFIX}_sync_dirty`, true);
             } else if (skipCloudSync) {
                 actionText = 'Saved Locally!';
                 toast.style.borderLeftColor = 'var(--tm-danger)';
@@ -1573,27 +1550,23 @@
             const duration = CONFIG.AUTO_CLOSE_COUNTDOWN_MS;
             toast.className = `${CONFIG.UI_PREFIX}-toast ${CONFIG.UI_PREFIX}-dl-toast`;
             toast.style.animation = `tmToastFadeIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards, tmCountdownBorder ${duration}ms linear forwards`;
-
             toast.innerHTML = `
                 <div style="display:flex; justify-content:space-between; align-items:center; width:100%; gap: 1rem;">
                     <span class="${CONFIG.UI_PREFIX}-countdown-text" style="font-weight: 500;">${actionText} Closing in ${Math.ceil(duration / 1000)}s...</span>
                     <button class="${CONFIG.UI_PREFIX}-cancel-btn">Cancel</button>
                 </div>
                 <div class="${CONFIG.UI_PREFIX}-progress-bg">
-                    <div class="${CONFIG.UI_PREFIX}-progress-fill" style="width:100%; transition: none;"></div>
+                    <div class="${CONFIG.UI_PREFIX}-progress-fill"></div>
                 </div>
             `;
             const textSpan = toast.querySelector(`.${CONFIG.UI_PREFIX}-countdown-text`);
             const cancelBtn = toast.querySelector(`.${CONFIG.UI_PREFIX}-cancel-btn`);
             const fill = toast.querySelector(`.${CONFIG.UI_PREFIX}-progress-fill`);
-            void toast.offsetWidth;
-
-            fill.style.transition = `width ${duration}ms linear`;
-            fill.style.animation = `tmCountdownFill ${duration}ms linear forwards`;
-            fill.style.width = '0%';
 
             let isCancelled = false;
             const startTime = Date.now();
+
+            fill.style.animation = `tmCountdownFill ${duration}ms linear forwards, tmCountdownWidth ${duration}ms linear forwards`;
 
             const interval = setInterval(() => {
                 if (isCancelled) return;
@@ -1601,9 +1574,10 @@
                 textSpan.textContent = `${actionText} Closing in ${Math.ceil(remaining / 1000)}s...`;
             }, 100);
 
-            const closeTimeout = setTimeout(() => {
+            const closeTimeout = setTimeout(async () => {
                 clearInterval(interval);
                 if (!isCancelled) {
+                    await Storage._taskQueue;
                     try { window.close(); } catch (e) { Logger.warn("Window close blocked by browser."); }
                 }
             }, duration);
@@ -1619,7 +1593,6 @@
 
                 toast.style.animation = 'none';
                 fill.style.animation = 'none';
-                fill.style.transition = 'none';
 
                 toast.style.borderLeftColor = currentBorder;
                 fill.style.backgroundColor = currentBg;
@@ -1668,7 +1641,6 @@
 
             const totalItems = panelObj.data.length;
             const emptyMsg = type === 'recent' ? (this.recentPanelMode === 'history' ? 'No history found.' : 'No recent saves.') : 'No data for this month.';
-
             if (totalItems === 0) {
                 panelObj.inner.style.height = '100%';
                 panelObj.inner.textContent = '';
@@ -1686,7 +1658,6 @@
             const contHeight = panelObj.cachedHeight || 400;
             const startIndex = Math.max(0, Math.floor(scrollTop / itemHeight) - 5);
             const endIndex = Math.min(totalItems, Math.floor((scrollTop + contHeight) / itemHeight) + 5);
-
             panelObj.inner.textContent = '';
             const fragment = document.createDocumentFragment();
 
@@ -1696,7 +1667,6 @@
                 btn.className = `${CONFIG.UI_PREFIX}-item`;
                 btn.style.transform = `translate3d(0, ${i * itemHeight}px, 0)`;
                 btn.dataset.index = i;
-
                 if (type === 'recent' && this.recentPanelMode === 'history') {
                     const id = `${itemData.t}-${itemData.g}-${itemData.n}`;
                     if (this.historySelected.has(id)) {
@@ -1753,7 +1723,6 @@
 
             leftGroup.appendChild(title);
             leftGroup.appendChild(subtitle);
-
             const rightGroup = document.createElement('div');
             rightGroup.className = `${CONFIG.UI_PREFIX}-header-right`;
 
@@ -1761,7 +1730,6 @@
             toggleBtn.className = `${CONFIG.UI_PREFIX}-icon-btn`;
             toggleBtn.title = "View Raw History";
             toggleBtn.appendChild(this._createSVG(ICONS.history));
-
             toggleBtn.onclick = () => {
                 this.recentPanelMode = this.recentPanelMode === 'recent' ? 'history' : 'recent';
                 this.historySelected.clear();
@@ -1796,7 +1764,6 @@
 
             const list = document.createElement('div');
             list.className = `${CONFIG.UI_PREFIX}-list`;
-
             const inner = document.createElement('div');
             inner.className = `${CONFIG.UI_PREFIX}-list-inner`;
 
@@ -1806,11 +1773,9 @@
             this.sidePanels['recent'].wrapper = wrapper;
             this.sidePanels['recent'].container = list;
             this.sidePanels['recent'].inner = inner;
-
             list.addEventListener('scroll', () => {
                 requestAnimationFrame(() => this._renderSidePanelVirtual('recent'));
             });
-
             inner.addEventListener('click', (e) => {
                 if (this.recentPanelMode === 'history') {
                     const removeBtn = e.target.closest(`.${CONFIG.UI_PREFIX}-queue-remove`);
@@ -1866,7 +1831,6 @@
                     }
                 }
             });
-
             panel.appendChild(wrapper);
 
             const footer = document.createElement('div');
@@ -1918,11 +1882,9 @@
             this.sidePanels[type].wrapper = wrapper;
             this.sidePanels[type].container = list;
             this.sidePanels[type].inner = inner;
-
             list.addEventListener('scroll', () => {
                 requestAnimationFrame(() => this._renderSidePanelVirtual(type));
             });
-
             inner.addEventListener('click', (e) => {
                 const badge = e.target.closest(`.${CONFIG.UI_PREFIX}-badge-actionable`);
                 if (badge) {
@@ -1952,14 +1914,12 @@
                     }
                 }
             });
-
             panel.appendChild(wrapper);
             return panel;
         },
 
         refreshSidePanels() {
             if (!this.overlay) return;
-
             if (this.recentPanelMode === 'history') {
                 this.sidePanels.recent.data = Storage.getRawHistory();
             } else {
@@ -2017,7 +1977,6 @@
             const totalItems = this.cart.length;
             const countEl = document.getElementById(`${CONFIG.UI_PREFIX}-cart-count`);
             if (countEl) countEl.textContent = totalItems;
-
             if (this.cartSaveBtn) {
                 this.cartSaveBtn.disabled = totalItems === 0;
             }
@@ -2039,7 +1998,6 @@
             const contHeight = this.cachedCartHeight || 400;
             const startIndex = Math.max(0, Math.floor(scrollTop / itemHeight) - 5);
             const endIndex = Math.min(totalItems, Math.floor((scrollTop + contHeight) / itemHeight) + 5);
-
             this.cartListInner.textContent = '';
             const fragment = document.createDocumentFragment();
 
@@ -2069,7 +2027,6 @@
             container.className = `${CONFIG.UI_PREFIX}-main-container`;
             const panel = document.createElement('div');
             panel.className = `${CONFIG.UI_PREFIX}-panel ${CONFIG.UI_PREFIX}-main`;
-
             // --- Header ---
             const header = document.createElement('div');
             header.className = `${CONFIG.UI_PREFIX}-header`;
@@ -2081,7 +2038,6 @@
             this.headerBackBtn.className = `${CONFIG.UI_PREFIX}-icon-btn`;
             this.headerBackBtn.appendChild(this._createSVG(ICONS.back));
             this.headerBackBtn.title = "Back";
-
             this.headerBackBtn.onclick = (e) => {
                 e.stopPropagation();
                 if (this.currentView === 'config') {
@@ -2113,7 +2069,6 @@
             header.appendChild(leftGroup);
             header.appendChild(rightGroup);
             panel.appendChild(header);
-
             // --- Config View Architecture ---
             this.configContainer = document.createElement('div');
             this.configContainer.className = `${CONFIG.UI_PREFIX}-config-wrapper`;
@@ -2123,7 +2078,6 @@
 
             const configFooter = document.createElement('div');
             configFooter.className = `${CONFIG.UI_PREFIX}-config-footer`;
-
             const createSettingsField = (labelTxt, inputType, inputId, defaultVal, placeholder) => {
                 const field = document.createElement('div');
                 field.className = `${CONFIG.UI_PREFIX}-settings-field`;
@@ -2138,7 +2092,6 @@
                 field.appendChild(input);
                 return { fieldWrapper: field, inputElement: input };
             };
-
             const workerUrl = createSettingsField('Cloudflare Worker End-Point', 'text', 'tm_kpop_dl_worker_url', '', 'https://your-worker.workers.dev');
             const token = createSettingsField('GitHub Fine-Grained Token', 'password', 'tm_kpop_dl_github_token', '', 'github_pat_...');
             const owner = createSettingsField('Repository Structural Owner', 'text', 'tm_kpop_dl_github_owner', '', 'GitHub Username');
@@ -2146,7 +2099,6 @@
             const dbPath = createSettingsField('Database Target Path Mapping', 'text', 'tm_kpop_dl_github_path', 'kmedia-downloader-db.json', 'kmedia-downloader-db.json');
             const historyPath = createSettingsField('History Target Path Mapping', 'text', 'tm_kpop_dl_history_path', 'kmedia-downloader-history.json', 'kmedia-downloader-history.json');
             const branch = createSettingsField('Target Remote Tree Branch', 'text', 'tm_kpop_dl_github_branch', 'main', 'main');
-
             this.configInputs = {
                 url: workerUrl.inputElement,
                 token: token.inputElement,
@@ -2156,11 +2108,9 @@
                 historyPath: historyPath.inputElement,
                 branch: branch.inputElement
             };
-
             const saveConfigBtn = document.createElement('button');
             saveConfigBtn.className = `${CONFIG.UI_PREFIX}-settings-save-btn`;
             saveConfigBtn.textContent = 'Save Configuration';
-
             saveConfigBtn.onclick = () => {
                 GM_setValue('tm_kpop_dl_worker_url', this.configInputs.url.value.trim());
                 GM_setValue('tm_kpop_dl_github_token', this.configInputs.token.value.trim());
@@ -2169,13 +2119,11 @@
                 GM_setValue('tm_kpop_dl_github_path', this.configInputs.path.value.trim() || 'kmedia-downloader-db.json');
                 GM_setValue('tm_kpop_dl_history_path', this.configInputs.historyPath.value.trim() || 'kmedia-downloader-history.json');
                 GM_setValue('tm_kpop_dl_github_branch', this.configInputs.branch.value.trim() || 'main');
-
                 this.initialConfigState = this.currentConfigState;
 
                 CloudAPI.loadConfig();
                 this.showToast('Configurations saved. Re-synchronizing environments...');
                 this.currentView = 'groups';
-
                 if (CloudAPI.isValid()) {
                     const dot = this.configBtn.querySelector(`.${CONFIG.UI_PREFIX}-notification-dot`);
                     if (dot) dot.remove();
@@ -2201,7 +2149,6 @@
             this.configContainer.appendChild(configBody);
             this.configContainer.appendChild(configFooter);
             panel.appendChild(this.configContainer);
-
             // --- Search & Contextual Toolbar ---
             this.searchContainer = document.createElement('div');
             this.searchContainer.className = `${CONFIG.UI_PREFIX}-search-container`;
@@ -2225,7 +2172,6 @@
 
                     this.cart = [];
                     this.renderCart();
-
                     if (this.cartContainer && !this.cartContainer.classList.contains('active')) {
                         // Force reflow and add active class for smooth expansion
                         void this.cartContainer.offsetWidth;
@@ -2270,7 +2216,6 @@
 
             this.crudBtn = document.createElement('button');
             this.crudBtn.className = `${CONFIG.UI_PREFIX}-crud-add-btn`;
-
             this.crudBtn.onclick = () => {
                 if (this.crudBtn.disabled) return;
                 const val = this.crudInput.value.trim();
@@ -2294,7 +2239,6 @@
             this.crudBarContainer.appendChild(this.crudInput);
             this.crudBarContainer.appendChild(this.crudBtn);
             panel.appendChild(this.crudBarContainer);
-
             // --- List View Wrapper Architecture ---
             this.mainListWrapper = document.createElement('div');
             this.mainListWrapper.className = `${CONFIG.UI_PREFIX}-list-wrapper`;
@@ -2307,11 +2251,9 @@
             this.listContainer.appendChild(this.listInner);
 
             this.mainListWrapper.appendChild(this.listContainer);
-
             this.listContainer.addEventListener('scroll', () => {
                 requestAnimationFrame(() => this.renderVirtualList());
             });
-
             // Event Delegation for List Items & Delete/Edit Buttons
             this.listInner.addEventListener('click', (e) => {
                 // Handle Group Badge Nav Click
@@ -2393,7 +2335,6 @@
                     this.handleItemClick(this.currentListData[index]);
                 }
             });
-
             this.searchInput.addEventListener('keydown', (e) => {
                 if (this.currentView === 'config') return;
                 if (this.currentListData.length === 0) return;
@@ -2412,11 +2353,9 @@
                     if (activeItem) this.handleItemClick(activeItem);
                 }
             });
-
             this.searchInput.oninput = Utils.debounce((e) => {
                 this.updateListData(e.target.value.toLowerCase().trim());
             }, 150);
-
             // --- Footer ---
             this.footer = document.createElement('div');
             this.footer.className = `${CONFIG.UI_PREFIX}-footer`;
@@ -2426,7 +2365,6 @@
             this.footerMainRow.style.gap = '1rem';
             this.footerMainRow.style.width = '100%';
             this.footerMainRow.style.alignItems = 'center';
-
             const footerLeftControls = document.createElement('div');
             footerLeftControls.style.display = 'flex';
             footerLeftControls.style.gap = '0.5rem';
@@ -2461,7 +2399,6 @@
             this.configBtn.style.position = 'relative';
             this.configBtn.appendChild(this._createSVG(ICONS.config));
             this.configBtn.title = "Cloud Engine Config";
-
             this.configBtn.onclick = () => {
                 if (this.currentView === 'config') {
                     if (this.hasUnsavedChanges() && !confirm("You have unsaved changes. Discard them?")) return;
@@ -2481,7 +2418,6 @@
 
             footerLeftControls.appendChild(this.configBtn);
             footerLeftControls.appendChild(this.syncBtn);
-
             const btnRow = document.createElement('div');
             btnRow.className = `${CONFIG.UI_PREFIX}-btn-row`;
 
@@ -2527,7 +2463,6 @@
 
             this.footer.appendChild(this.footerMainRow);
             this.footer.appendChild(customWrapper);
-
             const resetCustomInput = () => {
                 customWrapper.style.display = 'none';
                 this.footerMainRow.style.display = 'flex';
@@ -2543,7 +2478,6 @@
                     customNameInput.focus();
                 }
             };
-
             customBtn.onclick = () => {
                 this.footerMainRow.style.display = 'none';
                 customWrapper.style.display = 'flex';
@@ -2552,7 +2486,6 @@
 
             customCancelBtn.onclick = resetCustomInput;
             customConfirmBtn.onclick = submitCustomSave;
-
             customNameInput.addEventListener('keydown', (e) => {
                 if (e.key === 'Enter') {
                     e.preventDefault();
@@ -2564,7 +2497,6 @@
                     this.searchInput.focus();
                 }
             });
-
             panel.appendChild(this.mainListWrapper);
             panel.appendChild(this.footer);
             container.appendChild(panel);
@@ -2581,7 +2513,6 @@
                 this.footer.style.display = 'none';
                 this.crudBarContainer.style.display = 'none';
                 this.configContainer.style.display = 'flex';
-
                 requestAnimationFrame(() => {
                     if (this.configInputs && this.configInputs.url) this.configInputs.url.focus();
                 });
@@ -2603,7 +2534,6 @@
                     this.crudBarContainer.style.display = 'flex';
                     this.crudInput.placeholder = this.currentView === 'groups' ? 'Enter new group name...' : 'Enter new member name...';
                     this.crudBtn.textContent = this.currentView === 'groups' ? 'Add Group' : 'Add Member';
-
                     if (this.editBtn) {
                         this.editBtn.style.borderColor = 'var(--tm-primary)';
                         const svg = this.editBtn.querySelector('svg');
@@ -2656,7 +2586,6 @@
 
         renderVirtualList() {
             if (!this.listContainer || !this.listInner || this.currentView === 'config') return;
-
             if (Database.isLoading) {
                 this.listInner.style.height = '100%';
                 this.listInner.textContent = '';
@@ -2668,7 +2597,6 @@
             }
 
             const totalItems = this.currentListData.length;
-
             if (totalItems === 0) {
                 this.listInner.style.height = '100%';
                 this.listInner.textContent = '';
@@ -2686,7 +2614,6 @@
             const containerHeight = this.cachedContainerHeight || 400;
             const startIndex = Math.max(0, Math.floor(scrollTop / itemHeight) - 5);
             const endIndex = Math.min(totalItems, Math.floor((scrollTop + containerHeight) / itemHeight) + 5);
-
             this.listInner.textContent = '';
             const fragment = document.createDocumentFragment();
 
@@ -2701,11 +2628,9 @@
                 const nameSpan = document.createElement('span');
                 nameSpan.textContent = itemData.label;
                 btn.appendChild(nameSpan);
-
                 const rightWrapper = document.createElement('div');
                 rightWrapper.style.display = 'flex';
                 rightWrapper.style.alignItems = 'center';
-
                 if (itemData.badge) {
                     const badgeSpan = document.createElement('span');
                     badgeSpan.className = `${CONFIG.UI_PREFIX}-badge`;
@@ -2809,7 +2734,6 @@
             }
 
             if (text) this.showToast(text, type);
-
             if (this.crudInput && this.crudBtn) {
                 const isSyncing = (status === 'syncing');
                 this.crudInput.disabled = isSyncing;
@@ -2828,7 +2752,6 @@
             document.body.style.overflow = 'hidden';
             const layoutWrapper = document.createElement('div');
             layoutWrapper.className = `${CONFIG.UI_PREFIX}-layout`;
-
             if (typeof ResizeObserver !== 'undefined') {
                 this.resizeObserver = new ResizeObserver(entries => {
                     for (let entry of entries) {
@@ -2912,11 +2835,9 @@
             this.cartListInner.className = `${CONFIG.UI_PREFIX}-list-inner`;
 
             this.cartList.appendChild(this.cartListInner);
-
             this.cartList.addEventListener('scroll', () => {
                 requestAnimationFrame(() => this._renderCartVirtual());
             });
-
             this.cartListInner.addEventListener('click', (e) => {
                 const removeBtn = e.target.closest(`.${CONFIG.UI_PREFIX}-queue-remove`);
                 if (removeBtn) {
@@ -2925,7 +2846,6 @@
                     this._renderCartVirtual();
                 }
             });
-
             listWrapper.appendChild(this.cartList);
             this.cartContainer.appendChild(cartHeader);
             this.cartContainer.appendChild(listWrapper);
@@ -2935,7 +2855,6 @@
             cartFooter.className = `${CONFIG.UI_PREFIX}-footer`;
             cartFooter.style.marginTop = 'auto'; // push to bottom
             cartFooter.style.paddingTop = '1rem';
-
             this.cartSaveBtn = document.createElement('button');
             this.cartSaveBtn.className = `${CONFIG.UI_PREFIX}-settings-save-btn`;
             this.cartSaveBtn.textContent = 'Save Selection';
@@ -2950,7 +2869,6 @@
 
             cartFooter.appendChild(this.cartSaveBtn);
             this.cartContainer.appendChild(cartFooter);
-
             // Assemble layout order: 0 Queue -> 1 Recent/History -> 2 Main -> 3 Flavor
             layoutWrapper.appendChild(this.cartContainer);
             layoutWrapper.appendChild(this.createRecentHistoryPanel());
@@ -2974,7 +2892,6 @@
 
         async showMenu() {
             if (this.overlay) return;
-
             if (CloudAPI.isValid() && !CloudAPI.isRateLimited()) {
                 Storage.fetchCloudBackground(true);
             }
@@ -2994,13 +2911,11 @@
             this.recentPanelMode = 'recent';
 
             this.render();
-
             this.syncInterval = setInterval(() => {
                 if (CloudAPI.isValid() && !CloudAPI.isRateLimited()) {
                     Storage.fetchCloudBackground(true);
                 }
             }, CONFIG.CLOUD_MENU_POLL_MS);
-
             this.syncTimeInterval = setInterval(() => {
                 if (this.recentPanelMode === 'history') {
                     this.updateSyncTimeUI();
@@ -3049,7 +2964,7 @@
             Storage.init(this.isSilentMode);
 
             if (this.isSilentMode) {
-                Logger.info('Initialized Silent Cloud Worker v10.8');
+                Logger.info('Initialized Silent Cloud Worker v11.6');
                 return;
             }
 
@@ -3059,14 +2974,12 @@
             this.bindEvents();
 
             Database.init();
-
             setInterval(() => {
                 if (document.visibilityState === 'visible' && !UI.overlay) {
                     Storage.fetchCloudBackground();
                 }
             }, CONFIG.CLOUD_HISTORY_THROTTLE_MS);
-
-            Logger.info('Initialized K-Pop Media Downloader v10.8');
+            Logger.info('Initialized K-Pop Media Downloader v11.6');
         },
 
         isDirectMediaPage() {
@@ -3080,7 +2993,6 @@
                     Storage.fetchCloudBackground();
                 }
             });
-
             window.addEventListener('keydown', (e) => {
                 if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
                     e.preventDefault();
