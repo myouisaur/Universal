@@ -1,5 +1,4 @@
 [
-  {"g": "LE SSERAFIM"  , "n": "Kazuha"       , "t": 1780080360121},
   {"g": "LE SSERAFIM"  , "n": "Kazuha"       , "t": 1780080360795},
   {"g": "LE SSERAFIM"  , "n": "Yunjin"       , "t": 1780080361430},
   {"g": "NMIXX"        , "n": "Bae"          , "t": 1780080362104},
@@ -998,5 +997,6 @@
   {"g": "Weeekly"      , "n": "Jiyoon"       , "t": 1781114474057},
   {"g": "tripleS"      , "n": "Nien"         , "t": 1781114521393},
   {"g": "tripleS"      , "n": "Nien"         , "t": 1781114527248},
-  {"g": "tripleS"      , "n": "Nien"         , "t": 1781114532333}
+  {"g": "tripleS"      , "n": "Nien"         , "t": 1781114532333},
+  {"g": "tripleS"      , "n": "Nien"         , "t": 1781114537680}
 ]
