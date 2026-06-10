@@ -1,7 +1,4 @@
 [
-  {"g": "fromis_9"     , "n": "Chaeyoung"    , "t": 1780080348095},
-  {"g": "fromis_9"     , "n": "Chaeyoung"    , "t": 1780080348811},
-  {"g": "fromis_9"     , "n": "Chaeyoung"    , "t": 1780080349485},
   {"g": "fromis_9"     , "n": "Chaeyoung"    , "t": 1780080350179},
   {"g": "fromis_9"     , "n": "Jiheon"       , "t": 1780080350835},
   {"g": "Hearts2Hearts", "n": "Ian"          , "t": 1780080351485},
@@ -998,5 +995,8 @@
   {"g": "BLACKPINK"    , "n": "Jennie"       , "t": 1781113547865},
   {"g": "BABYMONSTER"  , "n": "Ruka"         , "t": 1781113648309},
   {"g": "STAYC"        , "n": "Yoon"         , "t": 1781113717919},
-  {"g": "STAYC"        , "n": "Yoon"         , "t": 1781113723824}
+  {"g": "STAYC"        , "n": "Yoon"         , "t": 1781113723824},
+  {"g": "STAYC"        , "n": "Yoon"         , "t": 1781113728600},
+  {"g": "STAYC"        , "n": "Yoon"         , "t": 1781113732647},
+  {"g": "STAYC"        , "n": "Yoon"         , "t": 1781113736549}
 ]
