@@ -327,15 +327,6 @@
     "Semi",
     "Dohee"
   ],
-  "CLASS:y": [
-    "Hyungseo",
-    "Chaewon",
-    "Hyeju",
-    "Riwon",
-    "Jimin",
-    "Boeun",
-    "Seonyu"
-  ],
   "CLC": [
     "Seunghee",
     "Yujin",
@@ -1623,5 +1614,14 @@
     "Seoyu",
     "Sian",
     "Soee"
+  ],
+  "CLASSy": [
+    "Hyungseo",
+    "Chaewon",
+    "Hyeju",
+    "Riwon",
+    "Jimin",
+    "Boeun",
+    "Seonyu"
   ]
 }
