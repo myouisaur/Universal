@@ -1,5 +1,4 @@
 [
-  {"g": "IVE"          , "n": "Wonyoung"     , "t": 1780080356777},
   {"g": "IVE"          , "n": "Wonyoung"     , "t": 1780080357423},
   {"g": "IVE"          , "n": "Yujin"        , "t": 1780080358072},
   {"g": "LE SSERAFIM"  , "n": "Eunchae"      , "t": 1780080358738},
@@ -998,5 +997,6 @@
   {"g": "LE SSERAFIM"  , "n": "Sakura"       , "t": 1781114316717},
   {"g": "LE SSERAFIM"  , "n": "Sakura"       , "t": 1781114321652},
   {"g": "LE SSERAFIM"  , "n": "Sakura"       , "t": 1781114326109},
-  {"g": "IVE"          , "n": "Liz"          , "t": 1781114441760}
+  {"g": "IVE"          , "n": "Liz"          , "t": 1781114441760},
+  {"g": "Weeekly"      , "n": "Jiyoon"       , "t": 1781114474057}
 ]
