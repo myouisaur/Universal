@@ -1,5 +1,4 @@
 [
-  {"g": "BLACKPINK"    , "n": "Lisa"         , "t": 1780098541897},
   {"g": "BLACKPINK"    , "n": "Lisa"         , "t": 1780098545777},
   {"g": "BLACKPINK"    , "n": "Lisa"         , "t": 1780098549469},
   {"g": "KISS OF LIFE" , "n": "Natty"        , "t": 1780098859190},
@@ -998,5 +997,6 @@
   {"g": "AtHeart"      , "n": "Michi"        , "t": 1781159023825},
   {"g": "AtHeart"      , "n": "Michi"        , "t": 1781159030656},
   {"g": "BLACKPINK"    , "n": "Jennie"       , "t": 1781159143762},
-  {"g": "TWICE"        , "n": "Jihyo"        , "t": 1781159243777}
+  {"g": "TWICE"        , "n": "Jihyo"        , "t": 1781159243777},
+  {"g": "TWICE"        , "n": "Jihyo"        , "t": 1781159252173}
 ]
