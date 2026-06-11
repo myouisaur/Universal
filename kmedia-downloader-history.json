@@ -1,6 +1,4 @@
 [
-  {"g": "Purplebeck"   , "n": "Yeowool"      , "t": 1780100203190},
-  {"g": "Purplebeck"   , "n": "Yeowool"      , "t": 1780100203861},
   {"g": "Purplebeck"   , "n": "Yeowool"      , "t": 1780100204507},
   {"g": "Purplebeck"   , "n": "Yeowool"      , "t": 1780100205158},
   {"g": "Purplebeck"   , "n": "Yeowool"      , "t": 1780100205840},
@@ -998,5 +996,7 @@
   {"g": "TWICE"        , "n": "Jihyo"        , "t": 1781159322672},
   {"g": "BABYMONSTER"  , "n": "Ruka"         , "t": 1781159402932},
   {"g": "ITZY"         , "n": "Lia"          , "t": 1781159444332},
-  {"g": "ITZY"         , "n": "Lia"          , "t": 1781159449722}
+  {"g": "ITZY"         , "n": "Lia"          , "t": 1781159449722},
+  {"g": "ITZY"         , "n": "Lia"          , "t": 1781159454396},
+  {"g": "ITZY"         , "n": "Lia"          , "t": 1781159459345}
 ]
