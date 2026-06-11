@@ -1,8 +1,4 @@
 [
-  {"g": "BLACKPINK"    , "n": "Lisa"         , "t": 1780098545777},
-  {"g": "BLACKPINK"    , "n": "Lisa"         , "t": 1780098549469},
-  {"g": "KISS OF LIFE" , "n": "Natty"        , "t": 1780098859190},
-  {"g": "tripleS"      , "n": "Hayeon"       , "t": 1780100188680},
   {"g": "tripleS"      , "n": "Hayeon"       , "t": 1780100195987},
   {"g": "tripleS"      , "n": "Hayeon"       , "t": 1780100196636},
   {"g": "tripleS"      , "n": "Hayeon"       , "t": 1780100197293},
@@ -998,5 +994,9 @@
   {"g": "AtHeart"      , "n": "Michi"        , "t": 1781159030656},
   {"g": "BLACKPINK"    , "n": "Jennie"       , "t": 1781159143762},
   {"g": "TWICE"        , "n": "Jihyo"        , "t": 1781159243777},
-  {"g": "TWICE"        , "n": "Jihyo"        , "t": 1781159252173}
+  {"g": "TWICE"        , "n": "Jihyo"        , "t": 1781159252173},
+  {"g": "TWICE"        , "n": "Jihyo"        , "t": 1781159266387},
+  {"g": "TWICE"        , "n": "Jihyo"        , "t": 1781159271837},
+  {"g": "TWICE"        , "n": "Jihyo"        , "t": 1781159276424},
+  {"g": "TWICE"        , "n": "Jihyo"        , "t": 1781159281534}
 ]
