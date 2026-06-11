@@ -1,5 +1,4 @@
 [
-  {"g": "tripleS"      , "n": "Seoyeon"      , "t": 1780100211851},
   {"g": "BABYMONSTER"  , "n": "Ahyeon"       , "t": 1780100212498},
   {"g": "BABYMONSTER"  , "n": "Ahyeon"       , "t": 1780100213141},
   {"g": "tripleS"      , "n": "Kotone"       , "t": 1780100213787},
@@ -998,5 +997,6 @@
   {"g": "IZONE"        , "n": "Minju"        , "t": 1781164937549},
   {"g": "IZONE"        , "n": "Minju"        , "t": 1781164940972},
   {"g": "Hearts2Hearts", "n": "Ian"          , "t": 1781168682901},
-  {"g": "Hearts2Hearts", "n": "Ian"          , "t": 1781168689068}
+  {"g": "Hearts2Hearts", "n": "Ian"          , "t": 1781168689068},
+  {"g": "Hearts2Hearts", "n": "Ian"          , "t": 1781168692837}
 ]
