@@ -1,5 +1,4 @@
 [
-  {"g": "aespa"        , "n": "Winter"       , "t": 1780168875694},
   {"g": "aespa"        , "n": "Winter"       , "t": 1780168876390},
   {"g": "FIFTY FIFTY"  , "n": "Athena"       , "t": 1780169087636},
   {"g": "Hearts2Hearts", "n": "Ian"          , "t": 1780169093029},
@@ -998,5 +997,6 @@
   {"g": "KiiiKiii"     , "n": "Jiyu"         , "t": 1781189380826},
   {"g": "KiiiKiii"     , "n": "Jiyu"         , "t": 1781189385493},
   {"g": "TWICE"        , "n": "Sana"         , "t": 1781193252787},
-  {"g": "BABYMONSTER"  , "n": "Ahyeon"       , "t": 1781193310332}
+  {"g": "BABYMONSTER"  , "n": "Ahyeon"       , "t": 1781193310332},
+  {"g": "TWICE"        , "n": "Sana"         , "t": 1781193352730}
 ]
