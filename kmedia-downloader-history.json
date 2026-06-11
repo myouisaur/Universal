@@ -1,5 +1,4 @@
 [
-  {"g": "LE SSERAFIM"  , "n": "Chaewon"      , "t": 1780097976043},
   {"g": "LE SSERAFIM"  , "n": "Chaewon"      , "t": 1780097987684},
   {"g": "BABYMONSTER"  , "n": "Asa"          , "t": 1780098264681},
   {"g": "BABYMONSTER"  , "n": "Asa"          , "t": 1780098273055},
@@ -998,5 +997,6 @@
   {"g": "tripleS"      , "n": "Jiyeon"       , "t": 1781115471493},
   {"g": "USPEER"       , "n": "Soee"         , "t": 1781115704557},
   {"g": "USPEER"       , "n": "Soee"         , "t": 1781115708915},
-  {"g": "USPEER"       , "n": "Soee"         , "t": 1781115713731}
+  {"g": "USPEER"       , "n": "Soee"         , "t": 1781115713731},
+  {"g": "fromis_9"     , "n": "Hayoung"      , "t": 1781158856807}
 ]
