@@ -1,5 +1,4 @@
 [
-  {"g": "ITZY"         , "n": "Chaeryeong"   , "t": 1780100201243},
   {"g": "aespa"        , "n": "Winter"       , "t": 1780100201881},
   {"g": "tripleS"      , "n": "Chaewon"      , "t": 1780100202522},
   {"g": "Purplebeck"   , "n": "Yeowool"      , "t": 1780100203190},
@@ -998,5 +997,6 @@
   {"g": "TWICE"        , "n": "Jihyo"        , "t": 1781159307063},
   {"g": "TWICE"        , "n": "Jihyo"        , "t": 1781159312316},
   {"g": "TWICE"        , "n": "Jihyo"        , "t": 1781159317625},
-  {"g": "TWICE"        , "n": "Jihyo"        , "t": 1781159322672}
+  {"g": "TWICE"        , "n": "Jihyo"        , "t": 1781159322672},
+  {"g": "BABYMONSTER"  , "n": "Ruka"         , "t": 1781159402932}
 ]
