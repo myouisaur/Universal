@@ -1,6 +1,4 @@
 [
-  {"g": "LE SSERAFIM"  , "n": "Chaewon"      , "t": 1780170180195},
-  {"g": "LE SSERAFIM"  , "n": "Chaewon"      , "t": 1780170184592},
   {"g": "LE SSERAFIM"  , "n": "Yunjin"       , "t": 1780170186464},
   {"g": "LIGHTSUM"     , "n": "Nayoung"      , "t": 1780170189317},
   {"g": "IVE"          , "n": "Wonyoung"     , "t": 1780170196019},
@@ -998,5 +996,7 @@
   {"g": "LE SSERAFIM"  , "n": "Yunjin"       , "t": 1781288701184},
   {"g": "aespa"        , "n": "Karina"       , "t": 1781289157298},
   {"g": "aespa"        , "n": "Winter"       , "t": 1781289252066},
-  {"g": "aespa"        , "n": "Karina"       , "t": 1781290575557}
+  {"g": "aespa"        , "n": "Karina"       , "t": 1781290575557},
+  {"g": "aespa"        , "n": "Karina"       , "t": 1781290580087},
+  {"g": "aespa"        , "n": "Karina"       , "t": 1781290584976}
 ]
