@@ -1,5 +1,4 @@
 [
-  {"g": "TWICE"        , "n": "Momo"         , "t": 1780170445166},
   {"g": "TWICE"        , "n": "Momo"         , "t": 1780170483266},
   {"g": "TWICE"        , "n": "Nayeon"       , "t": 1780170500897},
   {"g": "TWICE"        , "n": "Nayeon"       , "t": 1780170546814},
@@ -998,5 +997,6 @@
   {"g": "IZONE"        , "n": "Yena"         , "t": 1781292830252},
   {"g": "ITZY"         , "n": "Chaeryeong"   , "t": 1781292851505},
   {"g": "ITZY"         , "n": "Chaeryeong"   , "t": 1781292856154},
-  {"g": "ITZY"         , "n": "Chaeryeong"   , "t": 1781292861178}
+  {"g": "ITZY"         , "n": "Chaeryeong"   , "t": 1781292861178},
+  {"g": "FIFTY FIFTY"  , "n": "Chanelle Moon", "t": 1781298816154}
 ]
