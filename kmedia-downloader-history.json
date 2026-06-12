@@ -1,5 +1,4 @@
 [
-  {"g": "Itzy"         , "n": "Chaeryeong"   , "t": 1780169892802},
   {"g": "IZONE"        , "n": "Eunbi"        , "t": 1780170072356},
   {"g": "KiiiKiii"     , "n": "Kya"          , "t": 1780170094255},
   {"g": "KiiiKiii"     , "n": "Kya"          , "t": 1780170098742},
@@ -998,5 +997,6 @@
   {"g": "tripleS"      , "n": "Sohyun"       , "t": 1781268087984},
   {"g": "tripleS"      , "n": "Sohyun"       , "t": 1781268097777},
   {"g": "tripleS"      , "n": "Sohyun"       , "t": 1781268102736},
-  {"g": "tripleS"      , "n": "Sohyun"       , "t": 1781268108915}
+  {"g": "tripleS"      , "n": "Sohyun"       , "t": 1781268108915},
+  {"g": "IVE"          , "n": "Wonyoung"     , "t": 1781269422569}
 ]
