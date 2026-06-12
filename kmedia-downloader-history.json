@@ -1,5 +1,4 @@
 [
-  {"g": "FIFTY FIFTY"  , "n": "Athena"       , "t": 1780169087636},
   {"g": "Hearts2Hearts", "n": "Ian"          , "t": 1780169093029},
   {"g": "Hearts2Hearts", "n": "Ian"          , "t": 1780169104843},
   {"g": "Hearts2Hearts", "n": "Ian"          , "t": 1780169177294},
@@ -998,5 +997,6 @@
   {"g": "TWICE"        , "n": "Sana"         , "t": 1781193252787},
   {"g": "BABYMONSTER"  , "n": "Ahyeon"       , "t": 1781193310332},
   {"g": "TWICE"        , "n": "Sana"         , "t": 1781193352730},
-  {"g": "LE SSERAFIM"  , "n": "Chaewon"      , "t": 1781193390318}
+  {"g": "LE SSERAFIM"  , "n": "Chaewon"      , "t": 1781193390318},
+  {"g": "Kep1er"       , "n": "Dayeon"       , "t": 1781222429749}
 ]
