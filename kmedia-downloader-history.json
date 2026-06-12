@@ -1,4 +1,6 @@
 [
+  {"g": "Hearts2Hearts", "n": "Ian"          , "t": 1780169209703},
+  {"g": "Hearts2Hearts", "n": "Ian"          , "t": 1780169213893},
   {"g": "Hearts2Hearts", "n": "Ian"          , "t": 1780169217460},
   {"g": "ILLIT"        , "n": "Minju"        , "t": 1780169226113},
   {"g": "ILLIT"        , "n": "Minju"        , "t": 1780169286473},
@@ -996,7 +998,5 @@
   {"g": "Kep1er"       , "n": "Dayeon"       , "t": 1781222483568},
   {"g": "fromis_9"     , "n": "Chaeyoung"    , "t": 1781222521557},
   {"g": "fromis_9"     , "n": "Chaeyoung"    , "t": 1781222525815},
-  {"g": "IVE"          , "n": "Wonyoung"     , "t": 1781223504615},
-  {"g": "IZONE"        , "n": "Minju"        , "t": 1781226355295},
-  {"g": "IZONE"        , "n": "Minju"        , "t": 1781226360046}
+  {"g": "fromis_9"     , "n": "Chaeyoung"    , "t": 1781222530262}
 ]
