@@ -1,6 +1,4 @@
 [
-  {"g": "IVE"          , "n": "Wonyoung"     , "t": 1780170198415},
-  {"g": "NewJeans"     , "n": "Haerin"       , "t": 1780170371302},
   {"g": "NewJeans"     , "n": "Minji"        , "t": 1780170373546},
   {"g": "NMIXX"        , "n": "Kyujin"       , "t": 1780170376007},
   {"g": "STAYC"        , "n": "Seeun"        , "t": 1780170388641},
@@ -998,5 +996,7 @@
   {"g": "aespa"        , "n": "Karina"       , "t": 1781290584976},
   {"g": "TWICE"        , "n": "Nayeon"       , "t": 1781292536311},
   {"g": "LE SSERAFIM"  , "n": "Chaewon"      , "t": 1781292549270},
-  {"g": "TWICE"        , "n": "Chaeyoung"    , "t": 1781292585935}
+  {"g": "TWICE"        , "n": "Chaeyoung"    , "t": 1781292585935},
+  {"g": "ITZY"         , "n": "Yeji"         , "t": 1781292607144},
+  {"g": "ITZY"         , "n": "Yeji"         , "t": 1781292611338}
 ]
