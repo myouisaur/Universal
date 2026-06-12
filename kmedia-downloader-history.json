@@ -1,5 +1,4 @@
 [
-  {"g": "LIGHTSUM"     , "n": "Nayoung"      , "t": 1780170189317},
   {"g": "IVE"          , "n": "Wonyoung"     , "t": 1780170196019},
   {"g": "IVE"          , "n": "Wonyoung"     , "t": 1780170198415},
   {"g": "NewJeans"     , "n": "Haerin"       , "t": 1780170371302},
@@ -998,5 +997,6 @@
   {"g": "aespa"        , "n": "Karina"       , "t": 1781290575557},
   {"g": "aespa"        , "n": "Karina"       , "t": 1781290580087},
   {"g": "aespa"        , "n": "Karina"       , "t": 1781290584976},
-  {"g": "TWICE"        , "n": "Nayeon"       , "t": 1781292536311}
+  {"g": "TWICE"        , "n": "Nayeon"       , "t": 1781292536311},
+  {"g": "LE SSERAFIM"  , "n": "Chaewon"      , "t": 1781292549270}
 ]
