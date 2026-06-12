@@ -1,5 +1,4 @@
 [
-  {"g": "TWICE"        , "n": "Nayeon"       , "t": 1780170500897},
   {"g": "TWICE"        , "n": "Nayeon"       , "t": 1780170546814},
   {"g": "TWICE"        , "n": "Sana"         , "t": 1780170570988},
   {"g": "TWICE"        , "n": "Tzuyu"        , "t": 1780170573788},
@@ -998,5 +997,6 @@
   {"g": "ITZY"         , "n": "Chaeryeong"   , "t": 1781292856154},
   {"g": "ITZY"         , "n": "Chaeryeong"   , "t": 1781292861178},
   {"g": "FIFTY FIFTY"  , "n": "Chanelle Moon", "t": 1781298816154},
-  {"g": "ILLIT"        , "n": "Wonhee"       , "t": 1781298823159}
+  {"g": "ILLIT"        , "n": "Wonhee"       , "t": 1781298823159},
+  {"g": "KiiiKiii"     , "n": "Leesol"       , "t": 1781302178046}
 ]
