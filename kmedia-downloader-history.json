@@ -1,5 +1,4 @@
 [
-  {"g": "tripleS"      , "n": "Sohyun"       , "t": 1780353585097},
   {"g": "tripleS"      , "n": "Sohyun"       , "t": 1780353585805},
   {"g": "aespa"        , "n": "Karina"       , "t": 1780353586496},
   {"g": "Billlie"      , "n": "Sheon"        , "t": 1780353587988},
@@ -998,5 +997,6 @@
   {"g": "LE SSERAFIM"  , "n": "Eunchae"      , "t": 1781365854153},
   {"g": "LE SSERAFIM"  , "n": "Eunchae"      , "t": 1781365858609},
   {"g": "LE SSERAFIM"  , "n": "Eunchae"      , "t": 1781365863997},
-  {"g": "LE SSERAFIM"  , "n": "Eunchae"      , "t": 1781365868992}
+  {"g": "LE SSERAFIM"  , "n": "Eunchae"      , "t": 1781365868992},
+  {"g": "LE SSERAFIM"  , "n": "Eunchae"      , "t": 1781365874074}
 ]
