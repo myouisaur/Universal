@@ -1,5 +1,4 @@
 [
-  {"g": "ITZY"         , "n": "Ryujin"       , "t": 1780353597503},
   {"g": "NMIXX"        , "n": "Haewon"       , "t": 1780353598339},
   {"g": "LE SSERAFIM"  , "n": "Yunjin"       , "t": 1780353599041},
   {"g": "LE SSERAFIM"  , "n": "Yunjin"       , "t": 1780353599771},
@@ -998,5 +997,6 @@
   {"g": "NMIXX"        , "n": "Haewon"       , "t": 1781367437407},
   {"g": "NMIXX"        , "n": "Haewon"       , "t": 1781367444427},
   {"g": "NMIXX"        , "n": "Sullyoon"     , "t": 1781367645808},
-  {"g": "NMIXX"        , "n": "Sullyoon"     , "t": 1781367651234}
+  {"g": "NMIXX"        , "n": "Sullyoon"     , "t": 1781367651234},
+  {"g": "NMIXX"        , "n": "Sullyoon"     , "t": 1781367656993}
 ]
