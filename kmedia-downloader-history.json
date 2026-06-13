@@ -1,6 +1,4 @@
 [
-  {"g": "IZONE"        , "n": "Eunbi"        , "t": 1780452798106},
-  {"g": "Hearts2Hearts", "n": "Carmen"       , "t": 1780452798782},
   {"g": "Hearts2Hearts", "n": "Carmen"       , "t": 1780452799464},
   {"g": "LE SSERAFIM"  , "n": "Yunjin"       , "t": 1780452800125},
   {"g": "Say My Name"  , "n": "Junhwi"       , "t": 1780452802216},
@@ -998,5 +996,7 @@
   {"g": "NewJeans"     , "n": "Haerin"       , "t": 1781369372792},
   {"g": "NewJeans"     , "n": "Haerin"       , "t": 1781369376626},
   {"g": "TWICE"        , "n": "Tzuyu"        , "t": 1781369910533},
-  {"g": "TWICE"        , "n": "Tzuyu"        , "t": 1781369916376}
+  {"g": "TWICE"        , "n": "Tzuyu"        , "t": 1781369916376},
+  {"g": "TWICE"        , "n": "Tzuyu"        , "t": 1781369921234},
+  {"g": "TWICE"        , "n": "Tzuyu"        , "t": 1781369924237}
 ]
