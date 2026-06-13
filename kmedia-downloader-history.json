@@ -1,5 +1,4 @@
 [
-  {"g": "TWICE"        , "n": "Tzuyu"        , "t": 1780196337544},
   {"g": "Red Velvet"   , "n": "Wendy"        , "t": 1780353247803},
   {"g": "FIFTY FIFTY"  , "n": "Athena"       , "t": 1780353248971},
   {"g": "ITZY"         , "n": "Yuna"         , "t": 1780353304644},
@@ -998,5 +997,6 @@
   {"g": "BABYMONSTER"  , "n": "Asa"          , "t": 1781353087387},
   {"g": "BABYMONSTER"  , "n": "Asa"          , "t": 1781353095351},
   {"g": "BABYMONSTER"  , "n": "Asa"          , "t": 1781353100068},
-  {"g": "LE SSERAFIM"  , "n": "Eunchae"      , "t": 1781364449810}
+  {"g": "LE SSERAFIM"  , "n": "Eunchae"      , "t": 1781364449810},
+  {"g": "TWICE"        , "n": "Mina"         , "t": 1781364525461}
 ]
