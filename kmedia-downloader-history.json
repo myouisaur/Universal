@@ -1,6 +1,4 @@
 [
-  {"g": "tripleS"      , "n": "Seoyeon"      , "t": 1780353579283},
-  {"g": "LE SSERAFIM"  , "n": "Sakura"       , "t": 1780353579973},
   {"g": "LE SSERAFIM"  , "n": "Sakura"       , "t": 1780353580684},
   {"g": "aespa"        , "n": "Karina"       , "t": 1780353581371},
   {"g": "TWICE"        , "n": "Jihyo"        , "t": 1780353582108},
@@ -998,5 +996,7 @@
   {"g": "ITZY"         , "n": "Yeji"         , "t": 1781365561272},
   {"g": "GIDLE"        , "n": "Shuhua"       , "t": 1781365626528},
   {"g": "aespa"        , "n": "Karina"       , "t": 1781365692536},
-  {"g": "TWICE"        , "n": "Tzuyu"        , "t": 1781365742511}
+  {"g": "TWICE"        , "n": "Tzuyu"        , "t": 1781365742511},
+  {"g": "LE SSERAFIM"  , "n": "Eunchae"      , "t": 1781365849786},
+  {"g": "LE SSERAFIM"  , "n": "Eunchae"      , "t": 1781365854153}
 ]
