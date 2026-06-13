@@ -1,5 +1,4 @@
 [
-  {"g": "FIFTY FIFTY"  , "n": "Athena"       , "t": 1780353248971},
   {"g": "ITZY"         , "n": "Yuna"         , "t": 1780353304644},
   {"g": "aespa"        , "n": "Winter"       , "t": 1780353324978},
   {"g": "TWICE"        , "n": "Jihyo"        , "t": 1780353451847},
@@ -998,5 +997,6 @@
   {"g": "BABYMONSTER"  , "n": "Asa"          , "t": 1781353100068},
   {"g": "LE SSERAFIM"  , "n": "Eunchae"      , "t": 1781364449810},
   {"g": "TWICE"        , "n": "Mina"         , "t": 1781364525461},
-  {"g": "tripleS"      , "n": "Sohyun"       , "t": 1781364541473}
+  {"g": "tripleS"      , "n": "Sohyun"       , "t": 1781364541473},
+  {"g": "IVE"          , "n": "Wonyoung"     , "t": 1781364556305}
 ]
