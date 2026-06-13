@@ -1,5 +1,4 @@
 [
-  {"g": "ITZY"         , "n": "Yuna"         , "t": 1780353590751},
   {"g": "NewJeans"     , "n": "Minji"        , "t": 1780353591478},
   {"g": "NewJeans"     , "n": "Minji"        , "t": 1780353592207},
   {"g": "NewJeans"     , "n": "Minji"        , "t": 1780353592925},
@@ -998,5 +997,6 @@
   {"g": "fromis_9"     , "n": "Nagyung"      , "t": 1781366088522},
   {"g": "fromis_9"     , "n": "Nagyung"      , "t": 1781366092833},
   {"g": "fromis_9"     , "n": "Nagyung"      , "t": 1781366098441},
-  {"g": "Kep1er"       , "n": "Dayeon"       , "t": 1781366146204}
+  {"g": "Kep1er"       , "n": "Dayeon"       , "t": 1781366146204},
+  {"g": "KATSEYE"      , "n": "Sophia"       , "t": 1781366247015}
 ]
