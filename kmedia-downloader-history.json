@@ -1,6 +1,4 @@
 [
-  {"g": "Billlie"      , "n": "Sheon"        , "t": 1780353587988},
-  {"g": "BABYMONSTER"  , "n": "Asa"          , "t": 1780353588668},
   {"g": "aespa"        , "n": "Giselle"      , "t": 1780353589332},
   {"g": "ITZY"         , "n": "Yuna"         , "t": 1780353590067},
   {"g": "ITZY"         , "n": "Yuna"         , "t": 1780353590751},
@@ -998,5 +996,7 @@
   {"g": "LE SSERAFIM"  , "n": "Eunchae"      , "t": 1781365868992},
   {"g": "LE SSERAFIM"  , "n": "Eunchae"      , "t": 1781365874074},
   {"g": "Kep1er"       , "n": "Dayeon"       , "t": 1781366013463},
-  {"g": "Kep1er"       , "n": "Dayeon"       , "t": 1781366047109}
+  {"g": "Kep1er"       , "n": "Dayeon"       , "t": 1781366047109},
+  {"g": "fromis_9"     , "n": "Nagyung"      , "t": 1781366088522},
+  {"g": "fromis_9"     , "n": "Nagyung"      , "t": 1781366092833}
 ]
