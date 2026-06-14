@@ -1,6 +1,4 @@
 [
-  {"g": "aespa"        , "n": "Karina"       , "t": 1780452811923},
-  {"g": "LE SSERAFIM"  , "n": "Yunjin"       , "t": 1780452812621},
   {"g": "IVE"          , "n": "Wonyoung"     , "t": 1780452813282},
   {"g": "aespa"        , "n": "Karina"       , "t": 1780452813955},
   {"g": "YOUNG POSSE"  , "n": "Jiana"        , "t": 1780452814611},
@@ -998,5 +996,7 @@
   {"g": "aespa"        , "n": "Karina"       , "t": 1781434847724},
   {"g": "NMIXX"        , "n": "Jiwoo"        , "t": 1781446384885},
   {"g": "NMIXX"        , "n": "Jiwoo"        , "t": 1781446393033},
-  {"g": "KiiiKiii"     , "n": "Jiyu"         , "t": 1781446458899}
+  {"g": "KiiiKiii"     , "n": "Jiyu"         , "t": 1781446458899},
+  {"g": "KiiiKiii"     , "n": "Jiyu"         , "t": 1781446463550},
+  {"g": "KiiiKiii"     , "n": "Jiyu"         , "t": 1781446467215}
 ]
