@@ -1,6 +1,4 @@
 [
-  {"g": "YOUNG POSSE"  , "n": "Jiana"        , "t": 1780452814611},
-  {"g": "ITZY"         , "n": "Ryujin"       , "t": 1780452815260},
   {"g": "LE SSERAFIM"  , "n": "Yunjin"       , "t": 1780452815915},
   {"g": "LE SSERAFIM"  , "n": "Yunjin"       , "t": 1780452816607},
   {"g": "LE SSERAFIM"  , "n": "Yunjin"       , "t": 1780452817258},
@@ -952,6 +950,7 @@
   {"g": "fromis_9"     , "n": "Nagyung"      , "t": 1781366098441},
   {"g": "Kep1er"       , "n": "Dayeon"       , "t": 1781366146204},
   {"g": "KATSEYE"      , "n": "Sophia"       , "t": 1781366247015},
+  {"g": "ITZY"         , "n": "Yeji"         , "t": 1781366298340},
   {"g": "Hearts2Hearts", "n": "Jiwoo"        , "t": 1781366398760},
   {"g": "Hearts2Hearts", "n": "Jiwoo"        , "t": 1781366404082},
   {"g": "Hearts2Hearts", "n": "Jiwoo"        , "t": 1781366408705},
@@ -998,5 +997,6 @@
   {"g": "KiiiKiii"     , "n": "Jiyu"         , "t": 1781446463550},
   {"g": "KiiiKiii"     , "n": "Jiyu"         , "t": 1781446467215},
   {"g": "KiiiKiii"     , "n": "Jiyu"         , "t": 1781446472427},
-  {"g": "ILLIT"        , "n": "Yunah"        , "t": 1781447102293}
+  {"g": "ILLIT"        , "n": "Yunah"        , "t": 1781447102293},
+  {"g": "KISS OF LIFE" , "n": "Julie"        , "t": 1781468733445}
 ]
