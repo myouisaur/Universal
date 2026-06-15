@@ -1,7 +1,4 @@
 [
-  {"g": "Hearts2Hearts", "n": "Ian"          , "t": 1780783595976},
-  {"g": "Hearts2Hearts", "n": "Ian"          , "t": 1780783597324},
-  {"g": "LE SSERAFIM"  , "n": "Kazuha"       , "t": 1780783597990},
   {"g": "LE SSERAFIM"  , "n": "Kazuha"       , "t": 1780783598722},
   {"g": "LE SSERAFIM"  , "n": "Kazuha"       , "t": 1780783599509},
   {"g": "ITZY"         , "n": "Yeji"         , "t": 1780783602599},
@@ -998,5 +995,8 @@
   {"g": "tripleS"      , "n": "Shion"        , "t": 1781552201247},
   {"g": "tripleS"      , "n": "Shion"        , "t": 1781552205966},
   {"g": "tripleS"      , "n": "Shion"        , "t": 1781552211135},
-  {"g": "tripleS"      , "n": "Shion"        , "t": 1781552217508}
+  {"g": "tripleS"      , "n": "Shion"        , "t": 1781552217508},
+  {"g": "tripleS"      , "n": "Kotone"       , "t": 1781552248949},
+  {"g": "tripleS"      , "n": "Kotone"       , "t": 1781552253534},
+  {"g": "tripleS"      , "n": "Kotone"       , "t": 1781552259284}
 ]
