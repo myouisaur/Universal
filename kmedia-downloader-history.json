@@ -1,6 +1,4 @@
 [
-  {"g": "ITZY"         , "n": "Yeji"         , "t": 1780783602599},
-  {"g": "UNIS"         , "n": "Gehlee"       , "t": 1780783603359},
   {"g": "TWICE"        , "n": "Tzuyu"        , "t": 1780783604102},
   {"g": "TWICE"        , "n": "Jihyo"        , "t": 1780783604772},
   {"g": "TWICE"        , "n": "Nayeon"       , "t": 1780783605420},
@@ -998,5 +996,7 @@
   {"g": "tripleS"      , "n": "Kotone"       , "t": 1781552253534},
   {"g": "tripleS"      , "n": "Kotone"       , "t": 1781552259284},
   {"g": "tripleS"      , "n": "Sohyun"       , "t": 1781552283898},
-  {"g": "tripleS"      , "n": "Sohyun"       , "t": 1781552289128}
+  {"g": "tripleS"      , "n": "Sohyun"       , "t": 1781552289128},
+  {"g": "tripleS"      , "n": "Xinyu"        , "t": 1781552315367},
+  {"g": "LE SSERAFIM"  , "n": "Yunjin"       , "t": 1781552620480}
 ]
