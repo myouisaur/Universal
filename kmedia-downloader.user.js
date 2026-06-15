@@ -2,7 +2,7 @@
 // @name         [Universal] K-Media Downloader
 // @namespace    https://github.com/myouisaur/Universal
 // @icon         data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23FF4081'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 11h3l-4 4-4-4h3V8h2v5z'/%3E%3C/svg%3E
-// @version      11.6
+// @version      12.0
 // @description  Organizes, tracks, and saves categorized K-Pop media files through a centralized overlay.
 // @author       Xiv
 // @match        *://*/*
@@ -12,11 +12,13 @@
 // @grant        GM_addStyle
 // @grant        GM_setValue
 // @grant        GM_getValue
+// @grant        GM_deleteValue
 // @grant        GM_addValueChangeListener
 // @grant        window.close
 // @connect      raw.githubusercontent.com
-// @connect      *
+// @connect      kmedia-db-proxy.myouisaur.workers.dev
 // @noframes
+// @run-at       document-end
 // @updateURL    https://myouisaur.github.io/Universal/kmedia-downloader.user.js
 // @downloadURL  https://myouisaur.github.io/Universal/kmedia-downloader.user.js
 // ==/UserScript==
@@ -28,15 +30,23 @@
     // CONFIGURATION
     // =========================================================
     const CONFIG = {
+        // Naming & Execution
         NAMING_FORMAT: '{group}-{member}-{random}.{ext}',
         CUSTOM_NAMING_FORMAT: '{custom}-{random}.{ext}',
         RANDOM_STRING_LENGTH: 8,
-
         PROMPT_ON_IDOL_SAVE: false,
 
+        // Hardcoded Cloud Configs
+        WORKER_URL: 'https://kmedia-db-proxy.myouisaur.workers.dev',
+        GITHUB_OWNER: 'myouisaur',
+        GITHUB_REPO: 'Universal',
+        GITHUB_DB_PATH: 'kmedia-downloader-db.json',
+        GITHUB_HISTORY_PATH: 'kmedia-downloader-history.json',
+        GITHUB_BRANCH: 'main',
+
+        // UI & Storage Core
         UI_PREFIX: 'tm-kpop-dl',
         STORAGE_KEY: 'tm_kpop_dl_history',
-
         HISTORY_MAX_DAYS: 30,
         HISTORY_MAX_ENTRIES: 1000,
         FAB_Z_INDEX: 999990,
@@ -47,9 +57,9 @@
         CLOUD_MENU_POLL_MS: 10000,
         VIRTUAL_ITEM_HEIGHT: 50,
         MAX_ACTIVE_TOASTS: 3,
-
         AUTO_CLOSE_COUNTDOWN_MS: 3000,
 
+        // Database
         DB_URL: 'https://raw.githubusercontent.com/myouisaur/Universal/refs/heads/main/kmedia-downloader-db.json',
         DB_CACHE_KEY: 'tm_kpop_dl_db_cache',
         DB_CACHE_TTL_MS: 12 * 60 * 60 * 1000
@@ -123,11 +133,11 @@
         rateLimitResetTime: 0,
 
         loadConfig() {
-            this.config.url = GM_getValue('tm_kpop_dl_worker_url', '');
+            this.config.url = CONFIG.WORKER_URL;
+            this.config.owner = CONFIG.GITHUB_OWNER;
+            this.config.repo = CONFIG.GITHUB_REPO;
+            this.config.branch = CONFIG.GITHUB_BRANCH;
             this.config.token = GM_getValue('tm_kpop_dl_github_token', '');
-            this.config.owner = GM_getValue('tm_kpop_dl_github_owner', '');
-            this.config.repo = GM_getValue('tm_kpop_dl_github_repo', '');
-            this.config.branch = GM_getValue('tm_kpop_dl_github_branch', 'main');
         },
 
         isValid() {
@@ -290,9 +300,8 @@
         },
 
         fetch() {
-            const dbPath = GM_getValue('tm_kpop_dl_github_path', 'kmedia-downloader-db.json');
             if (CloudAPI.isValid()) {
-                return CloudAPI.fetch(dbPath).then(data => data || {});
+                return CloudAPI.fetch(CONFIG.GITHUB_DB_PATH).then(data => data || {});
             }
 
             return new Promise((resolve, reject) => {
@@ -321,8 +330,7 @@
 
         async saveCloud() {
             if (!CloudAPI.isValid()) throw new Error('Cloud credentials missing.');
-            const dbPath = GM_getValue('tm_kpop_dl_github_path', 'kmedia-downloader-db.json');
-            await CloudAPI.put(dbPath, this.data);
+            await CloudAPI.put(CONFIG.GITHUB_DB_PATH, this.data);
             this.setCache(this.data);
         },
 
@@ -405,13 +413,17 @@
         _taskQueue: Promise.resolve(),
 
         init(isSilentMode = false) {
+            this.cleanupDeprecatedConfig();
             this.syncFromStorage();
+
             this._saveLocalDebounced = Utils.debounce(() => {
                 GM_setValue(CONFIG.STORAGE_KEY, JSON.stringify(this._cache));
             }, CONFIG.SAVE_DEBOUNCE_MS);
+
             this._saveCloudDebounced = Utils.debounce(() => {
                 this.saveCloud();
             }, CONFIG.CLOUD_HISTORY_DEBOUNCE_MS);
+
             this.clean();
             this.setupCrossTabSync();
             this.setupDirtyListener();
@@ -419,6 +431,27 @@
             if (!isSilentMode) {
                 this.fetchCloudBackground();
             }
+        },
+
+        cleanupDeprecatedConfig() {
+            const deprecatedKeys = [
+                'tm_kpop_dl_worker_url',
+                'tm_kpop_dl_github_owner',
+                'tm_kpop_dl_github_repo',
+                'tm_kpop_dl_github_path',
+                'tm_kpop_dl_history_path',
+                'tm_kpop_dl_github_branch'
+            ];
+
+            deprecatedKeys.forEach(key => {
+                try {
+                    if (GM_getValue(key) !== undefined) {
+                        GM_deleteValue(key);
+                    }
+                } catch (e) {
+                    Logger.warn(`Failed to cleanup deprecated storage key: ${key}`);
+                }
+            });
         },
 
         _queueTask(taskFn) {
@@ -516,6 +549,7 @@
             this._cache = this._cache
                 .filter(item => item.t >= cutoffDate)
                 .slice(-CONFIG.HISTORY_MAX_ENTRIES);
+
             if (this._cache.length !== initialLength) {
                 this._saveLocalDebounced();
             }
@@ -526,9 +560,9 @@
             if (!CloudAPI.isValid() || CloudAPI.isRateLimited()) return;
             if (!force && Date.now() - this._lastCloudFetch < CONFIG.CLOUD_HISTORY_THROTTLE_MS) return;
             this._lastCloudFetch = Date.now();
+
             try {
-                const historyPath = GM_getValue('tm_kpop_dl_history_path', 'kmedia-downloader-history.json');
-                const cloudData = await CloudAPI.fetch(historyPath);
+                const cloudData = await CloudAPI.fetch(CONFIG.GITHUB_HISTORY_PATH);
 
                 if (cloudData && Array.isArray(cloudData)) {
                     GM_setValue(`${CONFIG.UI_PREFIX}_last_sync_time`, Date.now());
@@ -572,6 +606,7 @@
                     shouldUpload = true;
                 }
             });
+
             if (!shouldUpload) return 'queued';
 
             try {
@@ -583,15 +618,17 @@
                     await this._queueTask(() => this._withLock(async () => {
                         this.syncFromStorage();
                     }));
+
                     await this._withLock(async () => {
                         GM_setValue(`${CONFIG.UI_PREFIX}_sync_dirty`, false);
                     });
-                    const historyPath = GM_getValue('tm_kpop_dl_history_path', 'kmedia-downloader-history.json');
-                    await CloudAPI.put(historyPath, this._cache);
+
+                    await CloudAPI.put(CONFIG.GITHUB_HISTORY_PATH, this._cache);
                     Logger.info('History cache successfully pushed to remote branch.');
 
                     GM_setValue(`${CONFIG.UI_PREFIX}_last_sync_time`, Date.now());
                     if (UI.overlay) UI.updateSyncTimeUI();
+
                     await this._withLock(async () => {
                         if (!GM_getValue(`${CONFIG.UI_PREFIX}_sync_dirty`, false)) {
                             pushing = false;
@@ -621,7 +658,6 @@
                 this.clean();
                 GM_setValue(CONFIG.STORAGE_KEY, JSON.stringify(this._cache));
 
-                // Immediately tag network dirtiness so the 24/7 background tab picks it up
                 GM_setValue(`${CONFIG.UI_PREFIX}_sync_dirty`, true);
                 if (UI.overlay) UI.refreshSidePanels();
             } catch (e) {
@@ -640,7 +676,6 @@
                 this.clean();
                 GM_setValue(CONFIG.STORAGE_KEY, JSON.stringify(this._cache));
 
-                // Immediately tag network dirtiness so the 24/7 background tab picks it up
                 GM_setValue(`${CONFIG.UI_PREFIX}_sync_dirty`, true);
                 if (UI.overlay) UI.refreshSidePanels();
             } catch (e) {
@@ -776,9 +811,9 @@
             const groups = {};
             cart.forEach(item => {
                 if (!groups[item.g]) groups[item.g] = [];
-                // Force lowercase for all members in a batch save
                 groups[item.g].push(item.n.toLowerCase());
             });
+
             const groupNames = Object.keys(groups);
             let baseName = "";
 
@@ -814,12 +849,11 @@
                 .replace('{custom}', safeName)
                 .replace('{random}', this.generateRandomString(CONFIG.RANDOM_STRING_LENGTH))
                 .replace('{ext}', ext);
+
             UI.closeMenu();
 
             let skipCloudSync = true;
-            if (cart && cart.length > 0) {
-                skipCloudSync = false;
-            }
+            if (cart && cart.length > 0) skipCloudSync = false;
 
             this.triggerDownload(window.location.href, fileName, null, null, true, skipCloudSync, cart);
         },
@@ -834,7 +868,6 @@
             if (!cart || cart.length === 0) return;
             const fileName = this.generateBatchFileName(cart);
             UI.closeMenu();
-
             this.triggerDownload(window.location.href, fileName, null, null, CONFIG.PROMPT_ON_IDOL_SAVE, false, cart);
         },
 
@@ -849,15 +882,12 @@
 
             let isSafeImage = false;
             try {
-                // Trust GM_download purely for explicitly static image types to prevent Chromium JSON renaming
                 isSafeImage = !!new URL(url).pathname.match(/\.(jpg|jpeg|png|webp|avif|gif)$/i);
             } catch (e) {}
 
             if (isSafeImage && typeof GM_download === 'function') {
                 this._executeGMDownload(url, name, groupContext, nameContext, toastObj, promptUser, skipCloudSync, cartContext);
             } else {
-                // Instantly route complex media straight to the fast RAM buffer fallback.
-                // We accept the loss of OS cancel-detection in exchange for pure speed and stability.
                 this.fallbackDownload(url, name, groupContext, nameContext, toastObj, promptUser, skipCloudSync, cartContext);
             }
         },
@@ -933,15 +963,12 @@
         },
 
         _saveBlob(blob, name, groupContext, nameContext, toastObj, promptUser, skipCloudSync, cartContext) {
-            // Raw memory blobs fallback to generic a.click().
-            // It is fire-and-forget, bypassing security checks but losing OS Cancel detection.
             const blobUrl = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = blobUrl;
             a.download = name.substring(name.lastIndexOf('/') + 1);
             a.click();
 
-            // Clean up the memory blob shortly after execution
             setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
 
             if (cartContext && cartContext.length > 0) Storage.recordBatchSuccess(cartContext);
@@ -1020,6 +1047,14 @@
     // UI MODULE
     // =========================================================
     const UI = {
+        fab: null,
+        fabTicking: false,
+
+        // Edge Routing Variables
+        fabCurrentQuad: 'SE',
+        fabTargetQuad: 'SE',
+        fabIsAnimating: false,
+
         overlay: null,
         toastContainer: null,
         currentView: 'groups',
@@ -1075,6 +1110,7 @@
         syncBtn: null,
         configBtn: null,
         stdSaveBtn: null,
+        customBtn: null,
 
         cachedContainerHeight: 400,
         resizeObserver: null,
@@ -1123,13 +1159,16 @@
 
                 /* Floating Action Button */
                 .${CONFIG.UI_PREFIX}-fab {
-                    position: fixed; bottom: 2.5rem; right: 2.5rem;
+                    position: fixed;
+                    top: calc(100vh - 6rem);
+                    left: calc(100vw - 6rem);
                     width: 3.5rem; height: 3.5rem;
                     background: rgba(255, 255, 255, 0.1);
                     border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 50%;
                     display: flex; align-items: center; justify-content: center;
                     cursor: pointer; box-shadow: 0 0.5rem 1.5rem rgba(0,0,0,0.6);
-                    z-index: ${CONFIG.FAB_Z_INDEX}; transition: background 0.2s ease;
+                    z-index: ${CONFIG.FAB_Z_INDEX};
+                    /* Dynamic transition handled strictly by JS routing */
                 }
                 .${CONFIG.UI_PREFIX}-fab:hover { background: rgba(255, 255, 255, 0.2); }
                 .${CONFIG.UI_PREFIX}-fab svg { width: 1.5rem; height: 1.5rem; fill: var(--tm-text-main); }
@@ -1143,19 +1182,22 @@
                     font-family: 'Inter', -apple-system, sans-serif; backdrop-filter: blur(8px);
                 }
                 .${CONFIG.UI_PREFIX}-layout {
-                    display: flex; gap: 1.5rem; max-width: 95vw; max-height: 95vh;
+                    display: flex;
+                    gap: 1.5rem; max-width: 95vw; max-height: 95vh;
                     justify-content: center; align-items: flex-end; position: relative;
                 }
 
                 /* Panels & Containers */
                 .${CONFIG.UI_PREFIX}-main-container {
-                    display: flex; flex-direction: column; order: 2; width: 25rem; height: 80vh; position: relative;
+                    display: flex;
+                    flex-direction: column; order: 2; width: 25rem; height: 80vh; position: relative;
                 }
                 .${CONFIG.UI_PREFIX}-panel {
                     background: var(--tm-bg-base);
                     border-radius: 1.5rem; padding: 1.5rem; border: 1px solid var(--tm-border);
                     box-shadow: 0 2rem 4rem rgba(0,0,0,0.8); color: var(--tm-text-main);
-                    display: flex; flex-direction: column; box-sizing: border-box; overflow: hidden;
+                    display: flex; flex-direction: column;
+                    box-sizing: border-box; overflow: hidden;
                 }
                 .${CONFIG.UI_PREFIX}-main { width: 100%; height: 100%; position: relative; }
                 .${CONFIG.UI_PREFIX}-side { width: 20rem; height: 80vh; background: var(--tm-bg-panel); }
@@ -1164,17 +1206,15 @@
 
                 /* Header */
                 .${CONFIG.UI_PREFIX}-header {
-                    display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+                    display: flex;
+                    align-items: center; justify-content: space-between; gap: 1rem;
                     height: 2.5rem; margin-bottom: 1rem; flex-shrink: 0; width: 100%;
                 }
-                .${CONFIG.UI_PREFIX}-header-left {
-                    display: flex; align-items: center; gap: 0.8rem; overflow: hidden; flex-grow: 1;
-                }
-                .${CONFIG.UI_PREFIX}-header-right {
-                    display: flex; align-items: center; justify-content: flex-end; flex-shrink: 0;
-                }
+                .${CONFIG.UI_PREFIX}-header-left { display: flex; align-items: center; gap: 0.8rem; overflow: hidden; flex-grow: 1; }
+                .${CONFIG.UI_PREFIX}-header-right { display: flex; align-items: center; justify-content: flex-end; flex-shrink: 0; }
                 .${CONFIG.UI_PREFIX}-header h2 {
-                    font-size: 1.1rem; margin: 0; font-weight: 600; color: #eee; text-align: left;
+                    font-size: 1.1rem;
+                    margin: 0; font-weight: 600; color: #eee; text-align: left;
                     overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex-grow: 1;
                 }
                 .${CONFIG.UI_PREFIX}-history-subtitle {
@@ -1183,7 +1223,8 @@
                 }
 
                 .${CONFIG.UI_PREFIX}-icon-btn {
-                    background: #1a1a1a; border: 1px solid var(--tm-border-light);
+                    background: #1a1a1a;
+                    border: 1px solid var(--tm-border-light);
                     border-radius: 0.7rem; width: 2.5rem; height: 2.5rem; display: flex;
                     align-items: center; justify-content: center; cursor: pointer;
                     transition: 0.2s; flex-shrink: 0;
@@ -1191,20 +1232,12 @@
                 .${CONFIG.UI_PREFIX}-icon-btn:hover { background: var(--tm-border); border-color: var(--tm-border-focus); }
                 .${CONFIG.UI_PREFIX}-icon-btn svg { width: 1.1rem; height: 1.1rem; fill: var(--tm-text-main); transition: fill 0.2s; }
 
-                /* Multi-Select Button Transition Animation */
-                .${CONFIG.UI_PREFIX}-multi-btn {
-                    transition: transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1), background 0.2s, border-color 0.2s !important; z-index: 10;
-                }
-                .${CONFIG.UI_PREFIX}-multi-active {
-                    /* Queue width(20) + Layout gap(1.5) + Recent width(20) + Layout gap(1.5) = 43rem */
-                    transform: translateX(-43rem);
-                }
+                .${CONFIG.UI_PREFIX}-multi-btn { transition: transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1), background 0.2s, border-color 0.2s !important; z-index: 10; }
+                .${CONFIG.UI_PREFIX}-multi-active { transform: translateX(-43rem); }
 
-                /* Animations */
                 @keyframes tmSpin { 100% { transform: rotate(360deg); } }
                 .${CONFIG.UI_PREFIX}-spin svg { animation: tmSpin 1s linear infinite; }
 
-                /* Configuration Notification Dot */
                 .${CONFIG.UI_PREFIX}-notification-dot {
                     position: absolute; top: -2px; right: -2px; width: 10px; height: 10px;
                     background-color: var(--tm-danger); border-radius: 50%; border: 2px solid #1a1a1a; box-sizing: content-box;
@@ -1214,7 +1247,8 @@
                 #${CONFIG.UI_PREFIX}-toast-wrapper {
                     position: fixed; bottom: 2rem; left: 2rem;
                     display: flex; flex-direction: column; gap: 0.8rem; z-index: ${CONFIG.OVERLAY_Z_INDEX + 10};
-                    pointer-events: none; align-items: flex-start; font-family: 'Inter', -apple-system, sans-serif;
+                    pointer-events: none; align-items: flex-start;
+                    font-family: 'Inter', -apple-system, sans-serif;
                 }
                 .${CONFIG.UI_PREFIX}-toast {
                     background: rgba(20, 20, 20, 0.95); backdrop-filter: blur(10px);
@@ -1225,11 +1259,7 @@
                     max-width: 320px; will-change: transform, opacity;
                 }
 
-                /* Download specific compact UI */
-                .${CONFIG.UI_PREFIX}-dl-toast {
-                    flex-direction: column; align-items: flex-start; gap: 0;
-                    padding: 0.8rem 1rem 1rem 1rem; position: relative; overflow: hidden; min-width: 250px;
-                }
+                .${CONFIG.UI_PREFIX}-dl-toast { flex-direction: column; align-items: flex-start; gap: 0; padding: 0.8rem 1rem 1rem 1rem; position: relative; overflow: hidden; min-width: 250px; }
                 .${CONFIG.UI_PREFIX}-dl-info { display: flex; flex-direction: column; gap: 0.2rem; width: 100%; }
                 .${CONFIG.UI_PREFIX}-dl-title { font-weight: 600; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; max-width: 100%; }
                 .${CONFIG.UI_PREFIX}-dl-status { font-size: 0.75rem; color: var(--tm-text-muted); font-variant-numeric: tabular-nums; }
@@ -1237,39 +1267,18 @@
                 .${CONFIG.UI_PREFIX}-progress-bg { position: absolute; bottom: 0; left: 0; width: 100%; height: 3px; background: rgba(255,255,255,0.1); }
                 .${CONFIG.UI_PREFIX}-progress-fill { height: 100%; background: var(--tm-primary); border-radius: 2px; }
 
-                /* Status Overrides */
                 .${CONFIG.UI_PREFIX}-toast.syncing { border-left-color: var(--tm-warning); color: var(--tm-text-main); }
                 .${CONFIG.UI_PREFIX}-toast.syncing .${CONFIG.UI_PREFIX}-progress-fill { background: var(--tm-warning); }
-
                 .${CONFIG.UI_PREFIX}-toast.success { border-left-color: var(--tm-success); color: var(--tm-text-main); }
                 .${CONFIG.UI_PREFIX}-toast.success .${CONFIG.UI_PREFIX}-progress-fill { background: var(--tm-success); }
-
                 .${CONFIG.UI_PREFIX}-toast.error { border-left-color: var(--tm-danger); color: var(--tm-text-main); }
                 .${CONFIG.UI_PREFIX}-toast.error .${CONFIG.UI_PREFIX}-progress-fill { background: var(--tm-danger); }
 
-                @keyframes tmToastFadeIn {
-                    from { opacity: 0; transform: translateX(-20px) scale(0.95); }
-                    to { opacity: 1; transform: translateX(0) scale(1); }
-                }
-                @keyframes tmToastFadeOut {
-                    from { opacity: 1; transform: translateX(0) scale(1); height: auto; }
-                    to { opacity: 0; transform: translateX(-20px) scale(0.95); margin-top: -10px; }
-                }
-
-                @keyframes tmCountdownBorder {
-                    0% { border-left-color: var(--tm-success); }
-                    50% { border-left-color: var(--tm-warning); }
-                    100% { border-left-color: var(--tm-danger); }
-                }
-                @keyframes tmCountdownFill {
-                    0% { background-color: var(--tm-success); }
-                    50% { background-color: var(--tm-warning); }
-                    100% { background-color: var(--tm-danger); }
-                }
-                @keyframes tmCountdownWidth {
-                    0% { width: 100%; }
-                    100% { width: 0%; }
-                }
+                @keyframes tmToastFadeIn { from { opacity: 0; transform: translateX(-20px) scale(0.95); } to { opacity: 1; transform: translateX(0) scale(1); } }
+                @keyframes tmToastFadeOut { from { opacity: 1; transform: translateX(0) scale(1); height: auto; } to { opacity: 0; transform: translateX(-20px) scale(0.95); margin-top: -10px; } }
+                @keyframes tmCountdownBorder { 0% { border-left-color: var(--tm-success); } 50% { border-left-color: var(--tm-warning); } 100% { border-left-color: var(--tm-danger); } }
+                @keyframes tmCountdownFill { 0% { background-color: var(--tm-success); } 50% { background-color: var(--tm-warning); } 100% { background-color: var(--tm-danger); } }
+                @keyframes tmCountdownWidth { 0% { width: 100%; } 100% { width: 0%; } }
 
                 .${CONFIG.UI_PREFIX}-cancel-btn {
                     background: #222; color: var(--tm-text-main); border: 1px solid #444;
@@ -1299,9 +1308,7 @@
                     box-sizing: border-box; will-change: transform;
                 }
                 .${CONFIG.UI_PREFIX}-queue-item:hover { background: var(--tm-bg-hover); border-color: var(--tm-border-focus); }
-
                 .${CONFIG.UI_PREFIX}-history-selected { border-color: var(--tm-danger) !important; background: rgba(229, 115, 115, 0.1) !important; }
-
                 .${CONFIG.UI_PREFIX}-queue-remove {
                     background: none; border: none; color: var(--tm-danger); cursor: pointer;
                     padding: 0 0.5rem 0 0; font-size: 1rem; font-weight: bold; line-height: 1; transition: 0.2s;
@@ -1309,9 +1316,7 @@
                 .${CONFIG.UI_PREFIX}-queue-remove:hover { color: #fff; }
 
                 /* Search & Contextual Toolbar */
-                .${CONFIG.UI_PREFIX}-search-container {
-                    display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem; flex-shrink: 0;
-                }
+                .${CONFIG.UI_PREFIX}-search-container { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem; flex-shrink: 0; }
                 .${CONFIG.UI_PREFIX}-search-input {
                     flex-grow: 1; min-width: 0; background: var(--tm-bg-input); border: 1px solid var(--tm-border-light); border-radius: 0.8rem;
                     padding: 0.8rem 1rem; color: var(--tm-text-main); font-size: 0.95rem; outline: none; box-sizing: border-box; transition: 0.2s;
@@ -1319,15 +1324,10 @@
                 .${CONFIG.UI_PREFIX}-search-input:focus { border-color: var(--tm-text-dark); background: #1a1a1a; }
 
                 /* Virtual List Architecture */
-                .${CONFIG.UI_PREFIX}-list-wrapper {
-                    flex-grow: 1; min-height: 0; width: 100%; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-start;
-                }
-                .${CONFIG.UI_PREFIX}-list {
-                    width: 100%; overflow-y: auto; overflow-x: hidden; position: relative; padding-right: 0.5rem; box-sizing: border-box; outline: none;
-                }
+                .${CONFIG.UI_PREFIX}-list-wrapper { flex-grow: 1; min-height: 0; width: 100%; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-start; }
+                .${CONFIG.UI_PREFIX}-list { width: 100%; overflow-y: auto; overflow-x: hidden; position: relative; padding-right: 0.5rem; box-sizing: border-box; outline: none; }
                 .${CONFIG.UI_PREFIX}-list::-webkit-scrollbar { width: 6px; }
                 .${CONFIG.UI_PREFIX}-list::-webkit-scrollbar-thumb { background: var(--tm-border-light); border-radius: 10px; }
-
                 .${CONFIG.UI_PREFIX}-list-inner { position: relative; width: 100%; min-height: 100%; }
                 .${CONFIG.UI_PREFIX}-empty-state { position: absolute; top: 2rem; width: 100%; text-align: center; color: var(--tm-text-dark); font-size: 0.9rem; font-style: italic; }
 
@@ -1344,20 +1344,18 @@
                     border-radius: 0.4rem; border: 1px solid #252525; font-weight: 500; transition: 0.2s;
                 }
                 .${CONFIG.UI_PREFIX}-badge.accent { color: var(--tm-text-muted); border-color: #444; background: #222; }
-
-                /* Actionable Hover states for Badges */
                 .${CONFIG.UI_PREFIX}-badge-actionable:hover { background: var(--tm-bg-hover-subtle); border-color: var(--tm-border-focus); color: var(--tm-text-main); cursor: pointer; }
                 .${CONFIG.UI_PREFIX}-badge-actionable.accent:hover { background: var(--tm-border-light); border-color: var(--tm-text-dark); color: var(--tm-text-main); }
 
                 /* Footer & Actions */
                 .${CONFIG.UI_PREFIX}-footer { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--tm-border); flex-shrink: 0; display: flex; flex-direction: column; gap: 0.5rem; }
-
                 .${CONFIG.UI_PREFIX}-panel-footer { margin-top: auto; padding-top: 1rem; border-top: 1px solid var(--tm-border); display: none; }
-
                 .${CONFIG.UI_PREFIX}-btn-row { display: flex; gap: 0.5rem; width: 100%; }
+
                 .${CONFIG.UI_PREFIX}-action-btn {
-                    flex: 1; background: #1a1a1a; color: #999; border: 1px dashed #444; padding: 0.8rem; border-radius: 0.8rem;
-                    cursor: pointer; font-size: 0.9rem; transition: 0.2s; outline: none; display: flex; align-items: center; justify-content: center;
+                    flex: 1; display: flex; align-items: center; justify-content: center;
+                    background: #1a1a1a; color: #999; border: 1px dashed #444; padding: 0.8rem; border-radius: 0.8rem;
+                    cursor: pointer; font-size: 0.9rem; transition: 0.2s; outline: none;
                 }
                 .${CONFIG.UI_PREFIX}-action-btn:hover:not(:disabled), .${CONFIG.UI_PREFIX}-action-btn:focus:not(:disabled) { background: #222; color: var(--tm-text-main); border-color: var(--tm-text-dark); }
                 .${CONFIG.UI_PREFIX}-action-btn:disabled { opacity: 0.4; cursor: not-allowed; pointer-events: none; }
@@ -1378,10 +1376,7 @@
                 .${CONFIG.UI_PREFIX}-crud-add-btn { background: #222; color: var(--tm-text-main); border: 1px solid var(--tm-border-light); border-radius: 0.6rem; padding: 0.7rem 1rem; font-size: 0.85rem; cursor: pointer; white-space: nowrap; transition: 0.2s; }
                 .${CONFIG.UI_PREFIX}-crud-add-btn:hover:not(:disabled) { background: var(--tm-border-light); border-color: var(--tm-border-focus); }
 
-                .${CONFIG.UI_PREFIX}-edit-item-btn, .${CONFIG.UI_PREFIX}-delete-btn {
-                    background: transparent; border: none; cursor: pointer; padding: 0.4rem;
-                    display: flex; align-items: center; justify-content: center; border-radius: 0.4rem; transition: background 0.2s; margin-left: 0.2rem;
-                }
+                .${CONFIG.UI_PREFIX}-edit-item-btn, .${CONFIG.UI_PREFIX}-delete-btn { background: transparent; border: none; cursor: pointer; padding: 0.4rem; display: flex; align-items: center; justify-content: center; border-radius: 0.4rem; transition: background 0.2s; margin-left: 0.2rem; }
                 .${CONFIG.UI_PREFIX}-edit-item-btn svg, .${CONFIG.UI_PREFIX}-delete-btn svg { width: 1.1rem; height: 1.1rem; transition: fill 0.2s; }
                 .${CONFIG.UI_PREFIX}-edit-item-btn svg { fill: var(--tm-text-muted); }
                 .${CONFIG.UI_PREFIX}-edit-item-btn:hover { background: rgba(255, 255, 255, 0.15); }
@@ -1395,13 +1390,10 @@
                 .${CONFIG.UI_PREFIX}-config-body::-webkit-scrollbar { width: 6px; }
                 .${CONFIG.UI_PREFIX}-config-body::-webkit-scrollbar-thumb { background: var(--tm-border-light); border-radius: 10px; }
                 .${CONFIG.UI_PREFIX}-config-footer { flex-shrink: 0; padding-top: 1rem; margin-top: 0.5rem; border-top: 1px solid var(--tm-border); display: flex; }
-
-                /* Config Inputs & Toggles */
                 .${CONFIG.UI_PREFIX}-settings-field { display: flex; flex-direction: column; gap: 0.3rem; }
                 .${CONFIG.UI_PREFIX}-settings-field label { font-size: 0.8rem; color: var(--tm-text-muted); font-weight: 500; text-align: left; }
                 .${CONFIG.UI_PREFIX}-settings-input { background: var(--tm-bg-input); border: 1px solid var(--tm-border-light); border-radius: 0.6rem; padding: 0.7rem 0.8rem; color: var(--tm-text-main); font-size: 0.9rem; outline: none; transition: 0.2s; }
                 .${CONFIG.UI_PREFIX}-settings-input:focus { border-color: var(--tm-primary); background: #1a1a1a; }
-
                 .${CONFIG.UI_PREFIX}-settings-save-btn { width: 100%; background: var(--tm-primary); color: var(--tm-text-main); border: none; border-radius: 0.6rem; padding: 0.8rem; font-size: 0.95rem; font-weight: 600; cursor: pointer; transition: background 0.2s; }
                 .${CONFIG.UI_PREFIX}-settings-save-btn:hover:not(:disabled) { background: var(--tm-primary-hover); }
 
@@ -1426,19 +1418,71 @@
 
         injectGlobals() {
             if (!document.getElementById(`${CONFIG.UI_PREFIX}-fab`)) {
-                const fab = document.createElement('div');
-                fab.id = `${CONFIG.UI_PREFIX}-fab`;
-                fab.className = `${CONFIG.UI_PREFIX}-fab`;
-                fab.title = "Open Download Manager (Ctrl+S)";
-                fab.appendChild(this._createSVG(ICONS.fab));
-                fab.onclick = () => this.showMenu();
-                document.body.appendChild(fab);
+                this.fab = document.createElement('div');
+                this.fab.id = `${CONFIG.UI_PREFIX}-fab`;
+                this.fab.className = `${CONFIG.UI_PREFIX}-fab`;
+                this.fab.title = "Open Download Manager (Ctrl+S)";
+                this.fab.appendChild(this._createSVG(ICONS.fab));
+                this.fab.onclick = () => this.showMenu();
+
+                // Set initial default placement explicitly to match initial state
+                this.fab.style.top = 'calc(100vh - 6rem)';
+                this.fab.style.left = 'calc(100vw - 6rem)';
+
+                document.body.appendChild(this.fab);
             }
             if (!document.getElementById(`${CONFIG.UI_PREFIX}-toast-wrapper`)) {
                 this.toastContainer = document.createElement('div');
                 this.toastContainer.id = `${CONFIG.UI_PREFIX}-toast-wrapper`;
                 document.body.appendChild(this.toastContainer);
             }
+        },
+
+        updateFABPosition(cursorX, cursorY) {
+            if (!this.fab) return;
+            const halfW = window.innerWidth / 2;
+            const halfH = window.innerHeight / 2;
+
+            let newQuad = (cursorY < halfH ? 'N' : 'S') + (cursorX < halfW ? 'W' : 'E');
+
+            if (newQuad !== this.fabTargetQuad) {
+                this.fabTargetQuad = newQuad;
+                this.processFABMove();
+            }
+        },
+
+        processFABMove() {
+            // Block execution if currently performing a node traverse.
+            // Ensures intermediate legs must complete before recalculating paths.
+            if (this.fabIsAnimating || this.fabCurrentQuad === this.fabTargetQuad) return;
+
+            let nextQuad;
+            if (this.fabCurrentQuad[0] === this.fabTargetQuad[0] || this.fabCurrentQuad[1] === this.fabTargetQuad[1]) {
+                // Adjacent quadrant found (sharing an axis). Travel directly.
+                nextQuad = this.fabTargetQuad;
+            } else {
+                // Diagonal quadrant target identified.
+                // Enforce strict perimeter routing by traveling horizontally to adjacent intermediate node first.
+                nextQuad = this.fabCurrentQuad[0] + this.fabTargetQuad[1];
+            }
+
+            this.fabIsAnimating = true;
+
+            const targetTop = nextQuad[0] === 'N' ? '2.5rem' : 'calc(100vh - 6rem)';
+            const targetLeft = nextQuad[1] === 'W' ? '2.5rem' : 'calc(100vw - 6rem)';
+
+            const isFinalLeg = nextQuad === this.fabTargetQuad;
+            const easing = isFinalLeg ? 'cubic-bezier(0.25, 0.8, 0.25, 1)' : 'linear';
+
+            this.fab.style.transition = `top 0.2s ${easing}, left 0.2s ${easing}, background 0.2s ease`;
+            this.fab.style.top = targetTop;
+            this.fab.style.left = targetLeft;
+
+            setTimeout(() => {
+                this.fabCurrentQuad = nextQuad;
+                this.fabIsAnimating = false;
+                this.processFABMove(); // Fire again to clear queue or re-evaluate latest mouse position
+            }, 200);
         },
 
         manageToastCount() {
@@ -1534,7 +1578,6 @@
 
         startAutoCloseSequence(skipCloudSync = false) {
             this.manageToastCount();
-
             let toast = document.createElement('div');
             if (this.toastContainer) this.toastContainer.appendChild(toast);
 
@@ -1565,15 +1608,12 @@
 
             let isCancelled = false;
             const startTime = Date.now();
-
             fill.style.animation = `tmCountdownFill ${duration}ms linear forwards, tmCountdownWidth ${duration}ms linear forwards`;
-
             const interval = setInterval(() => {
                 if (isCancelled) return;
                 const remaining = Math.max(0, duration - (Date.now() - startTime));
                 textSpan.textContent = `${actionText} Closing in ${Math.ceil(remaining / 1000)}s...`;
             }, 100);
-
             const closeTimeout = setTimeout(async () => {
                 clearInterval(interval);
                 if (!isCancelled) {
@@ -1581,7 +1621,6 @@
                     try { window.close(); } catch (e) { Logger.warn("Window close blocked by browser."); }
                 }
             }, duration);
-
             cancelBtn.onclick = () => {
                 isCancelled = true;
                 clearInterval(interval);
@@ -1593,7 +1632,6 @@
 
                 toast.style.animation = 'none';
                 fill.style.animation = 'none';
-
                 toast.style.borderLeftColor = currentBorder;
                 fill.style.backgroundColor = currentBg;
                 fill.style.width = currentWidth;
@@ -1640,7 +1678,8 @@
             if (!panelObj.container || !panelObj.inner) return;
 
             const totalItems = panelObj.data.length;
-            const emptyMsg = type === 'recent' ? (this.recentPanelMode === 'history' ? 'No history found.' : 'No recent saves.') : 'No data for this month.';
+            const emptyMsg = type === 'recent' ?
+                (this.recentPanelMode === 'history' ? 'No history found.' : 'No recent saves.') : 'No data for this month.';
             if (totalItems === 0) {
                 panelObj.inner.style.height = '100%';
                 panelObj.inner.textContent = '';
@@ -1935,13 +1974,7 @@
         get currentConfigState() {
             if (!this.configInputs) return {};
             return {
-                url: this.configInputs.url.value.trim(),
-                token: this.configInputs.token.value.trim(),
-                owner: this.configInputs.owner.value.trim(),
-                repo: this.configInputs.repo.value.trim(),
-                path: this.configInputs.path.value.trim(),
-                historyPath: this.configInputs.historyPath.value.trim(),
-                branch: this.configInputs.branch.value.trim()
+                token: this.configInputs.token.value.trim()
             };
         },
 
@@ -2027,6 +2060,7 @@
             container.className = `${CONFIG.UI_PREFIX}-main-container`;
             const panel = document.createElement('div');
             panel.className = `${CONFIG.UI_PREFIX}-panel ${CONFIG.UI_PREFIX}-main`;
+
             // --- Header ---
             const header = document.createElement('div');
             header.className = `${CONFIG.UI_PREFIX}-header`;
@@ -2069,6 +2103,7 @@
             header.appendChild(leftGroup);
             header.appendChild(rightGroup);
             panel.appendChild(header);
+
             // --- Config View Architecture ---
             this.configContainer = document.createElement('div');
             this.configContainer.className = `${CONFIG.UI_PREFIX}-config-wrapper`;
@@ -2078,6 +2113,7 @@
 
             const configFooter = document.createElement('div');
             configFooter.className = `${CONFIG.UI_PREFIX}-config-footer`;
+
             const createSettingsField = (labelTxt, inputType, inputId, defaultVal, placeholder) => {
                 const field = document.createElement('div');
                 field.className = `${CONFIG.UI_PREFIX}-settings-field`;
@@ -2092,38 +2128,24 @@
                 field.appendChild(input);
                 return { fieldWrapper: field, inputElement: input };
             };
-            const workerUrl = createSettingsField('Cloudflare Worker End-Point', 'text', 'tm_kpop_dl_worker_url', '', 'https://your-worker.workers.dev');
-            const token = createSettingsField('GitHub Fine-Grained Token', 'password', 'tm_kpop_dl_github_token', '', 'github_pat_...');
-            const owner = createSettingsField('Repository Structural Owner', 'text', 'tm_kpop_dl_github_owner', '', 'GitHub Username');
-            const repo = createSettingsField('Target Repository Domain', 'text', 'tm_kpop_dl_github_repo', '', 'Repository Name');
-            const dbPath = createSettingsField('Database Target Path Mapping', 'text', 'tm_kpop_dl_github_path', 'kmedia-downloader-db.json', 'kmedia-downloader-db.json');
-            const historyPath = createSettingsField('History Target Path Mapping', 'text', 'tm_kpop_dl_history_path', 'kmedia-downloader-history.json', 'kmedia-downloader-history.json');
-            const branch = createSettingsField('Target Remote Tree Branch', 'text', 'tm_kpop_dl_github_branch', 'main', 'main');
+
+            const token = createSettingsField('GitHub Fine-Grained Access Token', 'password', 'tm_kpop_dl_github_token', '', 'github_pat_...');
+
             this.configInputs = {
-                url: workerUrl.inputElement,
-                token: token.inputElement,
-                owner: owner.inputElement,
-                repo: repo.inputElement,
-                path: dbPath.inputElement,
-                historyPath: historyPath.inputElement,
-                branch: branch.inputElement
+                token: token.inputElement
             };
+
             const saveConfigBtn = document.createElement('button');
             saveConfigBtn.className = `${CONFIG.UI_PREFIX}-settings-save-btn`;
             saveConfigBtn.textContent = 'Save Configuration';
             saveConfigBtn.onclick = () => {
-                GM_setValue('tm_kpop_dl_worker_url', this.configInputs.url.value.trim());
                 GM_setValue('tm_kpop_dl_github_token', this.configInputs.token.value.trim());
-                GM_setValue('tm_kpop_dl_github_owner', this.configInputs.owner.value.trim());
-                GM_setValue('tm_kpop_dl_github_repo', this.configInputs.repo.value.trim());
-                GM_setValue('tm_kpop_dl_github_path', this.configInputs.path.value.trim() || 'kmedia-downloader-db.json');
-                GM_setValue('tm_kpop_dl_history_path', this.configInputs.historyPath.value.trim() || 'kmedia-downloader-history.json');
-                GM_setValue('tm_kpop_dl_github_branch', this.configInputs.branch.value.trim() || 'main');
                 this.initialConfigState = this.currentConfigState;
 
                 CloudAPI.loadConfig();
                 this.showToast('Configurations saved. Re-synchronizing environments...');
                 this.currentView = 'groups';
+
                 if (CloudAPI.isValid()) {
                     const dot = this.configBtn.querySelector(`.${CONFIG.UI_PREFIX}-notification-dot`);
                     if (dot) dot.remove();
@@ -2136,19 +2158,21 @@
                 });
             };
 
-            configBody.appendChild(workerUrl.fieldWrapper);
-            configBody.appendChild(token.fieldWrapper);
-            configBody.appendChild(owner.fieldWrapper);
-            configBody.appendChild(repo.fieldWrapper);
-            configBody.appendChild(dbPath.fieldWrapper);
-            configBody.appendChild(historyPath.fieldWrapper);
-            configBody.appendChild(branch.fieldWrapper);
+            // Enter key mapping for quick save
+            this.configInputs.token.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    saveConfigBtn.click();
+                }
+            });
 
+            configBody.appendChild(token.fieldWrapper);
             configFooter.appendChild(saveConfigBtn);
 
             this.configContainer.appendChild(configBody);
             this.configContainer.appendChild(configFooter);
             panel.appendChild(this.configContainer);
+
             // --- Search & Contextual Toolbar ---
             this.searchContainer = document.createElement('div');
             this.searchContainer.className = `${CONFIG.UI_PREFIX}-search-container`;
@@ -2172,6 +2196,7 @@
 
                     this.cart = [];
                     this.renderCart();
+
                     if (this.cartContainer && !this.cartContainer.classList.contains('active')) {
                         // Force reflow and add active class for smooth expansion
                         void this.cartContainer.offsetWidth;
@@ -2239,6 +2264,7 @@
             this.crudBarContainer.appendChild(this.crudInput);
             this.crudBarContainer.appendChild(this.crudBtn);
             panel.appendChild(this.crudBarContainer);
+
             // --- List View Wrapper Architecture ---
             this.mainListWrapper = document.createElement('div');
             this.mainListWrapper.className = `${CONFIG.UI_PREFIX}-list-wrapper`;
@@ -2254,9 +2280,9 @@
             this.listContainer.addEventListener('scroll', () => {
                 requestAnimationFrame(() => this.renderVirtualList());
             });
+
             // Event Delegation for List Items & Delete/Edit Buttons
             this.listInner.addEventListener('click', (e) => {
-                // Handle Group Badge Nav Click
                 const badge = e.target.closest(`.${CONFIG.UI_PREFIX}-badge-actionable`);
                 if (badge) {
                     e.stopPropagation();
@@ -2269,7 +2295,6 @@
                     return;
                 }
 
-                // Handle Delete
                 const delBtn = e.target.closest(`.${CONFIG.UI_PREFIX}-delete-btn`);
                 if (delBtn) {
                     e.stopPropagation();
@@ -2294,7 +2319,6 @@
                     return;
                 }
 
-                // Handle Edit
                 const editBtn = e.target.closest(`.${CONFIG.UI_PREFIX}-edit-item-btn`);
                 if (editBtn) {
                     e.stopPropagation();
@@ -2327,7 +2351,6 @@
                     return;
                 }
 
-                // Handle Standard Click
                 const itemEl = e.target.closest(`.${CONFIG.UI_PREFIX}-item`);
                 if (!itemEl) return;
                 const index = parseInt(itemEl.dataset.index, 10);
@@ -2335,6 +2358,7 @@
                     this.handleItemClick(this.currentListData[index]);
                 }
             });
+
             this.searchInput.addEventListener('keydown', (e) => {
                 if (this.currentView === 'config') return;
                 if (this.currentListData.length === 0) return;
@@ -2353,9 +2377,11 @@
                     if (activeItem) this.handleItemClick(activeItem);
                 }
             });
+
             this.searchInput.oninput = Utils.debounce((e) => {
                 this.updateListData(e.target.value.toLowerCase().trim());
             }, 150);
+
             // --- Footer ---
             this.footer = document.createElement('div');
             this.footer.className = `${CONFIG.UI_PREFIX}-footer`;
@@ -2365,6 +2391,7 @@
             this.footerMainRow.style.gap = '1rem';
             this.footerMainRow.style.width = '100%';
             this.footerMainRow.style.alignItems = 'center';
+
             const footerLeftControls = document.createElement('div');
             footerLeftControls.style.display = 'flex';
             footerLeftControls.style.gap = '0.5rem';
@@ -2418,6 +2445,7 @@
 
             footerLeftControls.appendChild(this.configBtn);
             footerLeftControls.appendChild(this.syncBtn);
+
             const btnRow = document.createElement('div');
             btnRow.className = `${CONFIG.UI_PREFIX}-btn-row`;
 
@@ -2430,13 +2458,13 @@
                 Downloader.executeStandardSave();
             };
 
-            const customBtn = document.createElement('button');
-            customBtn.className = `${CONFIG.UI_PREFIX}-action-btn`;
-            customBtn.innerText = "Custom";
-            customBtn.title = "Specify a custom file name";
+            this.customBtn = document.createElement('button');
+            this.customBtn.className = `${CONFIG.UI_PREFIX}-action-btn`;
+            this.customBtn.innerText = "Custom";
+            this.customBtn.title = "Specify a custom file name";
 
             btnRow.appendChild(this.stdSaveBtn);
-            btnRow.appendChild(customBtn);
+            btnRow.appendChild(this.customBtn);
 
             this.footerMainRow.appendChild(footerLeftControls);
             this.footerMainRow.appendChild(btnRow);
@@ -2463,6 +2491,7 @@
 
             this.footer.appendChild(this.footerMainRow);
             this.footer.appendChild(customWrapper);
+
             const resetCustomInput = () => {
                 customWrapper.style.display = 'none';
                 this.footerMainRow.style.display = 'flex';
@@ -2478,7 +2507,8 @@
                     customNameInput.focus();
                 }
             };
-            customBtn.onclick = () => {
+
+            this.customBtn.onclick = () => {
                 this.footerMainRow.style.display = 'none';
                 customWrapper.style.display = 'flex';
                 requestAnimationFrame(() => customNameInput.focus());
@@ -2486,6 +2516,7 @@
 
             customCancelBtn.onclick = resetCustomInput;
             customConfirmBtn.onclick = submitCustomSave;
+
             customNameInput.addEventListener('keydown', (e) => {
                 if (e.key === 'Enter') {
                     e.preventDefault();
@@ -2497,6 +2528,7 @@
                     this.searchInput.focus();
                 }
             });
+
             panel.appendChild(this.mainListWrapper);
             panel.appendChild(this.footer);
             container.appendChild(panel);
@@ -2513,8 +2545,9 @@
                 this.footer.style.display = 'none';
                 this.crudBarContainer.style.display = 'none';
                 this.configContainer.style.display = 'flex';
+
                 requestAnimationFrame(() => {
-                    if (this.configInputs && this.configInputs.url) this.configInputs.url.focus();
+                    if (this.configInputs && this.configInputs.token) this.configInputs.token.focus();
                 });
             } else {
                 this.configContainer.style.display = 'none';
@@ -2586,6 +2619,7 @@
 
         renderVirtualList() {
             if (!this.listContainer || !this.listInner || this.currentView === 'config') return;
+
             if (Database.isLoading) {
                 this.listInner.style.height = '100%';
                 this.listInner.textContent = '';
@@ -2597,6 +2631,7 @@
             }
 
             const totalItems = this.currentListData.length;
+
             if (totalItems === 0) {
                 this.listInner.style.height = '100%';
                 this.listInner.textContent = '';
@@ -2612,8 +2647,10 @@
 
             const scrollTop = this.listContainer.scrollTop;
             const containerHeight = this.cachedContainerHeight || 400;
+
             const startIndex = Math.max(0, Math.floor(scrollTop / itemHeight) - 5);
             const endIndex = Math.min(totalItems, Math.floor((scrollTop + containerHeight) / itemHeight) + 5);
+
             this.listInner.textContent = '';
             const fragment = document.createDocumentFragment();
 
@@ -2628,9 +2665,11 @@
                 const nameSpan = document.createElement('span');
                 nameSpan.textContent = itemData.label;
                 btn.appendChild(nameSpan);
+
                 const rightWrapper = document.createElement('div');
                 rightWrapper.style.display = 'flex';
                 rightWrapper.style.alignItems = 'center';
+
                 if (itemData.badge) {
                     const badgeSpan = document.createElement('span');
                     badgeSpan.className = `${CONFIG.UI_PREFIX}-badge`;
@@ -2734,6 +2773,7 @@
             }
 
             if (text) this.showToast(text, type);
+
             if (this.crudInput && this.crudBtn) {
                 const isSyncing = (status === 'syncing');
                 this.crudInput.disabled = isSyncing;
@@ -2752,6 +2792,7 @@
             document.body.style.overflow = 'hidden';
             const layoutWrapper = document.createElement('div');
             layoutWrapper.className = `${CONFIG.UI_PREFIX}-layout`;
+
             if (typeof ResizeObserver !== 'undefined') {
                 this.resizeObserver = new ResizeObserver(entries => {
                     for (let entry of entries) {
@@ -2835,9 +2876,11 @@
             this.cartListInner.className = `${CONFIG.UI_PREFIX}-list-inner`;
 
             this.cartList.appendChild(this.cartListInner);
+
             this.cartList.addEventListener('scroll', () => {
                 requestAnimationFrame(() => this._renderCartVirtual());
             });
+
             this.cartListInner.addEventListener('click', (e) => {
                 const removeBtn = e.target.closest(`.${CONFIG.UI_PREFIX}-queue-remove`);
                 if (removeBtn) {
@@ -2846,6 +2889,7 @@
                     this._renderCartVirtual();
                 }
             });
+
             listWrapper.appendChild(this.cartList);
             this.cartContainer.appendChild(cartHeader);
             this.cartContainer.appendChild(listWrapper);
@@ -2855,10 +2899,11 @@
             cartFooter.className = `${CONFIG.UI_PREFIX}-footer`;
             cartFooter.style.marginTop = 'auto'; // push to bottom
             cartFooter.style.paddingTop = '1rem';
+
             this.cartSaveBtn = document.createElement('button');
             this.cartSaveBtn.className = `${CONFIG.UI_PREFIX}-settings-save-btn`;
             this.cartSaveBtn.textContent = 'Save Selection';
-            this.cartSaveBtn.disabled = true; // Initially empty
+            this.cartSaveBtn.disabled = true;
 
             this.cartSaveBtn.onclick = () => {
                 if (this.cart.length > 0) {
@@ -2869,6 +2914,7 @@
 
             cartFooter.appendChild(this.cartSaveBtn);
             this.cartContainer.appendChild(cartFooter);
+
             // Assemble layout order: 0 Queue -> 1 Recent/History -> 2 Main -> 3 Flavor
             layoutWrapper.appendChild(this.cartContainer);
             layoutWrapper.appendChild(this.createRecentHistoryPanel());
@@ -2892,6 +2938,7 @@
 
         async showMenu() {
             if (this.overlay) return;
+
             if (CloudAPI.isValid() && !CloudAPI.isRateLimited()) {
                 Storage.fetchCloudBackground(true);
             }
@@ -2911,11 +2958,13 @@
             this.recentPanelMode = 'recent';
 
             this.render();
+
             this.syncInterval = setInterval(() => {
                 if (CloudAPI.isValid() && !CloudAPI.isRateLimited()) {
                     Storage.fetchCloudBackground(true);
                 }
             }, CONFIG.CLOUD_MENU_POLL_MS);
+
             this.syncTimeInterval = setInterval(() => {
                 if (this.recentPanelMode === 'history') {
                     this.updateSyncTimeUI();
@@ -2964,7 +3013,7 @@
             Storage.init(this.isSilentMode);
 
             if (this.isSilentMode) {
-                Logger.info('Initialized Silent Cloud Worker v11.6');
+                Logger.info('Initialized Silent Cloud Worker v11.9');
                 return;
             }
 
@@ -2974,12 +3023,14 @@
             this.bindEvents();
 
             Database.init();
+
             setInterval(() => {
                 if (document.visibilityState === 'visible' && !UI.overlay) {
                     Storage.fetchCloudBackground();
                 }
             }, CONFIG.CLOUD_HISTORY_THROTTLE_MS);
-            Logger.info('Initialized K-Pop Media Downloader v11.6');
+
+            Logger.info('Initialized K-Pop Media Downloader v11.9');
         },
 
         isDirectMediaPage() {
@@ -2993,14 +3044,43 @@
                     Storage.fetchCloudBackground();
                 }
             });
+
+            // Handle Dynamic FAB Tracking
+            document.addEventListener('mousemove', (e) => {
+                if (UI.overlay) return; // Disconnect tracking when overlay is open to save CPU
+                if (!UI.fabTicking) {
+                    window.requestAnimationFrame(() => {
+                        UI.updateFABPosition(e.clientX, e.clientY);
+                        UI.fabTicking = false;
+                    });
+                    UI.fabTicking = true;
+                }
+            });
+
             window.addEventListener('keydown', (e) => {
+                // Overlay/Menu Exclusive Shortcuts
+                if (UI.overlay) {
+                    if (e.key === 'Escape') {
+                        UI.closeMenu();
+                        return;
+                    }
+                    if (e.altKey && e.key.toLowerCase() === 's') {
+                        e.preventDefault();
+                        if (UI.stdSaveBtn && !UI.stdSaveBtn.disabled) UI.stdSaveBtn.click();
+                        return;
+                    }
+                    if (e.altKey && e.key.toLowerCase() === 'c') {
+                        e.preventDefault();
+                        if (UI.customBtn && !UI.customBtn.disabled) UI.customBtn.click();
+                        return;
+                    }
+                }
+
+                // Global Shortcuts
                 if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
                     e.preventDefault();
                     e.stopImmediatePropagation();
                     UI.showMenu();
-                }
-                if (e.key === 'Escape' && UI.overlay) {
-                    UI.closeMenu();
                 }
             }, true);
         }
