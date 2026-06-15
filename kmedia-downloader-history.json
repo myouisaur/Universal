@@ -1,6 +1,4 @@
 [
-  {"g": "aespa"        , "n": "Karina"       , "t": 1780577406420},
-  {"g": "aespa"        , "n": "Ningning"     , "t": 1780577453460},
   {"g": "IVE"          , "n": "Wonyoung"     , "t": 1780577548972},
   {"g": "IVE"          , "n": "Yujin"        , "t": 1780630618247},
   {"g": "tripleS"      , "n": "Hayeon"       , "t": 1780630619000},
@@ -998,5 +996,7 @@
   {"g": "fromis_9"     , "n": "Jisun"        , "t": 1781547042966},
   {"g": "fromis_9"     , "n": "Jisun"        , "t": 1781547047776},
   {"g": "fromis_9"     , "n": "Jisun"        , "t": 1781547053000},
-  {"g": "LE SSERAFIM"  , "n": "Yunjin"       , "t": 1781547247004}
+  {"g": "LE SSERAFIM"  , "n": "Yunjin"       , "t": 1781547247004},
+  {"g": "LE SSERAFIM"  , "n": "Yunjin"       , "t": 1781547252529},
+  {"g": "LE SSERAFIM"  , "n": "Yunjin"       , "t": 1781547258386}
 ]
