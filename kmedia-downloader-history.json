@@ -1,5 +1,4 @@
 [
-  {"g": "TWICE"        , "n": "Tzuyu"        , "t": 1780783604102},
   {"g": "TWICE"        , "n": "Jihyo"        , "t": 1780783604772},
   {"g": "TWICE"        , "n": "Nayeon"       , "t": 1780783605420},
   {"g": "TWICE"        , "n": "Nayeon"       , "t": 1780783606062},
@@ -998,5 +997,6 @@
   {"g": "tripleS"      , "n": "Sohyun"       , "t": 1781552283898},
   {"g": "tripleS"      , "n": "Sohyun"       , "t": 1781552289128},
   {"g": "tripleS"      , "n": "Xinyu"        , "t": 1781552315367},
-  {"g": "LE SSERAFIM"  , "n": "Yunjin"       , "t": 1781552620480}
+  {"g": "LE SSERAFIM"  , "n": "Yunjin"       , "t": 1781552620480},
+  {"g": "LE SSERAFIM"  , "n": "Yunjin"       , "t": 1781552625654}
 ]
