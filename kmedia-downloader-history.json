@@ -1,5 +1,4 @@
 [
-  {"g": "Hearts2Hearts", "n": "Ian"          , "t": 1780783572785},
   {"g": "Hearts2Hearts", "n": "Ian"          , "t": 1780783573410},
   {"g": "Hearts2Hearts", "n": "Ian"          , "t": 1780783574050},
   {"g": "Hearts2Hearts", "n": "Ian"          , "t": 1780783574691},
@@ -998,5 +997,6 @@
   {"g": "LE SSERAFIM"  , "n": "Yunjin"       , "t": 1781547508762},
   {"g": "LE SSERAFIM"  , "n": "Yunjin"       , "t": 1781547515138},
   {"g": "LE SSERAFIM"  , "n": "Yunjin"       , "t": 1781547522011},
-  {"g": "TWICE"        , "n": "Chaeyoung"    , "t": 1781547641768}
+  {"g": "TWICE"        , "n": "Chaeyoung"    , "t": 1781547641768},
+  {"g": "KAIA"         , "n": "Alexa"        , "t": 1781547827576}
 ]
