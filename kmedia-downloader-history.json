@@ -1,5 +1,4 @@
 [
-  {"g": "tripleS"      , "n": "Hayeon"       , "t": 1780630619731},
   {"g": "IVE"          , "n": "Yujin"        , "t": 1780630620478},
   {"g": "LE SSERAFIM"  , "n": "Eunchae"      , "t": 1780630961839},
   {"g": "Hearts2Hearts", "n": "Ian"          , "t": 1780783566056},
@@ -998,5 +997,6 @@
   {"g": "LE SSERAFIM"  , "n": "Yunjin"       , "t": 1781547258386},
   {"g": "LE SSERAFIM"  , "n": "Yunjin"       , "t": 1781547264020},
   {"g": "LE SSERAFIM"  , "n": "Yunjin"       , "t": 1781547269799},
-  {"g": "LE SSERAFIM"  , "n": "Yunjin"       , "t": 1781547276519}
+  {"g": "LE SSERAFIM"  , "n": "Yunjin"       , "t": 1781547276519},
+  {"g": "IVE"          , "n": "Wonyoung"     , "t": 1781547374627}
 ]
