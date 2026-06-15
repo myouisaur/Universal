@@ -1,5 +1,4 @@
 [
-  {"g": "LE SSERAFIM"  , "n": "Kazuha"       , "t": 1780783598722},
   {"g": "LE SSERAFIM"  , "n": "Kazuha"       , "t": 1780783599509},
   {"g": "ITZY"         , "n": "Yeji"         , "t": 1780783602599},
   {"g": "UNIS"         , "n": "Gehlee"       , "t": 1780783603359},
@@ -998,5 +997,6 @@
   {"g": "tripleS"      , "n": "Shion"        , "t": 1781552217508},
   {"g": "tripleS"      , "n": "Kotone"       , "t": 1781552248949},
   {"g": "tripleS"      , "n": "Kotone"       , "t": 1781552253534},
-  {"g": "tripleS"      , "n": "Kotone"       , "t": 1781552259284}
+  {"g": "tripleS"      , "n": "Kotone"       , "t": 1781552259284},
+  {"g": "tripleS"      , "n": "Sohyun"       , "t": 1781552283898}
 ]
