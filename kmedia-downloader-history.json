@@ -1,6 +1,4 @@
 [
-  {"g": "IVE"          , "n": "Wonyoung"     , "t": 1780577403456},
-  {"g": "aespa"        , "n": "Ningning"     , "t": 1780577404146},
   {"g": "aespa"        , "n": "Ningning"     , "t": 1780577404854},
   {"g": "aespa"        , "n": "Ningning"     , "t": 1780577405519},
   {"g": "aespa"        , "n": "Karina"       , "t": 1780577406420},
@@ -998,5 +996,7 @@
   {"g": "NewJeans"     , "n": "Hanni"        , "t": 1781544855977},
   {"g": "LE SSERAFIM"  , "n": "Sakura"       , "t": 1781546926884},
   {"g": "fromis_9"     , "n": "Jisun"        , "t": 1781547031472},
-  {"g": "fromis_9"     , "n": "Jisun"        , "t": 1781547037076}
+  {"g": "fromis_9"     , "n": "Jisun"        , "t": 1781547037076},
+  {"g": "fromis_9"     , "n": "Jisun"        , "t": 1781547042966},
+  {"g": "fromis_9"     , "n": "Jisun"        , "t": 1781547047776}
 ]
