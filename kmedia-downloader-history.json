@@ -1,5 +1,4 @@
 [
-  {"g": "KiiiKiii"     , "n": "Jiyu"         , "t": 1780577394823},
   {"g": "IVE"          , "n": "Yujin"        , "t": 1780577395548},
   {"g": "Weeekly"      , "n": "Monday"       , "t": 1780577396323},
   {"g": "NMIXX"        , "n": "Jiwoo"        , "t": 1780577397021},
@@ -998,5 +997,6 @@
   {"g": "ITZY"         , "n": "Yeji"         , "t": 1781539430808},
   {"g": "BABYMONSTER"  , "n": "Asa"          , "t": 1781539468961},
   {"g": "TWICE"        , "n": "Mina"         , "t": 1781539561286},
-  {"g": "LE SSERAFIM"  , "n": "Kazuha"       , "t": 1781539622028}
+  {"g": "LE SSERAFIM"  , "n": "Kazuha"       , "t": 1781539622028},
+  {"g": "aespa"        , "n": "Ningning"     , "t": 1781540032026}
 ]
