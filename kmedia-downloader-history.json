@@ -1,5 +1,4 @@
 [
-  {"g": "IVE"          , "n": "Wonyoung"     , "t": 1780577399254},
   {"g": "IVE"          , "n": "Wonyoung"     , "t": 1780577399963},
   {"g": "IVE"          , "n": "Wonyoung"     , "t": 1780577400663},
   {"g": "IVE"          , "n": "Wonyoung"     , "t": 1780577401388},
@@ -998,5 +997,6 @@
   {"g": "ILLIT"        , "n": "Minju"        , "t": 1781544313147},
   {"g": "TWICE"        , "n": "Nayeon"       , "t": 1781544359785},
   {"g": "BABYMONSTER"  , "n": "Rora"         , "t": 1781544403356},
-  {"g": "BABYMONSTER"  , "n": "Asa"          , "t": 1781544403356}
+  {"g": "BABYMONSTER"  , "n": "Asa"          , "t": 1781544403356},
+  {"g": "NewJeans"     , "n": "Hanni"        , "t": 1781544840322}
 ]
