@@ -1,5 +1,4 @@
 [
-  {"g": "ITZY"         , "n": "Chaeryeong"   , "t": 1780577388256},
   {"g": "ILLIT"        , "n": "Minju"        , "t": 1780577388957},
   {"g": "tripleS"      , "n": "Sohyun"       , "t": 1780577389717},
   {"g": "Hearts2Hearts", "n": "Ian"          , "t": 1780577390460},
@@ -998,5 +997,6 @@
   {"g": "IVE"          , "n": "Yujin"        , "t": 1781532661955},
   {"g": "IVE"          , "n": "Wonyoung"     , "t": 1781532668239},
   {"g": "IVE"          , "n": "Yujin"        , "t": 1781532668239},
-  {"g": "LE SSERAFIM"  , "n": "Eunchae"      , "t": 1781537532752}
+  {"g": "LE SSERAFIM"  , "n": "Eunchae"      , "t": 1781537532752},
+  {"g": "LE SSERAFIM"  , "n": "Eunchae"      , "t": 1781537538932}
 ]
