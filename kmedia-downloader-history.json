@@ -1,5 +1,4 @@
 [
-  {"g": "TWICE"        , "n": "Nayeon"       , "t": 1780783606062},
   {"g": "TWICE"        , "n": "Dahyun"       , "t": 1780783606764},
   {"g": "TWICE"        , "n": "Nayeon"       , "t": 1780783607422},
   {"g": "NewJeans"     , "n": "Minji"        , "t": 1780783608101},
@@ -998,5 +997,6 @@
   {"g": "LE SSERAFIM"  , "n": "Yunjin"       , "t": 1781552620480},
   {"g": "LE SSERAFIM"  , "n": "Yunjin"       , "t": 1781552625654},
   {"g": "IZONE"        , "n": "Jo Yuri"      , "t": 1781559895925},
-  {"g": "IZONE"        , "n": "Jo Yuri"      , "t": 1781559901465}
+  {"g": "IZONE"        , "n": "Jo Yuri"      , "t": 1781559901465},
+  {"g": "IZONE"        , "n": "Jo Yuri"      , "t": 1781559907608}
 ]
