@@ -1,5 +1,4 @@
 [
-  {"g": "LE SSERAFIM"  , "n": "Yunjin"       , "t": 1780452817921},
   {"g": "LE SSERAFIM"  , "n": "Yunjin"       , "t": 1780452818585},
   {"g": "aespa"        , "n": "Karina"       , "t": 1780452819938},
   {"g": "IVE"          , "n": "Yujin"        , "t": 1780452820727},
@@ -998,5 +997,6 @@
   {"g": "KISS OF LIFE" , "n": "Julie"        , "t": 1781468733445},
   {"g": "IVE"          , "n": "Wonyoung"     , "t": 1781478028999},
   {"g": "NewJeans"     , "n": "Hanni"        , "t": 1781515719161},
-  {"g": "NewJeans"     , "n": "Hanni"        , "t": 1781515725660}
+  {"g": "NewJeans"     , "n": "Hanni"        , "t": 1781515725660},
+  {"g": "IZONE"        , "n": "Eunbi"        , "t": 1781517704090}
 ]
