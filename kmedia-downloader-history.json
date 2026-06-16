@@ -1,6 +1,4 @@
 [
-  {"g": "TWICE"        , "n": "Jihyo"        , "t": 1780783788367},
-  {"g": "aespa"        , "n": "Karina"       , "t": 1780783789312},
   {"g": "IZONE"        , "n": "Eunbi"        , "t": 1780783838913},
   {"g": "TWICE"        , "n": "Sana"         , "t": 1780783839868},
   {"g": "aespa"        , "n": "Karina"       , "t": 1780783869567},
@@ -996,7 +994,9 @@
   {"g": "FIFTY FIFTY"  , "n": "Athena"       , "t": 1781580969682},
   {"g": "TWICE"        , "n": "Mina"         , "t": 1781581005329},
   {"g": "TWICE"        , "n": "Mina"         , "t": 1781581010217},
+  {"g": "NMIXX"        , "n": "Haewon"       , "t": 1781585559072},
   {"g": "NewJeans"     , "n": "Haerin"       , "t": 1781592084902},
   {"g": "NewJeans"     , "n": "Haerin"       , "t": 1781592090857},
-  {"g": "NewJeans"     , "n": "Haerin"       , "t": 1781592094881}
+  {"g": "NewJeans"     , "n": "Haerin"       , "t": 1781592094881},
+  {"g": "IZONE"        , "n": "Minju"        , "t": 1781595958018}
 ]
