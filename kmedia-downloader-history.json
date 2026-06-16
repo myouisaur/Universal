@@ -1,5 +1,4 @@
 [
-  {"g": "TWICE"        , "n": "Chaeyoung"    , "t": 1780783609544},
   {"g": "TWICE"        , "n": "Nayeon"       , "t": 1780783610338},
   {"g": "KiiiKiii"     , "n": "Kya"          , "t": 1780783611411},
   {"g": "TWICE"        , "n": "Tzuyu"        , "t": 1780783613796},
@@ -998,5 +997,6 @@
   {"g": "IZONE"        , "n": "Jo Yuri"      , "t": 1781559914417},
   {"g": "ALICE"        , "n": "Sohee"        , "t": 1781580704767},
   {"g": "Hearts2Hearts", "n": "Jiwoo"        , "t": 1781580879298},
-  {"g": "Hearts2Hearts", "n": "Jiwoo"        , "t": 1781580887528}
+  {"g": "Hearts2Hearts", "n": "Jiwoo"        , "t": 1781580887528},
+  {"g": "Hearts2Hearts", "n": "Jiwoo"        , "t": 1781580896553}
 ]
