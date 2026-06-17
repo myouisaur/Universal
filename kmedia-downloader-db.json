@@ -649,19 +649,6 @@
     "Lee Suhyun",
     "Han Hyeri"
   ],
-  "I.O.I": [
-    "Chaeyeon",
-    "Chungha",
-    "Doyeon",
-    "Kyulkyung",
-    "Mina",
-    "Nayoung",
-    "Sejeong",
-    "Sohye",
-    "Somi",
-    "Yeonjung",
-    "Yoojung"
-  ],
   "ICHILLIN'": [
     "Jiyoon",
     "E.Ji",
@@ -1639,5 +1626,18 @@
     "Mikha",
     "Sheena",
     "Stacey"
+  ],
+  "IOI": [
+    "Chaeyeon",
+    "Chungha",
+    "Doyeon",
+    "Kyulkyung",
+    "Mina",
+    "Nayoung",
+    "Sejeong",
+    "Sohye",
+    "Somi",
+    "Yeonjung",
+    "Yoojung"
   ]
 }
