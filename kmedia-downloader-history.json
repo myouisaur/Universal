@@ -1,5 +1,4 @@
 [
-  {"g": "Hearts2Hearts", "n": "Ian"          , "t": 1780802069837},
   {"g": "Hearts2Hearts", "n": "Ian"          , "t": 1780802070529},
   {"g": "Hearts2Hearts", "n": "Ian"          , "t": 1780802071216},
   {"g": "Hearts2Hearts", "n": "Ian"          , "t": 1780802071902},
@@ -998,5 +997,6 @@
   {"g": "aespa"        , "n": "Ningning"     , "t": 1781674835960},
   {"g": "LE SSERAFIM"  , "n": "Chaewon"      , "t": 1781674948339},
   {"g": "IVE"          , "n": "Yujin"        , "t": 1781675015551},
-  {"g": "aespa"        , "n": "Winter"       , "t": 1781675103182}
+  {"g": "aespa"        , "n": "Winter"       , "t": 1781675103182},
+  {"g": "TWICE"        , "n": "Tzuyu"        , "t": 1781675143685}
 ]
