@@ -1,5 +1,4 @@
 [
-  {"g": "Hearts2Hearts", "n": "Ian"          , "t": 1780793467337},
   {"g": "Hearts2Hearts", "n": "Ian"          , "t": 1780793468046},
   {"g": "Hearts2Hearts", "n": "Ian"          , "t": 1780793468734},
   {"g": "Hearts2Hearts", "n": "Ian"          , "t": 1780793469362},
@@ -998,5 +997,6 @@
   {"g": "VVS"          , "n": "Brittney"     , "t": 1781639261565},
   {"g": "VVS"          , "n": "Brittney"     , "t": 1781639267981},
   {"g": "VVS"          , "n": "Brittney"     , "t": 1781639272845},
-  {"g": "TWICE"        , "n": "Nayeon"       , "t": 1781666745330}
+  {"g": "TWICE"        , "n": "Nayeon"       , "t": 1781666745330},
+  {"g": "ITZY"         , "n": "Yuna"         , "t": 1781666866820}
 ]
