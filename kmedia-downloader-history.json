@@ -1,5 +1,4 @@
 [
-  {"g": "Hearts2Hearts", "n": "Ian"          , "t": 1780802088008},
   {"g": "Hearts2Hearts", "n": "Ian"          , "t": 1780802088739},
   {"g": "Hearts2Hearts", "n": "Ian"          , "t": 1780802089446},
   {"g": "Hearts2Hearts", "n": "Ian"          , "t": 1780802090160},
@@ -998,5 +997,6 @@
   {"g": "STAYC"        , "n": "Sieun"        , "t": 1781764161487},
   {"g": "STAYC"        , "n": "Sieun"        , "t": 1781764166113},
   {"g": "YOUNG POSSE"  , "n": "Yeonjung"     , "t": 1781764272237},
-  {"g": "TWICE"        , "n": "Tzuyu"        , "t": 1781764846079}
+  {"g": "TWICE"        , "n": "Tzuyu"        , "t": 1781764846079},
+  {"g": "aespa"        , "n": "Ningning"     , "t": 1781764888183}
 ]
