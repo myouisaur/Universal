@@ -1,7 +1,4 @@
 [
-  {"g": "Hearts2Hearts", "n": "Ian"          , "t": 1780802111177},
-  {"g": "Hearts2Hearts", "n": "Ian"          , "t": 1780802111848},
-  {"g": "Hearts2Hearts", "n": "Ian"          , "t": 1780802112572},
   {"g": "Hearts2Hearts", "n": "Ian"          , "t": 1780802113289},
   {"g": "Hearts2Hearts", "n": "Ian"          , "t": 1780802113953},
   {"g": "Hearts2Hearts", "n": "Ian"          , "t": 1780802114636},
@@ -998,5 +995,8 @@
   {"g": "Hearts2Hearts", "n": "Jiwoo"        , "t": 1781881683593},
   {"g": "Hearts2Hearts", "n": "Jiwoo"        , "t": 1781881686909},
   {"g": "BABYMONSTER"  , "n": "Ahyeon"       , "t": 1781881740378},
-  {"g": "FANATICS"     , "n": "Doah"         , "t": 1781881807686}
+  {"g": "FANATICS"     , "n": "Doah"         , "t": 1781881807686},
+  {"g": "FANATICS"     , "n": "Doah"         , "t": 1781881812015},
+  {"g": "FANATICS"     , "n": "Doah"         , "t": 1781881816424},
+  {"g": "FANATICS"     , "n": "Doah"         , "t": 1781881820618}
 ]
