@@ -1,8 +1,4 @@
 [
-  {"g": "Hearts2Hearts", "n": "Ian"          , "t": 1780802101847},
-  {"g": "Hearts2Hearts", "n": "Ian"          , "t": 1780802102498},
-  {"g": "Hearts2Hearts", "n": "Ian"          , "t": 1780802103156},
-  {"g": "Hearts2Hearts", "n": "Ian"          , "t": 1780802103795},
   {"g": "Hearts2Hearts", "n": "Ian"          , "t": 1780802104518},
   {"g": "Hearts2Hearts", "n": "Ian"          , "t": 1780802105184},
   {"g": "Hearts2Hearts", "n": "Ian"          , "t": 1780802105824},
@@ -998,5 +994,9 @@
   {"g": "Hearts2Hearts", "n": "Ian"          , "t": 1781874782965},
   {"g": "Hearts2Hearts", "n": "Ian"          , "t": 1781874789140},
   {"g": "NewJeans"     , "n": "Minji"        , "t": 1781876337418},
-  {"g": "IZONE"        , "n": "Yena"         , "t": 1781876627797}
+  {"g": "IZONE"        , "n": "Yena"         , "t": 1781876627797},
+  {"g": "ITZY"         , "n": "Chaeryeong"   , "t": 1781876898551},
+  {"g": "ITZY"         , "n": "Chaeryeong"   , "t": 1781876903289},
+  {"g": "ITZY"         , "n": "Chaeryeong"   , "t": 1781876908667},
+  {"g": "ITZY"         , "n": "Chaeryeong"   , "t": 1781876913900}
 ]
