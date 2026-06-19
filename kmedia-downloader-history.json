@@ -1,5 +1,4 @@
 [
-  {"g": "Hearts2Hearts", "n": "Ian"          , "t": 1780802091628},
   {"g": "Hearts2Hearts", "n": "Ian"          , "t": 1780802092287},
   {"g": "Hearts2Hearts", "n": "Ian"          , "t": 1780802092944},
   {"g": "Hearts2Hearts", "n": "Ian"          , "t": 1780802093653},
@@ -998,5 +997,6 @@
   {"g": "BABYMONSTER"  , "n": "Ahyeon"       , "t": 1781790998094},
   {"g": "TWICE"        , "n": "Mina"         , "t": 1781791054846},
   {"g": "IVE"          , "n": "Rei"          , "t": 1781791138580},
-  {"g": "BABYMONSTER"  , "n": "Ahyeon"       , "t": 1781791171284}
+  {"g": "BABYMONSTER"  , "n": "Ahyeon"       , "t": 1781791171284},
+  {"g": "IVE"          , "n": "Yujin"        , "t": 1781828937536}
 ]
