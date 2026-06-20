@@ -1,5 +1,4 @@
 [
-  {"g": "Hearts2Hearts", "n": "Ian"          , "t": 1780802131241},
   {"g": "Hearts2Hearts", "n": "Ian"          , "t": 1780802131916},
   {"g": "Hearts2Hearts", "n": "Ian"          , "t": 1780802132579},
   {"g": "Hearts2Hearts", "n": "Ian"          , "t": 1780802133253},
@@ -998,5 +997,6 @@
   {"g": "TWICE"        , "n": "Mina"         , "t": 1781958159674},
   {"g": "IZONE"        , "n": "Eunbi"        , "t": 1781969732236},
   {"g": "LE SSERAFIM"  , "n": "Sakura"       , "t": 1781969770786},
-  {"g": "LE SSERAFIM"  , "n": "Kazuha"       , "t": 1781969839878}
+  {"g": "LE SSERAFIM"  , "n": "Kazuha"       , "t": 1781969839878},
+  {"g": "IVE"          , "n": "Yujin"        , "t": 1781970286508}
 ]
