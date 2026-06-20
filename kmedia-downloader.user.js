@@ -2,7 +2,7 @@
 // @name         [Universal] K-Media Downloader
 // @namespace    https://github.com/myouisaur/Universal
 // @icon         data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23FF4081'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 11h3l-4 4-4-4h3V8h2v5z'/%3E%3C/svg%3E
-// @version      12.1
+// @version      12.2
 // @description  Organizes, tracks, and saves categorized K-Pop media files through a centralized overlay.
 // @author       Xiv
 // @match        *://*/*
@@ -53,7 +53,7 @@
         FAB_Z_INDEX: 999990,
         OVERLAY_Z_INDEX: 999999,
         SAVE_DEBOUNCE_MS: 1000,
-        CLOUD_HISTORY_DEBOUNCE_MS: 1000,
+        CLOUD_HISTORY_DEBOUNCE_MS: 300,
         CLOUD_HISTORY_THROTTLE_MS: 30000,
         CLOUD_MENU_POLL_MS: 10000,
         VIRTUAL_ITEM_HEIGHT: 50,
