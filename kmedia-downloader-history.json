@@ -1,6 +1,4 @@
 [
-  {"g": "Hearts2Hearts", "n": "Ian"          , "t": 1780904016219},
-  {"g": "Hearts2Hearts", "n": "Ian"          , "t": 1780904016885},
   {"g": "Hearts2Hearts", "n": "Ian"          , "t": 1780904017541},
   {"g": "Hearts2Hearts", "n": "Ian"          , "t": 1780904018200},
   {"g": "Hearts2Hearts", "n": "Stella"       , "t": 1780904018200},
@@ -998,5 +996,7 @@
   {"g": "fromis_9"     , "n": "Jisun"        , "t": 1781972142603},
   {"g": "fromis_9"     , "n": "Jisun"        , "t": 1781972147141},
   {"g": "fromis_9"     , "n": "Jisun"        , "t": 1781972151918},
-  {"g": "fromis_9"     , "n": "Jisun"        , "t": 1781972157074}
+  {"g": "fromis_9"     , "n": "Jisun"        , "t": 1781972157074},
+  {"g": "tripleS"      , "n": "Nien"         , "t": 1781972193133},
+  {"g": "tripleS"      , "n": "Nien"         , "t": 1781972197882}
 ]
