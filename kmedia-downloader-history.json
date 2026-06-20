@@ -1,5 +1,4 @@
 [
-  {"g": "Hearts2Hearts", "n": "Ian"          , "t": 1780802129857},
   {"g": "Hearts2Hearts", "n": "Ian"          , "t": 1780802130536},
   {"g": "Hearts2Hearts", "n": "Ian"          , "t": 1780802131241},
   {"g": "Hearts2Hearts", "n": "Ian"          , "t": 1780802131916},
@@ -998,5 +997,6 @@
   {"g": "LOONA"        , "n": "Chuu"         , "t": 1781919262414},
   {"g": "NMIXX"        , "n": "Sullyoon"     , "t": 1781935179387},
   {"g": "TWICE"        , "n": "Mina"         , "t": 1781958159674},
-  {"g": "IZONE"        , "n": "Eunbi"        , "t": 1781969732236}
+  {"g": "IZONE"        , "n": "Eunbi"        , "t": 1781969732236},
+  {"g": "LE SSERAFIM"  , "n": "Sakura"       , "t": 1781969770786}
 ]
