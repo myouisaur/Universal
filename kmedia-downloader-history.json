@@ -1,5 +1,4 @@
 [
-  {"g": "Hearts2Hearts", "n": "Ian"          , "t": 1780802143803},
   {"g": "Hearts2Hearts", "n": "Ian"          , "t": 1780802144447},
   {"g": "Hearts2Hearts", "n": "Ian"          , "t": 1780802145096},
   {"g": "fromis_9"     , "n": "Jisun"        , "t": 1780904011837},
@@ -998,5 +997,6 @@
   {"g": "IVE"          , "n": "Wonyoung"     , "t": 1781970702173},
   {"g": "IVE"          , "n": "Wonyoung"     , "t": 1781970708648},
   {"g": "IVE"          , "n": "Yujin"        , "t": 1781970784344},
-  {"g": "KISS OF LIFE" , "n": "Natty"        , "t": 1781971446239}
+  {"g": "KISS OF LIFE" , "n": "Natty"        , "t": 1781971446239},
+  {"g": "IVE"          , "n": "Yujin"        , "t": 1781971877193}
 ]
