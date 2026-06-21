@@ -1,7 +1,4 @@
 [
-  {"g": "KISS OF LIFE" , "n": "Natty"        , "t": 1780904312472},
-  {"g": "KISS OF LIFE" , "n": "Natty"        , "t": 1780904313190},
-  {"g": "KISS OF LIFE" , "n": "Natty"        , "t": 1780904313900},
   {"g": "KISS OF LIFE" , "n": "Natty"        , "t": 1780904314605},
   {"g": "LE SSERAFIM"  , "n": "Chaewon"      , "t": 1780904315417},
   {"g": "FIFTY FIFTY"  , "n": "Chanelle Moon", "t": 1780904316260},
@@ -998,5 +995,8 @@
   {"g": "ITZY"         , "n": "Chaeryeong"   , "t": 1782054658175},
   {"g": "ITZY"         , "n": "Chaeryeong"   , "t": 1782054661597},
   {"g": "ITZY"         , "n": "Chaeryeong"   , "t": 1782054665988},
-  {"g": "ITZY"         , "n": "Chaeryeong"   , "t": 1782054669875}
+  {"g": "ITZY"         , "n": "Chaeryeong"   , "t": 1782054669875},
+  {"g": "IVE"          , "n": "Wonyoung"     , "t": 1782054925950},
+  {"g": "IVE"          , "n": "Wonyoung"     , "t": 1782054929971},
+  {"g": "IVE"          , "n": "Wonyoung"     , "t": 1782054934000}
 ]
