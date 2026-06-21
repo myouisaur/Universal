@@ -1,7 +1,4 @@
 [
-  {"g": "KISS OF LIFE" , "n": "Natty"        , "t": 1780904310007},
-  {"g": "KISS OF LIFE" , "n": "Natty"        , "t": 1780904310845},
-  {"g": "KISS OF LIFE" , "n": "Natty"        , "t": 1780904311519},
   {"g": "KISS OF LIFE" , "n": "Natty"        , "t": 1780904312472},
   {"g": "KISS OF LIFE" , "n": "Natty"        , "t": 1780904313190},
   {"g": "KISS OF LIFE" , "n": "Natty"        , "t": 1780904313900},
@@ -998,5 +995,8 @@
   {"g": "BABYMONSTER"  , "n": "Asa"          , "t": 1782054588777},
   {"g": "BABYMONSTER"  , "n": "Asa"          , "t": 1782054593783},
   {"g": "BABYMONSTER"  , "n": "Asa"          , "t": 1782054601698},
-  {"g": "ITZY"         , "n": "Chaeryeong"   , "t": 1782054658175}
+  {"g": "ITZY"         , "n": "Chaeryeong"   , "t": 1782054658175},
+  {"g": "ITZY"         , "n": "Chaeryeong"   , "t": 1782054661597},
+  {"g": "ITZY"         , "n": "Chaeryeong"   , "t": 1782054665988},
+  {"g": "ITZY"         , "n": "Chaeryeong"   , "t": 1782054669875}
 ]
