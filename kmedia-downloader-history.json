@@ -1,5 +1,4 @@
 [
-  {"g": "TWICE"        , "n": "Nayeon"       , "t": 1780906738683},
   {"g": "TWICE"        , "n": "Nayeon"       , "t": 1780906754001},
   {"g": "TWICE"        , "n": "Sana"         , "t": 1780906760538},
   {"g": "TWICE"        , "n": "Sana"         , "t": 1780906761278},
@@ -998,5 +997,6 @@
   {"g": "IVE"          , "n": "Leeseo"       , "t": 1782079127853},
   {"g": "tripleS"      , "n": "Chaewon"      , "t": 1782097699139},
   {"g": "LE SSERAFIM"  , "n": "Yunjin"       , "t": 1782105237735},
-  {"g": "tripleS"      , "n": "Jiyeon"       , "t": 1782113648147}
+  {"g": "tripleS"      , "n": "Jiyeon"       , "t": 1782113648147},
+  {"g": "tripleS"      , "n": "Jiyeon"       , "t": 1782113651641}
 ]
