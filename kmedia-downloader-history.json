@@ -1,6 +1,4 @@
 [
-  {"g": "YOUNG POSSE"  , "n": "Sunhye"       , "t": 1780907097232},
-  {"g": "YOUNG POSSE"  , "n": "Sunhye"       , "t": 1780907097883},
   {"g": "YOUNG POSSE"  , "n": "Sunhye"       , "t": 1780907098550},
   {"g": "YOUNG POSSE"  , "n": "Sunhye"       , "t": 1780907099207},
   {"g": "YOUNG POSSE"  , "n": "Sunhye"       , "t": 1780907099862},
@@ -998,5 +996,7 @@
   {"g": "Billlie"      , "n": "Tsuki"        , "t": 1782143505842},
   {"g": "Billlie"      , "n": "Tsuki"        , "t": 1782143511727},
   {"g": "ILLIT"        , "n": "Minju"        , "t": 1782143536227},
-  {"g": "Dreamcatcher" , "n": "Sua"          , "t": 1782143571329}
+  {"g": "Dreamcatcher" , "n": "Sua"          , "t": 1782143571329},
+  {"g": "Dreamcatcher" , "n": "Sua"          , "t": 1782143575713},
+  {"g": "Dreamcatcher" , "n": "Sua"          , "t": 1782143580956}
 ]
