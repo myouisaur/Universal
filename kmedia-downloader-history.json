@@ -1,5 +1,4 @@
 [
-  {"g": "TWICE"        , "n": "Tzuyu"        , "t": 1780906889075},
   {"g": "UNIS"         , "n": "Gehlee"       , "t": 1780907087911},
   {"g": "VVS"          , "n": "Ilee"         , "t": 1780907088608},
   {"g": "VVS"          , "n": "Ilee"         , "t": 1780907089271},
@@ -998,5 +997,6 @@
   {"g": "ITZY"         , "n": "Yeji"         , "t": 1782137858461},
   {"g": "LE SSERAFIM"  , "n": "Eunchae"      , "t": 1782137947890},
   {"g": "LE SSERAFIM"  , "n": "Eunchae"      , "t": 1782138070449},
-  {"g": "LE SSERAFIM"  , "n": "Eunchae"      , "t": 1782138084722}
+  {"g": "LE SSERAFIM"  , "n": "Eunchae"      , "t": 1782138084722},
+  {"g": "IVE"          , "n": "Yujin"        , "t": 1782138140208}
 ]
