@@ -1,5 +1,4 @@
 [
-  {"g": "BABYMONSTER"  , "n": "Ahyeon"       , "t": 1780907237022},
   {"g": "FIFTY FIFTY"  , "n": "Athena"       , "t": 1780907245546},
   {"g": "NMIXX"        , "n": "Lily"         , "t": 1780907254029},
   {"g": "NMIXX"        , "n": "Sullyoon"     , "t": 1780907254754},
@@ -998,5 +997,6 @@
   {"g": "STAYC"        , "n": "Seeun"        , "t": 1782194831566},
   {"g": "STAYC"        , "n": "Seeun"        , "t": 1782194836993},
   {"g": "TWICE"        , "n": "Momo"         , "t": 1782199048645},
-  {"g": "LE SSERAFIM"  , "n": "Kazuha"       , "t": 1782199141627}
+  {"g": "LE SSERAFIM"  , "n": "Kazuha"       , "t": 1782199141627},
+  {"g": "aespa"        , "n": "Winter"       , "t": 1782199181252}
 ]
