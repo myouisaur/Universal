@@ -1,5 +1,4 @@
 [
-  {"g": "NMIXX"        , "n": "Bae"          , "t": 1780907254754},
   {"g": "NMIXX"        , "n": "Kyujin"       , "t": 1780907254754},
   {"g": "NMIXX"        , "n": "Jiwoo"        , "t": 1780907254754},
   {"g": "NMIXX"        , "n": "Haewon"       , "t": 1780907254754},
@@ -998,5 +997,6 @@
   {"g": "Ladies Code"  , "n": "Ashley"       , "t": 1782199270134},
   {"g": "Ladies Code"  , "n": "Ashley"       , "t": 1782199279225},
   {"g": "Ladies Code"  , "n": "Ashley"       , "t": 1782199288033},
-  {"g": "Hashtag"      , "n": "Sojin"        , "t": 1782199374912}
+  {"g": "Hashtag"      , "n": "Sojin"        , "t": 1782199374912},
+  {"g": "Hashtag"      , "n": "Sojin"        , "t": 1782199381110}
 ]
