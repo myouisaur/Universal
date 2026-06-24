@@ -1,6 +1,4 @@
 [
-  {"g": "NMIXX"        , "n": "Lily"         , "t": 1780909498722},
-  {"g": "LE SSERAFIM"  , "n": "Chaewon"      , "t": 1780909499414},
   {"g": "LE SSERAFIM"  , "n": "Chaewon"      , "t": 1780909500127},
   {"g": "BABYMONSTER"  , "n": "Asa"          , "t": 1780910420118},
   {"g": "BABYMONSTER"  , "n": "Asa"          , "t": 1780910420780},
@@ -998,5 +996,7 @@
   {"g": "BLACKPINK"    , "n": "Lisa"         , "t": 1782332025746},
   {"g": "BLACKPINK"    , "n": "Lisa"         , "t": 1782332031617},
   {"g": "BLACKPINK"    , "n": "Lisa"         , "t": 1782332037854},
-  {"g": "STAYC"        , "n": "Isa"          , "t": 1782332111915}
+  {"g": "STAYC"        , "n": "Isa"          , "t": 1782332111915},
+  {"g": "STAYC"        , "n": "Isa"          , "t": 1782332117305},
+  {"g": "STAYC"        , "n": "Isa"          , "t": 1782332123637}
 ]
