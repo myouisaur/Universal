@@ -1,5 +1,4 @@
 [
-  {"g": "BABYMONSTER"  , "n": "Ahyeon"       , "t": 1780910430102},
   {"g": "aespa"        , "n": "Winter"       , "t": 1780910452883},
   {"g": "aespa"        , "n": "Karina"       , "t": 1780910453536},
   {"g": "aespa"        , "n": "Winter"       , "t": 1780910454194},
@@ -998,5 +997,6 @@
   {"g": "Kep1er"       , "n": "Dayeon"       , "t": 1782339781284},
   {"g": "Kep1er"       , "n": "Dayeon"       , "t": 1782339786782},
   {"g": "Kep1er"       , "n": "Dayeon"       , "t": 1782339791955},
-  {"g": "tripleS"      , "n": "Seoyeon"      , "t": 1782339874906}
+  {"g": "tripleS"      , "n": "Seoyeon"      , "t": 1782339874906},
+  {"g": "tripleS"      , "n": "Seoyeon"      , "t": 1782339888340}
 ]
