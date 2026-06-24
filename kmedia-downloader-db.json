@@ -419,13 +419,6 @@
     "Hyerin",
     "Junghwa"
   ],
-  "f(x)": [
-    "Victoria",
-    "Amber",
-    "Luna",
-    "Sulli",
-    "Krystal"
-  ],
   "FANATICS": [
     "Doi",
     "Sika",
@@ -1637,5 +1630,12 @@
     "Ashley",
     "Sojung",
     "Zuny"
+  ],
+  "fx": [
+    "Victoria",
+    "Amber",
+    "Luna",
+    "Sulli",
+    "Krystal"
   ]
 }
