@@ -1,6 +1,4 @@
 [
-  {"g": "MADEIN"       , "n": "Yeseo"        , "t": 1780909468786},
-  {"g": "MADEIN"       , "n": "Yeseo"        , "t": 1780909469445},
   {"g": "MADEIN"       , "n": "Yeseo"        , "t": 1780909470112},
   {"g": "Mamamoo"      , "n": "Solar"        , "t": 1780909470790},
   {"g": "Mamamoo"      , "n": "Solar"        , "t": 1780909471502},
@@ -998,5 +996,7 @@
   {"g": "Hashtag"      , "n": "Sojin"        , "t": 1782331080331},
   {"g": "Hashtag"      , "n": "Sojin"        , "t": 1782331084973},
   {"g": "Hashtag"      , "n": "Sojin"        , "t": 1782331089434},
-  {"g": "ITZY"         , "n": "Chaeryeong"   , "t": 1782331618594}
+  {"g": "ITZY"         , "n": "Chaeryeong"   , "t": 1782331618594},
+  {"g": "ITZY"         , "n": "Chaeryeong"   , "t": 1782331623497},
+  {"g": "ITZY"         , "n": "Chaeryeong"   , "t": 1782331628696}
 ]
