@@ -1,6 +1,4 @@
 [
-  {"g": "LE SSERAFIM"  , "n": "Kazuha"       , "t": 1780909462518},
-  {"g": "LE SSERAFIM"  , "n": "Kazuha"       , "t": 1780909463396},
   {"g": "LOONA"        , "n": "Kim Lip"      , "t": 1780909467397},
   {"g": "LOONA"        , "n": "Kim Lip"      , "t": 1780909468093},
   {"g": "MADEIN"       , "n": "Yeseo"        , "t": 1780909468786},
@@ -998,5 +996,7 @@
   {"g": "FANATICS"     , "n": "Doah"         , "t": 1782331009785},
   {"g": "FANATICS"     , "n": "Doah"         , "t": 1782331019758},
   {"g": "Hashtag"      , "n": "Sojin"        , "t": 1782331068692},
-  {"g": "Hashtag"      , "n": "Sojin"        , "t": 1782331074682}
+  {"g": "Hashtag"      , "n": "Sojin"        , "t": 1782331074682},
+  {"g": "Hashtag"      , "n": "Sojin"        , "t": 1782331080331},
+  {"g": "Hashtag"      , "n": "Sojin"        , "t": 1782331084973}
 ]
