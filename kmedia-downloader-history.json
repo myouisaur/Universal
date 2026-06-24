@@ -1,6 +1,4 @@
 [
-  {"g": "BABYMONSTER"  , "n": "Asa"          , "t": 1780910421440},
-  {"g": "BABYMONSTER"  , "n": "Asa"          , "t": 1780910422106},
   {"g": "BABYMONSTER"  , "n": "Rora"         , "t": 1780910422783},
   {"g": "BLACKPINK"    , "n": "Jennie"       , "t": 1780910423423},
   {"g": "BLACKPINK"    , "n": "Jennie"       , "t": 1780910424073},
@@ -998,5 +996,7 @@
   {"g": "STAYC"        , "n": "Isa"          , "t": 1782332123637},
   {"g": "STAYC"        , "n": "Isa"          , "t": 1782332129466},
   {"g": "STAYC"        , "n": "Sumin"        , "t": 1782332166563},
-  {"g": "BLACKPINK"    , "n": "Lisa"         , "t": 1782332236093}
+  {"g": "BLACKPINK"    , "n": "Lisa"         , "t": 1782332236093},
+  {"g": "BLACKPINK"    , "n": "Lisa"         , "t": 1782332239592},
+  {"g": "BLACKPINK"    , "n": "Lisa"         , "t": 1782332243191}
 ]
