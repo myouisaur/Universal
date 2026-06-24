@@ -1,5 +1,4 @@
 [
-  {"g": "NMIXX"        , "n": "Lily"         , "t": 1780909498071},
   {"g": "NMIXX"        , "n": "Lily"         , "t": 1780909498722},
   {"g": "LE SSERAFIM"  , "n": "Chaewon"      , "t": 1780909499414},
   {"g": "LE SSERAFIM"  , "n": "Chaewon"      , "t": 1780909500127},
@@ -998,5 +997,6 @@
   {"g": "aespa"        , "n": "Ningning"     , "t": 1782331953520},
   {"g": "BLACKPINK"    , "n": "Lisa"         , "t": 1782332025746},
   {"g": "BLACKPINK"    , "n": "Lisa"         , "t": 1782332031617},
-  {"g": "BLACKPINK"    , "n": "Lisa"         , "t": 1782332037854}
+  {"g": "BLACKPINK"    , "n": "Lisa"         , "t": 1782332037854},
+  {"g": "STAYC"        , "n": "Isa"          , "t": 1782332111915}
 ]
