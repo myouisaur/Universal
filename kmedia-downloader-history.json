@@ -1,5 +1,4 @@
 [
-  {"g": "LE SSERAFIM"  , "n": "Chaewon"      , "t": 1780909181181},
   {"g": "LE SSERAFIM"  , "n": "Chaewon"      , "t": 1780909181838},
   {"g": "LE SSERAFIM"  , "n": "Chaewon"      , "t": 1780909182506},
   {"g": "LE SSERAFIM"  , "n": "Chaewon"      , "t": 1780909183370},
@@ -998,5 +997,6 @@
   {"g": "LE SSERAFIM"  , "n": "Kazuha"       , "t": 1782324078936},
   {"g": "LE SSERAFIM"  , "n": "Kazuha"       , "t": 1782324083629},
   {"g": "TWICE"        , "n": "Tzuyu"        , "t": 1782324090805},
-  {"g": "tripleS"      , "n": "Seoyeon"      , "t": 1782324274786}
+  {"g": "tripleS"      , "n": "Seoyeon"      , "t": 1782324274786},
+  {"g": "tripleS"      , "n": "Seoyeon"      , "t": 1782324278014}
 ]
