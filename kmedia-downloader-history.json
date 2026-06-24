@@ -1,5 +1,4 @@
 [
-  {"g": "BLACKPINK"    , "n": "Jennie"       , "t": 1780910426795},
   {"g": "BLACKPINK"    , "n": "Jennie"       , "t": 1780910427436},
   {"g": "LE SSERAFIM"  , "n": "Chaewon"      , "t": 1780910428114},
   {"g": "NMIXX"        , "n": "Sullyoon"     , "t": 1780910428793},
@@ -998,5 +997,6 @@
   {"g": "BLACKPINK"    , "n": "Lisa"         , "t": 1782332253580},
   {"g": "BLACKPINK"    , "n": "Lisa"         , "t": 1782332257054},
   {"g": "TWICE"        , "n": "Momo"         , "t": 1782339703000},
-  {"g": "Kep1er"       , "n": "Dayeon"       , "t": 1782339771360}
+  {"g": "Kep1er"       , "n": "Dayeon"       , "t": 1782339771360},
+  {"g": "Kep1er"       , "n": "Dayeon"       , "t": 1782339776134}
 ]
