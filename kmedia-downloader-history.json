@@ -1,5 +1,4 @@
 [
-  {"g": "LOONA"        , "n": "Kim Lip"      , "t": 1780909468093},
   {"g": "MADEIN"       , "n": "Yeseo"        , "t": 1780909468786},
   {"g": "MADEIN"       , "n": "Yeseo"        , "t": 1780909469445},
   {"g": "MADEIN"       , "n": "Yeseo"        , "t": 1780909470112},
@@ -998,5 +997,6 @@
   {"g": "Hashtag"      , "n": "Sojin"        , "t": 1782331074682},
   {"g": "Hashtag"      , "n": "Sojin"        , "t": 1782331080331},
   {"g": "Hashtag"      , "n": "Sojin"        , "t": 1782331084973},
-  {"g": "Hashtag"      , "n": "Sojin"        , "t": 1782331089434}
+  {"g": "Hashtag"      , "n": "Sojin"        , "t": 1782331089434},
+  {"g": "ITZY"         , "n": "Chaeryeong"   , "t": 1782331618594}
 ]
