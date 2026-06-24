@@ -1,6 +1,4 @@
 [
-  {"g": "STAYC"        , "n": "Yoon"         , "t": 1780907277601},
-  {"g": "STAYC"        , "n": "Yoon"         , "t": 1780907278462},
   {"g": "tripleS"      , "n": "Sohyun"       , "t": 1780907279349},
   {"g": "tripleS"      , "n": "Sohyun"       , "t": 1780907280040},
   {"g": "TWICE"        , "n": "Chaeyoung"    , "t": 1780907280691},
@@ -998,5 +996,7 @@
   {"g": "Kep1er"       , "n": "Chaehyun"     , "t": 1782282350390},
   {"g": "IVE"          , "n": "Wonyoung"     , "t": 1782282889435},
   {"g": "Hearts2Hearts", "n": "Ian"          , "t": 1782283032408},
-  {"g": "Hearts2Hearts", "n": "Ian"          , "t": 1782283038365}
+  {"g": "Hearts2Hearts", "n": "Ian"          , "t": 1782283038365},
+  {"g": "Kep1er"       , "n": "Dayeon"       , "t": 1782283064908},
+  {"g": "Kep1er"       , "n": "Chaehyun"     , "t": 1782283064908}
 ]
