@@ -1,5 +1,4 @@
 [
-  {"g": "TWICE"        , "n": "Chaeyoung"    , "t": 1780907280691},
   {"g": "TWICE"        , "n": "Chaeyoung"    , "t": 1780907281434},
   {"g": "TWICE"        , "n": "Chaeyoung"    , "t": 1780907282074},
   {"g": "TWICE"        , "n": "Chaeyoung"    , "t": 1780907282909},
@@ -998,5 +997,6 @@
   {"g": "Kep1er"       , "n": "Dayeon"       , "t": 1782283064908},
   {"g": "Kep1er"       , "n": "Chaehyun"     , "t": 1782283064908},
   {"g": "Billlie"      , "n": "Tsuki"        , "t": 1782283427292},
-  {"g": "TWICE"        , "n": "Dahyun"       , "t": 1782289668344}
+  {"g": "TWICE"        , "n": "Dahyun"       , "t": 1782289668344},
+  {"g": "aespa"        , "n": "Karina"       , "t": 1782289782502}
 ]
