@@ -1,7 +1,4 @@
 [
-  {"g": "ODD YOUTH"    , "n": "Summer"       , "t": 1780955279047},
-  {"g": "ODD YOUTH"    , "n": "Summer"       , "t": 1780955322902},
-  {"g": "ODD YOUTH"    , "n": "Summer"       , "t": 1780955333852},
   {"g": "ODD YOUTH"    , "n": "Summer"       , "t": 1780955337034},
   {"g": "ODD YOUTH"    , "n": "Summer"       , "t": 1780955369318},
   {"g": "ODD YOUTH"    , "n": "Summer"       , "t": 1780955394894},
@@ -933,6 +930,7 @@
   {"g": "BLACKPINK"    , "n": "Lisa"         , "t": 1782332250183},
   {"g": "BLACKPINK"    , "n": "Lisa"         , "t": 1782332253580},
   {"g": "BLACKPINK"    , "n": "Lisa"         , "t": 1782332257054},
+  {"g": "ILLIT"        , "n": "Minju"        , "t": 1782332937857},
   {"g": "TWICE"        , "n": "Momo"         , "t": 1782339703000},
   {"g": "Kep1er"       , "n": "Dayeon"       , "t": 1782339771360},
   {"g": "Kep1er"       , "n": "Dayeon"       , "t": 1782339776134},
@@ -998,5 +996,7 @@
   {"g": "VVS"          , "n": "Brittney"     , "t": 1782361579170},
   {"g": "VVS"          , "n": "Brittney"     , "t": 1782361585176},
   {"g": "VVS"          , "n": "Brittney"     , "t": 1782361592704},
-  {"g": "VVS"          , "n": "Brittney"     , "t": 1782361600765}
+  {"g": "VVS"          , "n": "Brittney"     , "t": 1782361600765},
+  {"g": "aespa"        , "n": "Karina"       , "t": 1782363973918},
+  {"g": "aespa"        , "n": "Karina"       , "t": 1782363980015}
 ]
