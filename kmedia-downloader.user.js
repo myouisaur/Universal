@@ -2,7 +2,7 @@
 // @name         [Universal] K-Media Downloader
 // @namespace    https://github.com/myouisaur/Universal
 // @icon         data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23FF4081'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 11h3l-4 4-4-4h3V8h2v5z'/%3E%3C/svg%3E
-// @version      14.3
+// @version      14.4
 // @description  Organizes, tracks, and saves categorized K-Pop media files through a centralized overlay.
 // @author       Xiv
 // @match        *://*/*
@@ -49,7 +49,6 @@
         UI_PREFIX: 'tm-kpop-dl',
         STORAGE_KEY: 'tm_kpop_dl_history',
         HISTORY_MAX_DAYS: 30,
-        HISTORY_MAX_ENTRIES: 1000,
         FAB_Z_INDEX: 999990,
         OVERLAY_Z_INDEX: 999999,
         SAVE_DEBOUNCE_MS: 1000,
@@ -547,9 +546,7 @@
             const cutoffDate = Date.now() - (CONFIG.HISTORY_MAX_DAYS * 24 * 60 * 60 * 1000);
             const initialLength = this._cache.length;
 
-            this._cache = this._cache
-                .filter(item => item.t >= cutoffDate)
-                .slice(-CONFIG.HISTORY_MAX_ENTRIES);
+            this._cache = this._cache.filter(item => item.t >= cutoffDate);
 
             if (this._cache.length !== initialLength) {
                 this._saveLocalDebounced();
@@ -3773,7 +3770,7 @@
             Storage.init(this.isSilentMode);
 
             if (this.isSilentMode) {
-                Logger.info('Initialized Silent Cloud Worker v14.3');
+                Logger.info('Initialized Silent Cloud Worker v14.4');
                 return;
             }
 
@@ -3790,7 +3787,7 @@
                 }
             }, CONFIG.CLOUD_HISTORY_THROTTLE_MS);
 
-            Logger.info('Initialized K-Pop Media Downloader v14.3');
+            Logger.info('Initialized K-Pop Media Downloader v14.4');
         },
 
         isDirectMediaPage() {
