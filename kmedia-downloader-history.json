@@ -1,6 +1,4 @@
 [
-  {"g": "ODD YOUTH"    , "n": "Summer"       , "t": 1780955337034},
-  {"g": "ODD YOUTH"    , "n": "Summer"       , "t": 1780955369318},
   {"g": "ODD YOUTH"    , "n": "Summer"       , "t": 1780955394894},
   {"g": "ODD YOUTH"    , "n": "Summer"       , "t": 1780955399736},
   {"g": "ODD YOUTH"    , "n": "Summer"       , "t": 1780955405582},
@@ -998,5 +996,7 @@
   {"g": "VVS"          , "n": "Brittney"     , "t": 1782361592704},
   {"g": "VVS"          , "n": "Brittney"     , "t": 1782361600765},
   {"g": "aespa"        , "n": "Karina"       , "t": 1782363973918},
-  {"g": "aespa"        , "n": "Karina"       , "t": 1782363980015}
+  {"g": "aespa"        , "n": "Karina"       , "t": 1782363980015},
+  {"g": "aespa"        , "n": "Karina"       , "t": 1782363985674},
+  {"g": "aespa"        , "n": "Karina"       , "t": 1782363991467}
 ]
