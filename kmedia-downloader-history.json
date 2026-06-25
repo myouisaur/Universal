@@ -1,5 +1,4 @@
 [
-  {"g": "TWICE"        , "n": "Jihyo"        , "t": 1781001818568},
   {"g": "TWICE"        , "n": "Jihyo"        , "t": 1781001829276},
   {"g": "ILLIT"        , "n": "Minju"        , "t": 1781003612879},
   {"g": "ILLIT"        , "n": "Minju"        , "t": 1781007211251},
@@ -998,5 +997,6 @@
   {"g": "ODD YOUTH"    , "n": "Summer"       , "t": 1782371183529},
   {"g": "ODD YOUTH"    , "n": "Summer"       , "t": 1782371204751},
   {"g": "IVE"          , "n": "Wonyoung"     , "t": 1782376872970},
-  {"g": "IVE"          , "n": "Wonyoung"     , "t": 1782376877359}
+  {"g": "IVE"          , "n": "Wonyoung"     , "t": 1782376877359},
+  {"g": "LE SSERAFIM"  , "n": "Eunchae"      , "t": 1782377741194}
 ]
