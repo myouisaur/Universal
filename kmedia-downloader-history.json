@@ -1,5 +1,4 @@
 [
-  {"g": "NMIXX"        , "n": "Sullyoon"     , "t": 1780986014830},
   {"g": "STAYC"        , "n": "J"            , "t": 1780988055324},
   {"g": "LE SSERAFIM"  , "n": "Yunjin"       , "t": 1780988214846},
   {"g": "GIDLE"        , "n": "Miyeon"       , "t": 1780997183926},
@@ -998,5 +997,6 @@
   {"g": "KISS OF LIFE" , "n": "Haneul"       , "t": 1782370201002},
   {"g": "KISS OF LIFE" , "n": "Haneul"       , "t": 1782370207597},
   {"g": "KISS OF LIFE" , "n": "Haneul"       , "t": 1782370214970},
-  {"g": "IVE"          , "n": "Wonyoung"     , "t": 1782370363477}
+  {"g": "IVE"          , "n": "Wonyoung"     , "t": 1782370363477},
+  {"g": "IVE"          , "n": "Wonyoung"     , "t": 1782370393621}
 ]
