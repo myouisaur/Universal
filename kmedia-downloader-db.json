@@ -615,14 +615,6 @@
     "Rena",
     "Bada"
   ],
-  "Ho1iday": [
-    "Cheongeum",
-    "Dany",
-    "Haru",
-    "Heejoo",
-    "Saebyeok",
-    "Sarah"
-  ],
   "Honey Popcorn": [
     "Moko",
     "Yua",
@@ -1638,5 +1630,13 @@
     "Luna",
     "Sulli",
     "Krystal"
+  ],
+  "API": [
+    "Cheongeum",
+    "Dany",
+    "Haru",
+    "Heejoo",
+    "Saebyeok",
+    "Sarah"
   ]
 }
