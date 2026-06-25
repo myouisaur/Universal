@@ -2,7 +2,7 @@
 // @name         [Universal] K-Media Downloader
 // @namespace    https://github.com/myouisaur/Universal
 // @icon         data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23FF4081'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 11h3l-4 4-4-4h3V8h2v5z'/%3E%3C/svg%3E
-// @version      12.2
+// @version      14.3
 // @description  Organizes, tracks, and saves categorized K-Pop media files through a centralized overlay.
 // @author       Xiv
 // @match        *://*/*
@@ -1116,6 +1116,24 @@
         cachedContainerHeight: 400,
         resizeObserver: null,
 
+        // ── Carousel system state (purely visual; zero functional logic) ──────
+        _carousel: {
+            isActive: false,         // Whether carousel mode is currently engaged
+            currentId: 'main',       // ID of the currently-visible panel
+            panelEls: {},            // { queue, recent, main, flavor } → DOM refs
+            layoutEl: null,
+            track: null,
+            arrowPrev: null,
+            arrowNext: null,
+            dotsEl: null,
+            pillEl: null,
+            clip: null,
+            wheelTimer: null,
+            _resizeHandler: null,
+            _mouseUpHandler: null,
+            breakpointPx: 1450,      // px below which carousel activates — above this panels fit side-by-side
+        },
+
         initTemplates() {
             this.deleteBtnTemplate = document.createElement('button');
             this.deleteBtnTemplate.className = `${CONFIG.UI_PREFIX}-delete-btn`;
@@ -1158,40 +1176,63 @@
                     --tm-warning: #ffb74d;
                 }
 
-                /* Floating Action Button */
+                /* ── Floating Action Button ───────────────────────────────── */
                 .${CONFIG.UI_PREFIX}-fab {
                     position: fixed;
-                    top: calc(100vh - 6rem);
-                    left: calc(100vw - 6rem);
+                    top: calc(100vh - 6rem); left: calc(100vw - 6rem);
                     width: 3.5rem; height: 3.5rem;
-                    background: rgba(255, 255, 255, 0.1);
-                    border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 50%;
+                    background: rgba(255,255,255,0.1);
+                    border: 1px solid rgba(255,255,255,0.2); border-radius: 50%;
                     display: flex; align-items: center; justify-content: center;
                     cursor: pointer; box-shadow: 0 0.5rem 1.5rem rgba(0,0,0,0.6);
                     z-index: ${CONFIG.FAB_Z_INDEX};
-                    /* Dynamic transition handled strictly by JS routing */
                 }
-                .${CONFIG.UI_PREFIX}-fab:hover { background: rgba(255, 255, 255, 0.2); }
+                .${CONFIG.UI_PREFIX}-fab:hover { background: rgba(255,255,255,0.2); }
                 .${CONFIG.UI_PREFIX}-fab svg { width: 1.5rem; height: 1.5rem; fill: var(--tm-text-main); }
 
-                /* Overlay & Layout */
+                /* ── Overlay ──────────────────────────────────────────────── */
                 #${CONFIG.UI_PREFIX}-overlay {
-                    position: fixed;
-                    top: 0; left: 0; width: 100vw; height: 100vh;
+                    position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
                     background: rgba(0,0,0,0.85); z-index: ${CONFIG.OVERLAY_Z_INDEX};
-                    display: flex; align-items: center; justify-content: center;
+                    /* !important guards against page CSS overriding these alignment rules */
+                    display: flex !important;
+                    align-items: center !important;
+                    justify-content: center !important;
                     font-family: 'Inter', -apple-system, sans-serif; backdrop-filter: blur(8px);
                 }
+
+                /* ── Fluid Desktop Layout ─────────────────────────────────── */
+                /* All widths/heights use clamp() — scales from ~600 px to 4 K  */
                 .${CONFIG.UI_PREFIX}-layout {
                     display: flex;
-                    gap: 1.5rem; max-width: 95vw; max-height: 95vh;
-                    justify-content: center; align-items: flex-end; position: relative;
+                    flex-wrap: nowrap;
+                    gap: clamp(0.5rem, 1.2vw, 1.5rem);
+                    max-width: min(98vw, 120rem);
+                    max-height: 94vh;
+                    justify-content: center;
+                    align-items: flex-end;
+                    position: relative;
                 }
 
-                /* Panels & Containers */
-                .${CONFIG.UI_PREFIX}-main-container {
+                /* Carousel track — desktop mode: a flex container that mirrors
+                   the parent gap/alignment so panels lay out identically to
+                   direct children. Avoids display:contents browser quirks with
+                   flex re-centering when panel count changes dynamically.    */
+                .${CONFIG.UI_PREFIX}-carousel-track {
                     display: flex;
-                    flex-direction: column; order: 2; width: 25rem; height: 80vh; position: relative;
+                    flex-wrap: nowrap;
+                    gap: inherit;          /* inherit gap from .layout */
+                    align-items: flex-end; /* match .layout align-items */
+                    /* No explicit width — content-sized, centred by .layout */
+                }
+
+                /* ── Panel dimensions (fluid) ─────────────────────────────── */
+                .${CONFIG.UI_PREFIX}-main-container {
+                    display: flex; flex-direction: column;
+                    order: 2;
+                    width: clamp(17rem, 26vw, 28rem);
+                    height: clamp(60vh, 78vh, 88vh);
+                    position: relative; flex-shrink: 1;
                 }
                 .${CONFIG.UI_PREFIX}-panel {
                     background: var(--tm-bg-base);
@@ -1201,20 +1242,48 @@
                     box-sizing: border-box; overflow: hidden;
                 }
                 .${CONFIG.UI_PREFIX}-main { width: 100%; height: 100%; position: relative; }
-                .${CONFIG.UI_PREFIX}-side { width: 20rem; height: 80vh; background: var(--tm-bg-panel); }
-                .${CONFIG.UI_PREFIX}-side.left { order: 1; }
+                .${CONFIG.UI_PREFIX}-side {
+                    width: clamp(13rem, 20vw, 22rem);
+                    height: clamp(60vh, 78vh, 88vh);
+                    background: var(--tm-bg-panel); flex-shrink: 1;
+                }
+                .${CONFIG.UI_PREFIX}-side.left  { order: 1; }
                 .${CONFIG.UI_PREFIX}-side.right { order: 3; }
 
-                /* Header */
+                /* ── Queue / Cart panel — fluid width-reveal ─────────────── */
+                /* Intentional layout transition: panel opens/closes as part of
+                   the core UX — not a hover/interaction animation.           */
+                .${CONFIG.UI_PREFIX}-cart-panel {
+                    order: 0; flex-shrink: 0;
+                    width: 0; min-width: 0;
+                    height: clamp(60vh, 78vh, 88vh);
+                    padding-left: 0; padding-right: 0;
+                    opacity: 0; overflow: hidden; border: none;
+                    margin-left: calc(-1 * clamp(0.5rem, 1.2vw, 1.5rem));
+                    transition: width 0.3s cubic-bezier(0.25, 0.8, 0.25, 1),
+                                opacity 0.3s cubic-bezier(0.25, 0.8, 0.25, 1),
+                                padding 0.3s cubic-bezier(0.25, 0.8, 0.25, 1),
+                                margin-left 0.3s cubic-bezier(0.25, 0.8, 0.25, 1),
+                                border-color 0.3s;
+                    display: flex; flex-direction: column;
+                    pointer-events: none;
+                }
+                .${CONFIG.UI_PREFIX}-cart-panel.active {
+                    width: clamp(13rem, 20vw, 22rem);
+                    padding-left: 1.5rem; padding-right: 1.5rem;
+                    opacity: 1; border: 1px solid var(--tm-border);
+                    margin-left: 0; pointer-events: auto;
+                }
+
+                /* ── Header ───────────────────────────────────────────────── */
                 .${CONFIG.UI_PREFIX}-header {
-                    display: flex;
-                    align-items: center; justify-content: space-between; gap: 1rem;
+                    display: flex; align-items: center; justify-content: space-between; gap: 1rem;
                     height: 2.5rem; margin-bottom: 1rem; flex-shrink: 0; width: 100%;
                 }
-                .${CONFIG.UI_PREFIX}-header-left { display: flex; align-items: center; gap: 0.8rem; overflow: hidden; flex-grow: 1; }
+                .${CONFIG.UI_PREFIX}-header-left  { display: flex; align-items: center; gap: 0.8rem; overflow: hidden; flex-grow: 1; }
                 .${CONFIG.UI_PREFIX}-header-right { display: flex; align-items: center; justify-content: flex-end; flex-shrink: 0; }
                 .${CONFIG.UI_PREFIX}-header h2 {
-                    font-size: 1.1rem;
+                    font-size: clamp(0.85rem, 1.1vw, 1.1rem);
                     margin: 0; font-weight: 600; color: #eee; text-align: left;
                     overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex-grow: 1;
                 }
@@ -1224,17 +1293,14 @@
                 }
 
                 .${CONFIG.UI_PREFIX}-icon-btn {
-                    background: #1a1a1a;
-                    border: 1px solid var(--tm-border-light);
-                    border-radius: 0.7rem; width: 2.5rem; height: 2.5rem; display: flex;
-                    align-items: center; justify-content: center; cursor: pointer;
-                    transition: 0.2s; flex-shrink: 0;
+                    background: #1a1a1a; border: 1px solid var(--tm-border-light);
+                    border-radius: 0.7rem; width: 2.5rem; height: 2.5rem;
+                    display: flex; align-items: center; justify-content: center;
+                    cursor: pointer; transition: background 0.2s, border-color 0.2s; flex-shrink: 0;
                 }
                 .${CONFIG.UI_PREFIX}-icon-btn:hover { background: var(--tm-border); border-color: var(--tm-border-focus); }
                 .${CONFIG.UI_PREFIX}-icon-btn svg { width: 1.1rem; height: 1.1rem; fill: var(--tm-text-main); transition: fill 0.2s; }
 
-                .${CONFIG.UI_PREFIX}-multi-btn { transition: transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1), background 0.2s, border-color 0.2s !important; z-index: 10; }
-                .${CONFIG.UI_PREFIX}-multi-active { transform: translateX(-43rem); }
 
                 @keyframes tmSpin { 100% { transform: rotate(360deg); } }
                 .${CONFIG.UI_PREFIX}-spin svg { animation: tmSpin 1s linear infinite; }
@@ -1244,7 +1310,7 @@
                     background-color: var(--tm-danger); border-radius: 50%; border: 2px solid #1a1a1a; box-sizing: content-box;
                 }
 
-                /* Modern Toast Notifications */
+                /* ── Toast Notifications ──────────────────────────────────── */
                 #${CONFIG.UI_PREFIX}-toast-wrapper {
                     position: fixed; bottom: 2rem; left: 2rem;
                     display: flex; flex-direction: column; gap: 0.8rem; z-index: ${CONFIG.OVERLAY_Z_INDEX + 10};
@@ -1252,79 +1318,63 @@
                     font-family: 'Inter', -apple-system, sans-serif;
                 }
                 .${CONFIG.UI_PREFIX}-toast {
-                    background: rgba(20, 20, 20, 0.95); backdrop-filter: blur(10px);
+                    background: rgba(20,20,20,0.95); backdrop-filter: blur(10px);
                     border: 1px solid var(--tm-border-light); border-left: 4px solid var(--tm-primary);
                     color: var(--tm-text-main); padding: 0.8rem 1.2rem; border-radius: 0.6rem;
                     font-size: 0.85rem; font-weight: 500; box-shadow: 0 8px 16px rgba(0,0,0,0.5);
                     display: flex; align-items: center; gap: 0.6rem; pointer-events: auto;
                     max-width: 320px; will-change: transform, opacity;
                 }
-
                 .${CONFIG.UI_PREFIX}-dl-toast { flex-direction: column; align-items: flex-start; gap: 0; padding: 0.8rem 1rem 1rem 1rem; position: relative; overflow: hidden; min-width: 250px; }
-                .${CONFIG.UI_PREFIX}-dl-info { display: flex; flex-direction: column; gap: 0.2rem; width: 100%; }
-                .${CONFIG.UI_PREFIX}-dl-title { font-weight: 600; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; max-width: 100%; }
+                .${CONFIG.UI_PREFIX}-dl-info  { display: flex; flex-direction: column; gap: 0.2rem; width: 100%; }
+                .${CONFIG.UI_PREFIX}-dl-title  { font-weight: 600; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; max-width: 100%; }
                 .${CONFIG.UI_PREFIX}-dl-status { font-size: 0.75rem; color: var(--tm-text-muted); font-variant-numeric: tabular-nums; }
-
-                .${CONFIG.UI_PREFIX}-progress-bg { position: absolute; bottom: 0; left: 0; width: 100%; height: 3px; background: rgba(255,255,255,0.1); }
+                .${CONFIG.UI_PREFIX}-progress-bg   { position: absolute; bottom: 0; left: 0; width: 100%; height: 3px; background: rgba(255,255,255,0.1); }
                 .${CONFIG.UI_PREFIX}-progress-fill { height: 100%; background: var(--tm-primary); border-radius: 2px; }
-
-                .${CONFIG.UI_PREFIX}-toast.syncing { border-left-color: var(--tm-warning); color: var(--tm-text-main); }
-                .${CONFIG.UI_PREFIX}-toast.syncing .${CONFIG.UI_PREFIX}-progress-fill { background: var(--tm-warning); }
-                .${CONFIG.UI_PREFIX}-toast.success { border-left-color: var(--tm-success); color: var(--tm-text-main); }
-                .${CONFIG.UI_PREFIX}-toast.success .${CONFIG.UI_PREFIX}-progress-fill { background: var(--tm-success); }
-                .${CONFIG.UI_PREFIX}-toast.error { border-left-color: var(--tm-danger); color: var(--tm-text-main); }
-                .${CONFIG.UI_PREFIX}-toast.error .${CONFIG.UI_PREFIX}-progress-fill { background: var(--tm-danger); }
-
-                @keyframes tmToastFadeIn { from { opacity: 0; transform: translateX(-20px) scale(0.95); } to { opacity: 1; transform: translateX(0) scale(1); } }
-                @keyframes tmToastFadeOut { from { opacity: 1; transform: translateX(0) scale(1); height: auto; } to { opacity: 0; transform: translateX(-20px) scale(0.95); margin-top: -10px; } }
+                .${CONFIG.UI_PREFIX}-toast.syncing            { border-left-color: var(--tm-warning); }
+                .${CONFIG.UI_PREFIX}-toast.syncing  .${CONFIG.UI_PREFIX}-progress-fill { background: var(--tm-warning); }
+                .${CONFIG.UI_PREFIX}-toast.success            { border-left-color: var(--tm-success); }
+                .${CONFIG.UI_PREFIX}-toast.success  .${CONFIG.UI_PREFIX}-progress-fill { background: var(--tm-success); }
+                .${CONFIG.UI_PREFIX}-toast.error              { border-left-color: var(--tm-danger); }
+                .${CONFIG.UI_PREFIX}-toast.error    .${CONFIG.UI_PREFIX}-progress-fill { background: var(--tm-danger); }
+                @keyframes tmToastFadeIn   { from { opacity: 0; transform: translateX(-20px) scale(0.95); } to { opacity: 1; transform: translateX(0) scale(1); } }
+                @keyframes tmToastFadeOut  { from { opacity: 1; transform: translateX(0) scale(1); height: auto; } to { opacity: 0; transform: translateX(-20px) scale(0.95); margin-top: -10px; } }
                 @keyframes tmCountdownBorder { 0% { border-left-color: var(--tm-success); } 50% { border-left-color: var(--tm-warning); } 100% { border-left-color: var(--tm-danger); } }
-                @keyframes tmCountdownFill { 0% { background-color: var(--tm-success); } 50% { background-color: var(--tm-warning); } 100% { background-color: var(--tm-danger); } }
-                @keyframes tmCountdownWidth { 0% { width: 100%; } 100% { width: 0%; } }
-
+                @keyframes tmCountdownFill   { 0% { background-color: var(--tm-success); } 50% { background-color: var(--tm-warning); } 100% { background-color: var(--tm-danger); } }
+                @keyframes tmCountdownWidth  { 0% { width: 100%; } 100% { width: 0%; } }
                 .${CONFIG.UI_PREFIX}-cancel-btn {
                     background: #222; color: var(--tm-text-main); border: 1px solid #444;
                     padding: 0.3rem 0.5rem; border-radius: 0.4rem; font-size: 0.75rem;
-                    cursor: pointer; transition: 0.2s; outline: none; flex-shrink: 0;
+                    cursor: pointer; transition: background 0.2s, border-color 0.2s; outline: none; flex-shrink: 0;
                 }
                 .${CONFIG.UI_PREFIX}-cancel-btn:hover { background: #333; border-color: #666; }
 
-                /* Selection Queue Panel Animations & Layout */
-                .${CONFIG.UI_PREFIX}-cart-panel {
-                    width: 0; height: 80vh; padding-left: 0; padding-right: 0;
-                    opacity: 0; overflow: hidden; border: none; margin-left: -1.5rem;
-                    transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1); pointer-events: none;
-                    display: flex; flex-direction: column;
-                }
-                .${CONFIG.UI_PREFIX}-cart-panel.active {
-                    width: 20rem; padding-left: 1.5rem; padding-right: 1.5rem;
-                    opacity: 1; border: 1px solid var(--tm-border); margin-left: 0; pointer-events: auto;
-                }
-
-                /* Virtual Queue Items */
+                /* ── Queue Panel Items ────────────────────────────────────── */
                 .${CONFIG.UI_PREFIX}-queue-item {
                     position: absolute; top: 0; left: 0; width: 100%; height: 42px;
                     background: var(--tm-bg-input); border: 1px solid var(--tm-border-light);
                     border-radius: 0.6rem; padding: 0 0.8rem; display: flex;
-                    justify-content: space-between; align-items: center; gap: 0.5rem; transition: background 0.15s;
-                    box-sizing: border-box; will-change: transform;
+                    justify-content: space-between; align-items: center; gap: 0.5rem;
+                    transition: background 0.15s; box-sizing: border-box; will-change: transform;
                 }
                 .${CONFIG.UI_PREFIX}-queue-item:hover { background: var(--tm-bg-hover); border-color: var(--tm-border-focus); }
-                .${CONFIG.UI_PREFIX}-history-selected { border-color: var(--tm-danger) !important; background: rgba(229, 115, 115, 0.1) !important; }
+                .${CONFIG.UI_PREFIX}-history-selected { border-color: var(--tm-danger) !important; background: rgba(229,115,115,0.1) !important; }
                 .${CONFIG.UI_PREFIX}-queue-remove {
                     background: none; border: none; color: var(--tm-danger); cursor: pointer;
-                    padding: 0 0.5rem 0 0; font-size: 1rem; font-weight: bold; line-height: 1; transition: 0.2s;
+                    padding: 0 0.5rem 0 0; font-size: 1rem; font-weight: bold; line-height: 1; transition: color 0.2s;
                 }
                 .${CONFIG.UI_PREFIX}-queue-remove:hover { color: #fff; }
 
-                /* Search & Contextual Toolbar */
+                /* ── Search & Toolbar ─────────────────────────────────────── */
                 .${CONFIG.UI_PREFIX}-search-container { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem; flex-shrink: 0; }
                 .${CONFIG.UI_PREFIX}-search-input {
-                    flex-grow: 1; min-width: 0; background: var(--tm-bg-input); border: 1px solid var(--tm-border-light); border-radius: 0.8rem;
-                    padding: 0.8rem 1rem; color: var(--tm-text-main); font-size: 0.95rem; outline: none; box-sizing: border-box; transition: 0.2s;
+                    flex-grow: 1; min-width: 0; background: var(--tm-bg-input); border: 1px solid var(--tm-border-light);
+                    border-radius: 0.8rem; padding: 0.8rem 1rem; color: var(--tm-text-main);
+                    font-size: 0.95rem; outline: none; box-sizing: border-box; transition: border-color 0.2s, background 0.2s;
                 }
                 .${CONFIG.UI_PREFIX}-search-input:focus { border-color: var(--tm-text-dark); background: #1a1a1a; }
 
-                /* Virtual List Architecture */
+                /* ── Virtual List Architecture ────────────────────────────── */
                 .${CONFIG.UI_PREFIX}-list-wrapper { flex-grow: 1; min-height: 0; width: 100%; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-start; }
                 .${CONFIG.UI_PREFIX}-list { width: 100%; overflow-y: auto; overflow-x: hidden; position: relative; padding-right: 0.5rem; box-sizing: border-box; outline: none; }
                 .${CONFIG.UI_PREFIX}-list::-webkit-scrollbar { width: 6px; }
@@ -1335,86 +1385,646 @@
                 .${CONFIG.UI_PREFIX}-item {
                     position: absolute; top: 0; left: 0; width: 100%; height: 42px;
                     background: #141414; border: 1px solid transparent; padding: 0 1rem; border-radius: 0.8rem;
-                    cursor: pointer; transition: background 0.15s; font-size: 0.95rem; display: flex;
-                    justify-content: space-between; align-items: center; box-sizing: border-box; will-change: transform;
+                    cursor: pointer; transition: background 0.15s; font-size: 0.95rem;
+                    display: flex; justify-content: space-between; align-items: center;
+                    box-sizing: border-box; will-change: transform;
                 }
-                .${CONFIG.UI_PREFIX}-item:hover, .${CONFIG.UI_PREFIX}-item.active-focus { background: var(--tm-bg-hover); border-color: var(--tm-border-focus); }
+                .${CONFIG.UI_PREFIX}-item:hover,
+                .${CONFIG.UI_PREFIX}-item.active-focus { background: var(--tm-bg-hover); border-color: var(--tm-border-focus); }
 
                 .${CONFIG.UI_PREFIX}-badge {
                     font-size: 0.7rem; color: #888; background: #1a1a1a; padding: 0.2rem 0.5rem;
-                    border-radius: 0.4rem; border: 1px solid #252525; font-weight: 500; transition: 0.2s;
+                    border-radius: 0.4rem; border: 1px solid #252525; font-weight: 500; transition: background 0.2s, border-color 0.2s, color 0.2s;
                 }
                 .${CONFIG.UI_PREFIX}-badge.accent { color: var(--tm-text-muted); border-color: #444; background: #222; }
-                .${CONFIG.UI_PREFIX}-badge-actionable:hover { background: var(--tm-bg-hover-subtle); border-color: var(--tm-border-focus); color: var(--tm-text-main); cursor: pointer; }
+                .${CONFIG.UI_PREFIX}-badge-actionable:hover       { background: var(--tm-bg-hover-subtle); border-color: var(--tm-border-focus); color: var(--tm-text-main); cursor: pointer; }
                 .${CONFIG.UI_PREFIX}-badge-actionable.accent:hover { background: var(--tm-border-light); border-color: var(--tm-text-dark); color: var(--tm-text-main); }
 
-                /* Footer & Actions */
-                .${CONFIG.UI_PREFIX}-footer { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--tm-border); flex-shrink: 0; display: flex; flex-direction: column; gap: 0.5rem; }
+                /* ── Footer & Action Buttons ──────────────────────────────── */
+                .${CONFIG.UI_PREFIX}-footer       { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--tm-border); flex-shrink: 0; display: flex; flex-direction: column; gap: 0.5rem; }
                 .${CONFIG.UI_PREFIX}-panel-footer { margin-top: auto; padding-top: 1rem; border-top: 1px solid var(--tm-border); display: none; }
-                .${CONFIG.UI_PREFIX}-btn-row { display: flex; gap: 0.5rem; width: 100%; }
-
+                .${CONFIG.UI_PREFIX}-btn-row      { display: flex; gap: 0.5rem; width: 100%; }
                 .${CONFIG.UI_PREFIX}-action-btn {
                     flex: 1; display: flex; align-items: center; justify-content: center;
-                    background: #1a1a1a; color: #999; border: 1px dashed #444; padding: 0.8rem; border-radius: 0.8rem;
-                    cursor: pointer; font-size: 0.9rem; transition: 0.2s; outline: none;
+                    background: #1a1a1a; color: #999; border: 1px dashed #444; padding: 0.8rem;
+                    border-radius: 0.8rem; cursor: pointer; font-size: 0.9rem; transition: background 0.2s, border-color 0.2s, color 0.2s; outline: none;
                 }
-                .${CONFIG.UI_PREFIX}-action-btn:hover:not(:disabled), .${CONFIG.UI_PREFIX}-action-btn:focus:not(:disabled) { background: #222; color: var(--tm-text-main); border-color: var(--tm-text-dark); }
+                .${CONFIG.UI_PREFIX}-action-btn:hover:not(:disabled),
+                .${CONFIG.UI_PREFIX}-action-btn:focus:not(:disabled) { background: #222; color: var(--tm-text-main); border-color: var(--tm-text-dark); }
                 .${CONFIG.UI_PREFIX}-action-btn:disabled { opacity: 0.4; cursor: not-allowed; pointer-events: none; }
 
-                /* Custom Input Prompt */
-                .${CONFIG.UI_PREFIX}-custom-wrapper { display: none; width: 100%; gap: 0.5rem; align-items: center; }
-                .${CONFIG.UI_PREFIX}-custom-input { flex: 1; background: var(--tm-bg-input); border: 1px solid var(--tm-border-light); border-radius: 0.5rem; padding: 0.7rem 0.8rem; color: var(--tm-text-main); font-size: 0.9rem; outline: none; transition: 0.2s; }
+                /* ── Custom Input Prompt ──────────────────────────────────── */
+                .${CONFIG.UI_PREFIX}-custom-wrapper  { display: none; width: 100%; gap: 0.5rem; align-items: center; }
+                .${CONFIG.UI_PREFIX}-custom-input    { flex: 1; background: var(--tm-bg-input); border: 1px solid var(--tm-border-light); border-radius: 0.5rem; padding: 0.7rem 0.8rem; color: var(--tm-text-main); font-size: 0.9rem; outline: none; transition: border-color 0.2s, background 0.2s; }
                 .${CONFIG.UI_PREFIX}-custom-input:focus { border-color: var(--tm-text-dark); background: #1a1a1a; }
-                .${CONFIG.UI_PREFIX}-custom-confirm, .${CONFIG.UI_PREFIX}-custom-cancel { background: #1a1a1a; color: var(--tm-text-main); border: 1px solid #444; padding: 0.7rem 1rem; border-radius: 0.5rem; cursor: pointer; font-size: 0.9rem; transition: 0.2s; }
-                .${CONFIG.UI_PREFIX}-custom-confirm { background: #1e3a2b; border-color: #2c5941; color: #4ade80; }
+                .${CONFIG.UI_PREFIX}-custom-confirm, .${CONFIG.UI_PREFIX}-custom-cancel { background: #1a1a1a; color: var(--tm-text-main); border: 1px solid #444; padding: 0.7rem 1rem; border-radius: 0.5rem; cursor: pointer; font-size: 0.9rem; transition: background 0.2s; }
+                .${CONFIG.UI_PREFIX}-custom-confirm       { background: #1e3a2b; border-color: #2c5941; color: #4ade80; }
                 .${CONFIG.UI_PREFIX}-custom-confirm:hover { background: #244935; }
-                .${CONFIG.UI_PREFIX}-custom-cancel:hover { background: var(--tm-bg-hover-subtle); border-color: var(--tm-text-dark); }
+                .${CONFIG.UI_PREFIX}-custom-cancel:hover  { background: var(--tm-bg-hover-subtle); border-color: var(--tm-text-dark); }
 
-                /* CRUD UI */
-                .${CONFIG.UI_PREFIX}-crud-bar { display: none; gap: 0.5rem; margin-bottom: 1rem; flex-shrink: 0; transition: opacity 0.2s; }
-                .${CONFIG.UI_PREFIX}-crud-input { flex-grow: 1; background: var(--tm-bg-input); border: 1px solid var(--tm-border-light); border-radius: 0.6rem; padding: 0.7rem 0.8rem; color: var(--tm-text-main); font-size: 0.9rem; outline: none; transition: 0.2s; }
+                /* ── CRUD Bar ─────────────────────────────────────────────── */
+                .${CONFIG.UI_PREFIX}-crud-bar       { display: none; gap: 0.5rem; margin-bottom: 1rem; flex-shrink: 0; transition: opacity 0.2s; }
+                .${CONFIG.UI_PREFIX}-crud-input     { flex-grow: 1; background: var(--tm-bg-input); border: 1px solid var(--tm-border-light); border-radius: 0.6rem; padding: 0.7rem 0.8rem; color: var(--tm-text-main); font-size: 0.9rem; outline: none; transition: border-color 0.2s; }
                 .${CONFIG.UI_PREFIX}-crud-input:focus { border-color: var(--tm-text-dark); }
-                .${CONFIG.UI_PREFIX}-crud-add-btn { background: #222; color: var(--tm-text-main); border: 1px solid var(--tm-border-light); border-radius: 0.6rem; padding: 0.7rem 1rem; font-size: 0.85rem; cursor: pointer; white-space: nowrap; transition: 0.2s; }
+                .${CONFIG.UI_PREFIX}-crud-add-btn   { background: #222; color: var(--tm-text-main); border: 1px solid var(--tm-border-light); border-radius: 0.6rem; padding: 0.7rem 1rem; font-size: 0.85rem; cursor: pointer; white-space: nowrap; transition: background 0.2s, border-color 0.2s; }
                 .${CONFIG.UI_PREFIX}-crud-add-btn:hover:not(:disabled) { background: var(--tm-border-light); border-color: var(--tm-border-focus); }
-
                 .${CONFIG.UI_PREFIX}-edit-item-btn, .${CONFIG.UI_PREFIX}-delete-btn { background: transparent; border: none; cursor: pointer; padding: 0.4rem; display: flex; align-items: center; justify-content: center; border-radius: 0.4rem; transition: background 0.2s; margin-left: 0.2rem; }
                 .${CONFIG.UI_PREFIX}-edit-item-btn svg, .${CONFIG.UI_PREFIX}-delete-btn svg { width: 1.1rem; height: 1.1rem; transition: fill 0.2s; }
-                .${CONFIG.UI_PREFIX}-edit-item-btn svg { fill: var(--tm-text-muted); }
-                .${CONFIG.UI_PREFIX}-edit-item-btn:hover { background: rgba(255, 255, 255, 0.15); }
-                .${CONFIG.UI_PREFIX}-edit-item-btn:hover svg { fill: var(--tm-text-main); }
-                .${CONFIG.UI_PREFIX}-delete-btn svg { fill: var(--tm-danger); }
-                .${CONFIG.UI_PREFIX}-delete-btn:hover { background: rgba(229, 115, 115, 0.15); }
+                .${CONFIG.UI_PREFIX}-edit-item-btn svg         { fill: var(--tm-text-muted); }
+                .${CONFIG.UI_PREFIX}-edit-item-btn:hover       { background: rgba(255,255,255,0.15); }
+                .${CONFIG.UI_PREFIX}-edit-item-btn:hover svg   { fill: var(--tm-text-main); }
+                .${CONFIG.UI_PREFIX}-delete-btn svg            { fill: var(--tm-danger); }
+                .${CONFIG.UI_PREFIX}-delete-btn:hover          { background: rgba(229,115,115,0.15); }
 
-                /* Configuration Panel Architecture */
+                /* ── Config Panel ─────────────────────────────────────────── */
                 .${CONFIG.UI_PREFIX}-config-wrapper { display: none; flex-direction: column; height: 100%; overflow: hidden; }
-                .${CONFIG.UI_PREFIX}-config-body { flex-grow: 1; overflow-y: auto; padding-right: 0.5rem; display: flex; flex-direction: column; gap: 0.8rem; }
-                .${CONFIG.UI_PREFIX}-config-body::-webkit-scrollbar { width: 6px; }
+                .${CONFIG.UI_PREFIX}-config-body    { flex-grow: 1; overflow-y: auto; padding-right: 0.5rem; display: flex; flex-direction: column; gap: 0.8rem; }
+                .${CONFIG.UI_PREFIX}-config-body::-webkit-scrollbar       { width: 6px; }
                 .${CONFIG.UI_PREFIX}-config-body::-webkit-scrollbar-thumb { background: var(--tm-border-light); border-radius: 10px; }
-                .${CONFIG.UI_PREFIX}-config-footer { flex-shrink: 0; padding-top: 1rem; margin-top: 0.5rem; border-top: 1px solid var(--tm-border); display: flex; }
+                .${CONFIG.UI_PREFIX}-config-footer  { flex-shrink: 0; padding-top: 1rem; margin-top: 0.5rem; border-top: 1px solid var(--tm-border); display: flex; }
                 .${CONFIG.UI_PREFIX}-settings-field { display: flex; flex-direction: column; gap: 0.3rem; }
                 .${CONFIG.UI_PREFIX}-settings-field label { font-size: 0.8rem; color: var(--tm-text-muted); font-weight: 500; text-align: left; }
-                .${CONFIG.UI_PREFIX}-settings-input { background: var(--tm-bg-input); border: 1px solid var(--tm-border-light); border-radius: 0.6rem; padding: 0.7rem 0.8rem; color: var(--tm-text-main); font-size: 0.9rem; outline: none; transition: 0.2s; }
+                .${CONFIG.UI_PREFIX}-settings-input { background: var(--tm-bg-input); border: 1px solid var(--tm-border-light); border-radius: 0.6rem; padding: 0.7rem 0.8rem; color: var(--tm-text-main); font-size: 0.9rem; outline: none; transition: border-color 0.2s, background 0.2s; }
                 .${CONFIG.UI_PREFIX}-settings-input:focus { border-color: var(--tm-primary); background: #1a1a1a; }
-                .${CONFIG.UI_PREFIX}-settings-save-btn { width: 100%; background: var(--tm-primary); color: var(--tm-text-main); border: none; border-radius: 0.6rem; padding: 0.8rem; font-size: 0.95rem; font-weight: 600; cursor: pointer; transition: background 0.2s; }
+                .${CONFIG.UI_PREFIX}-settings-save-btn    { width: 100%; background: var(--tm-primary); color: var(--tm-text-main); border: none; border-radius: 0.6rem; padding: 0.8rem; font-size: 0.95rem; font-weight: 600; cursor: pointer; transition: background 0.2s; }
                 .${CONFIG.UI_PREFIX}-settings-save-btn:hover:not(:disabled) { background: var(--tm-primary-hover); }
-
-                .${CONFIG.UI_PREFIX}-history-delete-btn { width: 100%; background: rgba(229, 115, 115, 0.15); color: var(--tm-danger); border: 1px solid var(--tm-danger); border-radius: 0.6rem; padding: 0.8rem; font-size: 0.95rem; font-weight: 600; cursor: pointer; transition: 0.2s; }
+                .${CONFIG.UI_PREFIX}-history-delete-btn   { width: 100%; background: rgba(229,115,115,0.15); color: var(--tm-danger); border: 1px solid var(--tm-danger); border-radius: 0.6rem; padding: 0.8rem; font-size: 0.95rem; font-weight: 600; cursor: pointer; transition: background 0.2s, color 0.2s; }
                 .${CONFIG.UI_PREFIX}-history-delete-btn:hover:not(:disabled) { background: var(--tm-danger); color: #fff; }
-                .${CONFIG.UI_PREFIX}-settings-save-btn:disabled, .${CONFIG.UI_PREFIX}-history-delete-btn:disabled { opacity: 0.4; cursor: not-allowed; border-color: #444; color: #666; background: #1a1a1a; }
+                .${CONFIG.UI_PREFIX}-settings-save-btn:disabled,
+                .${CONFIG.UI_PREFIX}-history-delete-btn:disabled { opacity: 0.4; cursor: not-allowed; border-color: #444; color: #666; background: #1a1a1a; }
 
-                @media (max-width: 1100px) {
-                    .${CONFIG.UI_PREFIX}-layout { flex-direction: column; justify-content: flex-start; overflow-y: auto; height: 100vh; max-height: 100vh; width: 100%; padding: 4rem 0 4rem 0; box-sizing: border-box; }
-                    .${CONFIG.UI_PREFIX}-layout::-webkit-scrollbar { display: none; }
-                    .${CONFIG.UI_PREFIX}-side { height: 65vh; width: 90vw; max-width: 25rem; flex-shrink: 0; }
-                    .${CONFIG.UI_PREFIX}-cart-panel { margin-left: 0; margin-top: -1.5rem; }
-                    .${CONFIG.UI_PREFIX}-cart-panel.active { width: 90vw; margin-top: 0; }
-                    .${CONFIG.UI_PREFIX}-main-container { order: 1; height: auto; width: 90vw; max-width: 25rem; flex-shrink: 0; margin-top: 2rem; }
-                    .${CONFIG.UI_PREFIX}-main { height: 65vh; }
-                    .${CONFIG.UI_PREFIX}-side.left { order: 2; }
-                    .${CONFIG.UI_PREFIX}-side.right { order: 3; }
-                    .${CONFIG.UI_PREFIX}-multi-active { transform: translateY(calc(-80vh - 3.5rem)); }
+                /* ════════════════════════════════════════════════════════════
+                   CAROUSEL SYSTEM
+                   Applied by JS via .${CONFIG.UI_PREFIX}-carousel class on
+                   layoutWrapper. Below 920 px wide the 4-panel side-by-side
+                   layout becomes a full-width card carousel.
+                   ════════════════════════════════════════════════════════════ */
+
+                /* Queue Pill — in-flow element between the list wrapper and
+                   the footer. Never overlaps buttons. Visible only in carousel
+                   mode when multi-select is active and the queue has items.  */
+                .${CONFIG.UI_PREFIX}-queue-pill {
+                    display: none; /* hidden by default; shown only in carousel mode */
+                    width: 100%;
+                    align-items: center; justify-content: center;
+                    gap: 0.45rem;
+                    background: rgba(255, 64, 129, 0.12);
+                    color: var(--tm-primary);
+                    border: 1px solid rgba(255, 64, 129, 0.35);
+                    border-radius: 0.7rem;
+                    padding: 0.55rem 1rem;
+                    font-size: 0.82rem; font-weight: 600; font-family: inherit;
+                    cursor: pointer; white-space: nowrap;
+                    flex-shrink: 0;
+                    margin-top: 0.5rem;
+                    opacity: 0; pointer-events: none;
+                    transition: opacity 0.22s ease, background 0.2s ease;
+                }
+                .${CONFIG.UI_PREFIX}-queue-pill svg {
+                    width: 0.95rem; height: 0.95rem; fill: var(--tm-primary); flex-shrink: 0;
+                }
+                .${CONFIG.UI_PREFIX}-queue-pill:hover {
+                    background: rgba(255, 64, 129, 0.22);
+                    border-color: rgba(255, 64, 129, 0.6);
+                }
+                .${CONFIG.UI_PREFIX}-queue-pill.visible {
+                    display: flex;
+                    opacity: 1;
+                    pointer-events: auto;
+                }
+                /* Desktop: queue panel is always visible — pill never needed */
+                .${CONFIG.UI_PREFIX}-layout:not(.${CONFIG.UI_PREFIX}-carousel) .${CONFIG.UI_PREFIX}-queue-pill {
+                    display: none !important;
+                }
+
+                /* Carousel Arrow Buttons */
+                .${CONFIG.UI_PREFIX}-carousel-arrow {
+                    position: absolute; top: 50%;
+                    transform: translateY(-50%);
+                    width: 2.4rem; height: 2.4rem;
+                    background: rgba(15,15,15,0.92);
+                    border: 1px solid var(--tm-border-light); border-radius: 50%;
+                    display: none; /* shown only in carousel mode */
+                    align-items: center; justify-content: center;
+                    cursor: pointer; z-index: 30;
+                    opacity: 0.8;
+                    transition: opacity 0.2s, background 0.2s;
+                    backdrop-filter: blur(6px);
+                }
+                .${CONFIG.UI_PREFIX}-carousel-arrow:hover      { opacity: 1; background: rgba(40,40,40,0.97); }
+                .${CONFIG.UI_PREFIX}-carousel-arrow.prev        { left:  -1.3rem; }
+                .${CONFIG.UI_PREFIX}-carousel-arrow.next        { right: -1.3rem; }
+                .${CONFIG.UI_PREFIX}-carousel-arrow svg         { width: 1rem; height: 1rem; fill: var(--tm-text-main); }
+                .${CONFIG.UI_PREFIX}-carousel-arrow.edge-disabled { opacity: 0.2; pointer-events: none; }
+
+                /* Carousel Dot Indicators */
+                .${CONFIG.UI_PREFIX}-carousel-dots {
+                    position: absolute; bottom: -1.7rem; left: 50%;
+                    transform: translateX(-50%);
+                    display: none; /* shown only in carousel mode */
+                    gap: 0.4rem; align-items: center;
+                }
+                .${CONFIG.UI_PREFIX}-carousel-dot {
+                    width: 0.45rem; height: 0.45rem; border-radius: 50%;
+                    background: var(--tm-border-focus);
+                    transition: background 0.2s, transform 0.2s;
+                    cursor: pointer; border: none; padding: 0; outline: none;
+                }
+                .${CONFIG.UI_PREFIX}-carousel-dot.active {
+                    background: var(--tm-primary); transform: scale(1.5);
+                }
+
+                /* ── Carousel Mode (JS toggles .${CONFIG.UI_PREFIX}-carousel) ── */
+                /* CENTERING STRATEGY: position:fixed + translate(-50%,-50%) is the
+                   only approach that is fully immune to parent flex/grid layout and
+                   page-CSS interference.  The overlay stays as a dark backdrop only;
+                   the layoutWrapper is independently anchored to the viewport centre. */
+                .${CONFIG.UI_PREFIX}-layout.${CONFIG.UI_PREFIX}-carousel {
+                    position: fixed !important;
+                    top: 50% !important;
+                    left: 50% !important;
+                    transform: translate(-50%, -50%) !important;
+
+                    overflow: visible; /* arrows poke outside; track clips cards   */
+                    width: min(92vw, 26rem);
+                    max-width: min(92vw, 26rem);
+                    min-width: 0;
+                    height: clamp(60vh, 76vh, 86vh);
+                    max-height: clamp(60vh, 76vh, 86vh);
+                    gap: 0;
+                    align-items: stretch;
+                    /* No padding-bottom needed — dots use position:absolute below */
+                }
+
+                /* Show carousel-specific UI only in carousel mode */
+                .${CONFIG.UI_PREFIX}-layout.${CONFIG.UI_PREFIX}-carousel .${CONFIG.UI_PREFIX}-carousel-arrow { display: flex; }
+                .${CONFIG.UI_PREFIX}-layout.${CONFIG.UI_PREFIX}-carousel .${CONFIG.UI_PREFIX}-carousel-dots  { display: flex; }
+
+                /* Carousel clip — stationary overflow window.
+                   overflow:hidden MUST be on this parent, NOT on the track.
+                   When overflow:hidden and transform are on the SAME element,
+                   the clip region moves with the transform → only panel[0] ever
+                   appears, just displaced. The clip must be stationary.      */
+                .${CONFIG.UI_PREFIX}-carousel-clip {
+                    display: contents; /* invisible passthrough in desktop mode */
+                }
+                .${CONFIG.UI_PREFIX}-layout.${CONFIG.UI_PREFIX}-carousel .${CONFIG.UI_PREFIX}-carousel-clip {
+                    display: block; overflow: hidden; width: 100%; height: 100%;
+                    border-radius: 1.5rem;
+                    box-shadow: 0 24px 64px rgba(0,0,0,0.9), 0 0 0 1px rgba(255,255,255,0.07);
+                    transform: translateZ(0); /* own GPU layer — prevents sub-pixel blur */
+                    backface-visibility: hidden; -webkit-backface-visibility: hidden;
+                    isolation: isolate;
+                }
+
+                /* Track slides freely inside the clip — no overflow on itself */
+                .${CONFIG.UI_PREFIX}-layout.${CONFIG.UI_PREFIX}-carousel .${CONFIG.UI_PREFIX}-carousel-track {
+                    display: flex;
+                    flex-wrap: nowrap;
+                    width: 100%; height: 100%;
+                    will-change: transform;
+                    transition: transform 0.28s cubic-bezier(0.25, 0.8, 0.25, 1);
+                }
+
+                /* Each panel = one full-width card inside the clip */
+                .${CONFIG.UI_PREFIX}-layout.${CONFIG.UI_PREFIX}-carousel .${CONFIG.UI_PREFIX}-carousel-track > * {
+                    flex: 0 0 100%; flex-shrink: 0; order: 0 !important;
+                    width: 100% !important; max-width: 100% !important;
+                    height: 100% !important; min-height: 0;
+                    margin: 0 !important; padding: 1.5rem !important;
+                    border: none !important; border-radius: 0 !important;
+                    box-shadow: none !important; opacity: 1 !important;
+                    pointer-events: auto !important; overflow: hidden;
+                    box-sizing: border-box !important;
+                    -webkit-font-smoothing: antialiased;
+                    -moz-osx-font-smoothing: grayscale;
+                    text-rendering: optimizeLegibility;
+                }
+
+                /* Queue card active-state overrides inside carousel */
+                .${CONFIG.UI_PREFIX}-layout.${CONFIG.UI_PREFIX}-carousel .${CONFIG.UI_PREFIX}-carousel-track .${CONFIG.UI_PREFIX}-cart-panel.active {
+                    width: 100% !important; padding: 1.5rem !important; margin: 0 !important;
+                }
+
+
+
+
+                /* ── FIX: Multi-select queue item indicator ──────────────── */
+                .${CONFIG.UI_PREFIX}-item-selected {
+                    border-color: var(--tm-primary) !important;
+                    background: rgba(255, 64, 129, 0.12) !important;
+                }
+                .${CONFIG.UI_PREFIX}-cart-check {
+                    color: var(--tm-primary);
+                    font-weight: 700;
+                    font-size: 0.95rem;
+                    flex-shrink: 0;
+                    line-height: 1;
+                }
+
+                /* ── FIX 1: .main-container is a wrapper div, not a panel.
+                   The carousel > * rule adds padding: 1.5rem to it, then the
+                   inner .panel adds ANOTHER 1.5rem — double padding shrinks
+                   the usable content area. Zero the wrapper's padding so only
+                   the inner .panel's padding applies.                        */
+                .${CONFIG.UI_PREFIX}-layout.${CONFIG.UI_PREFIX}-carousel
+                .${CONFIG.UI_PREFIX}-carousel-track > .${CONFIG.UI_PREFIX}-main-container {
+                    padding: 0 !important;
+                }
+                .${CONFIG.UI_PREFIX}-layout.${CONFIG.UI_PREFIX}-carousel
+                .${CONFIG.UI_PREFIX}-carousel-track > .${CONFIG.UI_PREFIX}-main-container
+                > .${CONFIG.UI_PREFIX}-panel {
+                    height: 100% !important;
+                    border-radius: 0 !important;
+                    box-shadow: none !important;
+                    border: none !important;
+                    box-sizing: border-box !important;
+                }
+
+
+
+
+                /* ── Mode-switch transition ───────────────────────────────
+                   Simple opacity fade only — lightweight, no scale, no JS
+                   timer chains. Layout class swap happens at opacity:0.    */
+                .${CONFIG.UI_PREFIX}-layout {
+                    transition: opacity 0.18s ease;
+                }
+                .${CONFIG.UI_PREFIX}-layout.${CONFIG.UI_PREFIX}-mode-switching {
+                    opacity: 0;
+                    pointer-events: none;
                 }
             `);
+        },
+
+
+        // ═══════════════════════════════════════════════════════════════════
+        // CAROUSEL SYSTEM — purely visual layer; zero functional logic here
+        // ═══════════════════════════════════════════════════════════════════
+
+        /** Returns the ordered list of panel IDs currently in the deck. */
+        _carouselGetActivePanels() {
+            const ids = ['recent', 'main', 'flavor'];
+            if (this.isMultiSelectMode) ids.unshift('queue');
+            return ids;
+        },
+
+        /** Resolves the numeric index for the currently-shown panel ID. */
+        _carouselCurrentIndex() {
+            const panels = this._carouselGetActivePanels();
+            const idx = panels.indexOf(this._carousel.currentId);
+            return idx === -1 ? 0 : idx;
+        },
+
+        /** Navigate to a panel by ID string or absolute index. */
+        _carouselGoTo(idOrIndex) {
+            if (!this._carousel.isActive) return;
+            const panels = this._carouselGetActivePanels();
+            let idx;
+            if (typeof idOrIndex === 'string') {
+                idx = panels.indexOf(idOrIndex);
+                if (idx === -1) return;
+            } else {
+                idx = Math.max(0, Math.min(idOrIndex, panels.length - 1));
+            }
+            this._carousel.currentId = panels[idx];
+            this._carouselApplyTransform(true);
+            this._carouselRefreshNav();
+        },
+
+        _carouselPrev() {
+            if (!this._carousel.isActive) return;
+            const idx = this._carouselCurrentIndex();
+            if (idx > 0) this._carouselGoTo(idx - 1);
+        },
+
+        _carouselNext() {
+            if (!this._carousel.isActive) return;
+            const idx = this._carouselCurrentIndex();
+            const panels = this._carouselGetActivePanels();
+            if (idx < panels.length - 1) this._carouselGoTo(idx + 1);
+        },
+
+        /**
+         * Applies the correct translateX to the carousel track.
+         * Also JS-manages panel visibility (show/hide) to keep the
+         * flex order consistent without CSS class conflicts.
+         * @param {boolean} animated - true = CSS transition, false = instant
+         */
+        _carouselApplyTransform(animated) {
+            const track = this._carousel.track;
+            const layoutEl = this._carousel.layoutEl;
+            if (!track || !layoutEl || !this._carousel.isActive) return;
+
+            const panels = this._carouselGetActivePanels();
+
+            // Show panels that belong in the current deck; hide others.
+            // Inline style is used so it can be cleanly reset on mode exit.
+            ['queue', 'recent', 'main', 'flavor'].forEach(id => {
+                const el = this._carousel.panelEls[id];
+                if (!el) return;
+                el.style.display = panels.includes(id) ? '' : 'none';
+            });
+
+            const idx      = this._carouselCurrentIndex();
+            const cardWidth = layoutEl.getBoundingClientRect().width;
+
+            if (!animated) {
+                // Instant snap — suppress CSS transition for one frame
+                track.style.transition = 'none';
+                track.style.transform  = `translateX(${-idx * cardWidth}px)`;
+                void track.offsetWidth; // force reflow before restoring
+                track.style.transition = '';
+            } else {
+                track.style.transform = `translateX(${-idx * cardWidth}px)`;
+            }
+        },
+
+        /** Re-renders the dot indicators to match the current deck state. */
+        _carouselUpdateDots() {
+            const dotsEl = this._carousel.dotsEl;
+            if (!dotsEl) return;
+            const panels     = this._carouselGetActivePanels();
+            const currentIdx = this._carouselCurrentIndex();
+            const labels     = { queue: 'Queue', recent: 'Recent', main: 'Main', flavor: 'Flavor' };
+
+            dotsEl.textContent = '';
+            panels.forEach((id, i) => {
+                const dot = document.createElement('button');
+                dot.className = `${CONFIG.UI_PREFIX}-carousel-dot${i === currentIdx ? ' active' : ''}`;
+                dot.setAttribute('aria-label', `Go to ${labels[id] || id} panel`);
+                dot.onclick = () => this._carouselGoTo(i);
+                dotsEl.appendChild(dot);
+            });
+        },
+
+        /** Dims the prev/next arrow that would navigate past the deck edge. */
+        _carouselUpdateArrows() {
+            const { arrowPrev, arrowNext } = this._carousel;
+            if (!arrowPrev || !arrowNext) return;
+            const idx    = this._carouselCurrentIndex();
+            const panels = this._carouselGetActivePanels();
+            arrowPrev.classList.toggle('edge-disabled', idx === 0);
+            arrowNext.classList.toggle('edge-disabled', idx >= panels.length - 1);
+        },
+
+        /**
+         * Updates the "View Queue →" pill on the Main card.
+         * Shown only in carousel mode when multi-select is active, queue has
+         * items, and the user is currently on the Main card.
+         */
+        _carouselUpdatePill() {
+            const pill = this._carousel.pillEl;
+            if (!pill) return;
+            const count = this.cart ? this.cart.length : 0;
+            const show  = this._carousel.isActive &&
+                          this.isMultiSelectMode &&
+                          count > 0 &&
+                          this._carousel.currentId === 'main';
+            const label = count === 1 ? '1 item in queue' : `${count} items in queue`;
+            // Update text node only (SVG arrow is a sibling element in the DOM)
+            const textNode = pill.querySelector(`.${CONFIG.UI_PREFIX}-queue-pill-label`);
+            if (textNode) textNode.textContent = label;
+            pill.classList.toggle('visible', show);
+        },
+
+        /** Builds a single arrow button element. */
+        /** Refreshes all carousel nav elements (dots, arrows, pill) in one call. */
+        _carouselRefreshNav() {
+            this._carouselUpdateDots();
+            this._carouselUpdateArrows();
+            this._carouselUpdatePill();
+        },
+
+        _buildCarouselArrow(direction) {
+            const btn = document.createElement('button');
+            btn.className = `${CONFIG.UI_PREFIX}-carousel-arrow ${direction}`;
+            btn.setAttribute('aria-label', direction === 'prev' ? 'Previous panel' : 'Next panel');
+            // Material chevron paths
+            const pathD = direction === 'prev'
+                ? 'M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z'
+                : 'M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z';
+            btn.appendChild(this._createSVG(pathD));
+            btn.onclick = (e) => {
+                e.stopPropagation();
+                direction === 'prev' ? this._carouselPrev() : this._carouselNext();
+            };
+            return btn;
+        },
+
+        /** Builds the dot-indicator container (populated by _carouselUpdateDots). */
+        _buildCarouselDots() {
+            const el = document.createElement('div');
+            el.className = `${CONFIG.UI_PREFIX}-carousel-dots`;
+            return el;
+        },
+
+        /**
+         * Attaches all input handlers for carousel navigation.
+         * Covers: touch swipe · mouse drag · trackpad wheel · (keyboard handled in bindEvents)
+         */
+        _carouselSetupInputs(trackEl, layoutEl) {
+            // ── Touch: swipe ────────────────────────────────────────────────
+            let touchStartX = 0, touchStartY = 0;
+            trackEl.addEventListener('touchstart', (e) => {
+                touchStartX = e.touches[0].clientX;
+                touchStartY = e.touches[0].clientY;
+            }, { passive: true });
+
+            trackEl.addEventListener('touchend', (e) => {
+                if (!this._carousel.isActive) return;
+                const dx = e.changedTouches[0].clientX - touchStartX;
+                const dy = e.changedTouches[0].clientY - touchStartY;
+                // Trigger only on clearly horizontal swipes (angle < ~40°)
+                if (Math.abs(dx) > Math.abs(dy) * 1.2 && Math.abs(dx) > 45) {
+                    if (dx < 0) this._carouselNext();
+                    else        this._carouselPrev();
+                }
+            }, { passive: true });
+
+            // ── Mouse: drag (desktop narrow mode) ───────────────────────────
+            let mouseStartX = 0, mouseDragging = false;
+            trackEl.addEventListener('mousedown', (e) => {
+                if (!this._carousel.isActive) return;
+                mouseStartX  = e.clientX;
+                mouseDragging = true;
+            });
+
+            // Prevent text-selection cursor during drag
+            trackEl.addEventListener('mousemove', (e) => {
+                if (mouseDragging) e.preventDefault();
+            });
+
+            // mouseup must be on document to catch drags that end outside track
+            this._carousel._mouseUpHandler = (e) => {
+                if (!mouseDragging) return;
+                mouseDragging = false;
+                if (!this._carousel.isActive) return;
+                const dx = e.clientX - mouseStartX;
+                if (Math.abs(dx) > 60) {
+                    if (dx < 0) this._carouselNext();
+                    else        this._carouselPrev();
+                }
+            };
+            document.addEventListener('mouseup', this._carousel._mouseUpHandler);
+
+            // ── Trackpad / wheel horizontal scroll ───────────────────────────
+            // passive:false required for e.preventDefault() on horizontal swipe
+            layoutEl.addEventListener('wheel', (e) => {
+                if (!this._carousel.isActive) return;
+                const absX = Math.abs(e.deltaX);
+                const absY = Math.abs(e.deltaY);
+                // Ignore predominantly vertical scrolls (mouse wheel, page scroll)
+                if (absX < absY * 0.5 || absX < 15) return;
+                e.preventDefault();
+                const deltaX = e.deltaX; // capture before setTimeout
+                clearTimeout(this._carousel.wheelTimer);
+                // Debounce: trackpads fire dozens of events per gesture
+                this._carousel.wheelTimer = setTimeout(() => {
+                    if (deltaX > 0) this._carouselNext();
+                    else            this._carouselPrev();
+                }, 60);
+            }, { passive: false });
+        },
+
+        /**
+         * Master carousel initialiser — called once after render() builds the DOM.
+         * Attaches input handlers and performs the initial responsive mode check.
+         */
+        _carouselInit() {
+            const layoutEl = this._carousel.layoutEl;
+            const trackEl  = this._carousel.track;
+            if (!layoutEl || !trackEl) return;
+
+            this._carouselSetupInputs(trackEl, layoutEl);
+
+            // Debounced resize handler — switches carousel on/off at the breakpoint
+            this._carousel._resizeHandler = Utils.debounce(() => {
+                this._carouselUpdateMode();
+            }, 120);
+            window.addEventListener('resize', this._carousel._resizeHandler);
+
+            // Synchronous initial check so carousel state is set before first paint
+            this._carouselUpdateMode();
+        },
+
+        /**
+         * Evaluates viewport width and activates or deactivates carousel mode.
+         * Called on init and on every debounced resize event.
+         */
+        _carouselUpdateMode() {
+            const layoutEl = this._carousel.layoutEl;
+            if (!layoutEl) return;
+            const shouldBeCarousel = window.innerWidth <= this._carousel.breakpointPx;
+            const wasActive = this._carousel.isActive;
+
+            if (shouldBeCarousel === wasActive) {
+                // Same mode — re-apply layout in case a resize changed card width
+                if (shouldBeCarousel) {
+                    this._carouselApplyTransform(false);
+                    this._carouselRefreshNav();
+                }
+                return;
+            }
+
+            // ── Mode-switch transition ─────────────────────────────────────
+            // Simple opacity fade: add switching class (opacity:0, no pointer
+            // events), swap the carousel class after one rAF so the CSS
+            // transition is in progress, perform the structural changes, then
+            // remove the switching class on the next rAF so the transition
+            // fades back in on the newly-laid-out content.
+            const P = CONFIG.UI_PREFIX;
+            const switchingClass = `${P}-mode-switching`;
+
+            layoutEl.classList.add(switchingClass);
+
+            // Wait for the fade-out transition to complete (matches CSS 0.18s)
+            const FADE_MS = 180;
+            setTimeout(() => {
+                // Perform structural mode switch while invisible
+                layoutEl.classList.toggle(`${P}-carousel`, shouldBeCarousel);
+                this._carousel.isActive = shouldBeCarousel;
+
+                if (!shouldBeCarousel) {
+                    ['queue', 'recent', 'main', 'flavor'].forEach(id => {
+                        const el = this._carousel.panelEls[id];
+                        if (el) el.style.display = '';
+                    });
+                    const track = this._carousel.track;
+                    if (track) { track.style.transform = ''; track.style.transition = ''; }
+                } else {
+                    this._carouselApplyTransform(false);
+                    this._carouselRefreshNav();
+                }
+
+                // One rAF to let the browser commit the new layout,
+                // then remove the switching class to trigger the fade-in.
+                requestAnimationFrame(() => {
+                    layoutEl.classList.remove(switchingClass);
+                });
+            }, FADE_MS);
+        },
+
+        /**
+         * Called when multi-select is activated (user stays on Main card).
+         * Updates the deck to include Queue card, shows the pill, shows hint once.
+         */
+        _carouselOnMultiSelectActivate() {
+            if (!this._carousel.isActive) return;
+            // Stay on Main — queue is reachable via pill or swipe
+            this._carouselRefreshNav();
+
+            // One-time discoverable hint for first-time users
+            if (!GM_getValue('tm_kpop_dl_carousel_hint_shown', false)) {
+                GM_setValue('tm_kpop_dl_carousel_hint_shown', true);
+                this.showToast('Your queue is a swipe away — slide left to view it.', 'info');
+            }
+        },
+
+        /**
+         * Called at the START of exitMultiSelectMode(), before isMultiSelectMode
+         * is set to false. If the user was viewing the Queue card, snaps back to
+         * Main instantly (Queue is about to disappear from the deck).
+         */
+        _carouselOnMultiSelectDeactivate() {
+            if (!this._carousel.isActive) return;
+            if (this._carousel.currentId === 'queue') {
+                this._carousel.currentId = 'main';
+            }
+            // isMultiSelectMode is still true here, so _carouselGetActivePanels()
+            // still includes 'queue'. We snap without animation so the queue card
+            // disappears cleanly when its CSS reveal class is removed.
+            this._carouselApplyTransform(false);
+            // Defer UI update until after exitMultiSelectMode sets isMultiSelectMode=false
+            requestAnimationFrame(() => {
+                this._carouselApplyTransform(false);
+                this._carouselRefreshNav();
+            });
+        },
+
+        /** Tears down all carousel listeners and resets state for the next showMenu(). */
+        _carouselDestroy() {
+            if (this._carousel._resizeHandler) {
+                window.removeEventListener('resize', this._carousel._resizeHandler);
+                this._carousel._resizeHandler = null;
+            }
+            if (this._carousel._mouseUpHandler) {
+                document.removeEventListener('mouseup', this._carousel._mouseUpHandler);
+                this._carousel._mouseUpHandler = null;
+            }
+            clearTimeout(this._carousel.wheelTimer);
+
+            // Reset mutable state so the next render() starts clean
+            this._carousel.isActive   = false;
+            this._carousel.currentId  = 'main';
+            this._carousel.panelEls   = {};
+            this._carousel.layoutEl   = null;
+            this._carousel.clip       = null;
+            this._carousel.track      = null;
+            this._carousel.arrowPrev  = null;
+            this._carousel.arrowNext  = null;
+            this._carousel.dotsEl     = null;
+            this._carousel.pillEl     = null;
         },
 
         injectGlobals() {
@@ -1724,6 +2334,12 @@
                     const nameSpan = document.createElement('span');
                     nameSpan.textContent = itemData.n;
 
+                    // Bugs 2+3 fix: show pink selection state in side panels too,
+                    // synced with the cart exactly like the main list does.
+                    const isInCart = this.isMultiSelectMode &&
+                        this.cart.some(c => c.g === itemData.g && c.n === itemData.n);
+                    if (isInCart) btn.classList.add(`${CONFIG.UI_PREFIX}-item-selected`);
+
                     const badgeText = type !== 'recent' ? `${itemData.count}x • ${itemData.g}` : itemData.g;
                     const badgeClass = type !== 'recent' ? `${CONFIG.UI_PREFIX}-badge accent ${CONFIG.UI_PREFIX}-badge-actionable` : `${CONFIG.UI_PREFIX}-badge ${CONFIG.UI_PREFIX}-badge-actionable`;
                     const badgeSpan = document.createElement('span');
@@ -1731,8 +2347,21 @@
                     badgeSpan.textContent = badgeText;
                     badgeSpan.title = `View ${itemData.g}`;
 
+                    const rightWrapper = document.createElement('div');
+                    rightWrapper.style.display = 'flex';
+                    rightWrapper.style.alignItems = 'center';
+                    rightWrapper.style.gap = '0.4rem';
+
+                    if (isInCart) {
+                        const check = document.createElement('span');
+                        check.className = `${CONFIG.UI_PREFIX}-cart-check`;
+                        check.textContent = '✓';
+                        rightWrapper.appendChild(check);
+                    }
+
+                    rightWrapper.appendChild(badgeSpan);
                     btn.appendChild(nameSpan);
-                    btn.appendChild(badgeSpan);
+                    btn.appendChild(rightWrapper);
                 }
 
                 fragment.appendChild(btn);
@@ -1861,11 +2490,13 @@
                     const itemData = this.sidePanels['recent'].data[index];
 
                     if (this.isMultiSelectMode) {
-                        const exists = this.cart.some(c => c.g === itemData.g && c.n === itemData.n);
-                        if (!exists) {
+                        const idx = this.cart.findIndex(c => c.g === itemData.g && c.n === itemData.n);
+                        if (idx === -1) {
                             this.cart.push({ g: itemData.g, n: itemData.n });
-                            this.renderCart();
+                        } else {
+                            this.cart.splice(idx, 1);
                         }
+                        this.renderCart();
                     } else {
                         Downloader.executeIdolSave(itemData.g, itemData.n);
                     }
@@ -1944,11 +2575,13 @@
                     const itemData = this.sidePanels[type].data[index];
 
                     if (this.isMultiSelectMode) {
-                        const exists = this.cart.some(c => c.g === itemData.g && c.n === itemData.n);
-                        if (!exists) {
+                        const idx = this.cart.findIndex(c => c.g === itemData.g && c.n === itemData.n);
+                        if (idx === -1) {
                             this.cart.push({ g: itemData.g, n: itemData.n });
-                            this.renderCart();
+                        } else {
+                            this.cart.splice(idx, 1);
                         }
+                        this.renderCart();
                     } else {
                         Downloader.executeIdolSave(itemData.g, itemData.n);
                     }
@@ -1972,6 +2605,16 @@
             this.updateSyncTimeUI();
         },
 
+        // Re-renders all three visible list panels from already-loaded data.
+        // Used by renderCart() so cart state changes (add/remove/cancel) are
+        // reflected instantly across Main, Recent, and Flavor without the
+        // heavier Storage reload that refreshSidePanels() performs.
+        _reRenderAllPanels() {
+            this.renderVirtualList();
+            this._renderSidePanelVirtual('recent');
+            this._renderSidePanelVirtual('flavor');
+        },
+
         get currentConfigState() {
             if (!this.configInputs) return {};
             return {
@@ -1985,6 +2628,10 @@
         },
 
         exitMultiSelectMode() {
+            // Notify carousel BEFORE state changes so it can animate away
+            // from the Queue card while it is still theoretically active.
+            this._carouselOnMultiSelectDeactivate();
+
             this.isMultiSelectMode = false;
             this.cart = [];
 
@@ -2004,6 +2651,10 @@
             if (this.stdSaveBtn) {
                 this.stdSaveBtn.disabled = false;
             }
+
+            // Bug 2 fix: re-render all panels so pink borders from the
+            // just-cleared cart are removed immediately on Cancel.
+            this._reRenderAllPanels();
         },
 
         _renderCartVirtual() {
@@ -2014,6 +2665,8 @@
             if (this.cartSaveBtn) {
                 this.cartSaveBtn.disabled = totalItems === 0;
             }
+            // Keep the carousel pill count in sync with cart state
+            this._carouselUpdatePill();
 
             if (totalItems === 0) {
                 this.cartListInner.style.height = '100%';
@@ -2054,6 +2707,9 @@
 
         renderCart() {
             this._renderCartVirtual();
+            // Sync cart highlight state across all panels instantly —
+            // main list, recent, and flavor all re-render from existing data.
+            this._reRenderAllPanels();
         },
 
         createMainPanel() {
@@ -2204,6 +2860,8 @@
                         this.cartContainer.classList.add('active');
                     }
                     if (this.stdSaveBtn) this.stdSaveBtn.disabled = true;
+                    // Carousel stays on Main — updates dots/pill to reflect queue presence
+                    this._carouselOnMultiSelectActivate();
                     this.updateVisibility();
                 } else {
                     this.exitMultiSelectMode();
@@ -2616,6 +3274,13 @@
             this.listContainer.scrollTop = 0;
             this.updateVisibility();
             this.renderVirtualList();
+
+            // Carousel: any content change in the main panel should bring the
+            // user to the Main card. The guard prevents firing on search keystrokes
+            // when already on Main (currentId === 'main' → no-op).
+            if (this._carousel.isActive && this._carousel.currentId !== 'main') {
+                this._carouselGoTo('main');
+            }
         },
 
         renderVirtualList() {
@@ -2663,6 +3328,12 @@
                 btn.style.transform = `translate3d(0, ${i * itemHeight}px, 0)`;
                 btn.dataset.index = i;
 
+                // Visual indicator: item is already in the queue
+                const isInCart = this.isMultiSelectMode &&
+                    itemData.type === 'member' &&
+                    this.cart.some(c => c.g === itemData.group && c.n === itemData.member);
+                if (isInCart) btn.classList.add(`${CONFIG.UI_PREFIX}-item-selected`);
+
                 const nameSpan = document.createElement('span');
                 nameSpan.textContent = itemData.label;
                 btn.appendChild(nameSpan);
@@ -2670,6 +3341,14 @@
                 const rightWrapper = document.createElement('div');
                 rightWrapper.style.display = 'flex';
                 rightWrapper.style.alignItems = 'center';
+                rightWrapper.style.gap = '0.4rem';
+
+                if (isInCart) {
+                    const check = document.createElement('span');
+                    check.className = `${CONFIG.UI_PREFIX}-cart-check`;
+                    check.textContent = '✓';
+                    rightWrapper.appendChild(check);
+                }
 
                 if (itemData.badge) {
                     const badgeSpan = document.createElement('span');
@@ -2735,11 +3414,15 @@
                 this.updateListData('');
             } else {
                 if (this.isMultiSelectMode) {
-                    const exists = this.cart.some(c => c.g === itemData.group && c.n === itemData.member);
-                    if (!exists) {
+                    const idx = this.cart.findIndex(c => c.g === itemData.group && c.n === itemData.member);
+                    if (idx === -1) {
+                        // Not in cart — add (select)
                         this.cart.push({ g: itemData.group, n: itemData.member });
-                        this.renderCart();
+                    } else {
+                        // Already in cart — remove (deselect)
+                        this.cart.splice(idx, 1);
                     }
+                    this.renderCart();
                 } else {
                     Downloader.executeIdolSave(itemData.group, itemData.member);
                 }
@@ -2887,7 +3570,9 @@
                 if (removeBtn) {
                     const idx = parseInt(removeBtn.dataset.index, 10);
                     this.cart.splice(idx, 1);
-                    this._renderCartVirtual();
+                    // Bug 4 fix: use renderCart() so all panels (main, recent,
+                    // flavor) immediately lose the pink border for the removed item.
+                    this.renderCart();
                 }
             });
 
@@ -2916,11 +3601,80 @@
             cartFooter.appendChild(this.cartSaveBtn);
             this.cartContainer.appendChild(cartFooter);
 
-            // Assemble layout order: 0 Queue -> 1 Recent/History -> 2 Main -> 3 Flavor
-            layoutWrapper.appendChild(this.cartContainer);
-            layoutWrapper.appendChild(this.createRecentHistoryPanel());
-            layoutWrapper.appendChild(this.createMainPanel());
-            layoutWrapper.appendChild(this.createSidePanel('❤️‍🔥 Flavor of the Month', 'right', 'flavor'));
+            // ── Carousel track ─────────────────────────────────────────────
+            // display:contents in desktop = transparent flex passthrough.
+            // display:flex in carousel = the sliding container.
+            const carouselTrack = document.createElement('div');
+            carouselTrack.className = `${CONFIG.UI_PREFIX}-carousel-track`;
+
+            // Assemble panels into the track (DOM order = carousel order)
+            // Order: 0 Queue → 1 Recent → 2 Main → 3 Flavor
+            carouselTrack.appendChild(this.cartContainer);
+
+            const recentPanelEl = this.createRecentHistoryPanel();
+            carouselTrack.appendChild(recentPanelEl);
+
+            const mainPanelEl = this.createMainPanel();
+
+            // Queue pill — in-flow between list and footer inside the Main card.
+            // Visible only in carousel mode when queue has items.
+            // Arrow points LEFT (←) because the Queue card is to the left of Main.
+            const queuePill = document.createElement('button');
+            queuePill.className = `${CONFIG.UI_PREFIX}-queue-pill`;
+            queuePill.setAttribute('aria-label', 'View queue');
+            queuePill.onclick = () => this._carouselGoTo('queue');
+            // ← chevron SVG
+            const pillArrow = this._createSVG('M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z');
+            const pillLabel = document.createElement('span');
+            pillLabel.className = `${CONFIG.UI_PREFIX}-queue-pill-label`;
+            pillLabel.textContent = '0 items in queue';
+            queuePill.appendChild(pillArrow);
+            queuePill.appendChild(pillLabel);
+            // Insert between mainListWrapper and footer — both are children of the inner panel
+            const innerPanel = mainPanelEl.querySelector(`.${CONFIG.UI_PREFIX}-main`);
+            if (innerPanel && this.footer && this.footer.parentNode === innerPanel) {
+                innerPanel.insertBefore(queuePill, this.footer);
+            } else {
+                mainPanelEl.appendChild(queuePill);
+            }
+            this._carousel.pillEl = queuePill;
+
+            carouselTrack.appendChild(mainPanelEl);
+
+            const flavorPanelEl = this.createSidePanel('❤️‍🔥 Flavor of the Month', 'right', 'flavor');
+            carouselTrack.appendChild(flavorPanelEl);
+
+            // Carousel chrome — hidden via CSS in desktop mode
+            const arrowPrev = this._buildCarouselArrow('prev');
+            const arrowNext = this._buildCarouselArrow('next');
+            const dotsEl    = this._buildCarouselDots();
+
+            // carouselClip is the STATIONARY overflow:hidden window.
+            // carouselTrack slides inside it via transform.
+            // Arrows + dots are siblings of the clip (on layoutWrapper) so they
+            // are never cropped by the clip's overflow:hidden.
+            const carouselClip = document.createElement('div');
+            carouselClip.className = `${CONFIG.UI_PREFIX}-carousel-clip`;
+            carouselClip.appendChild(carouselTrack);
+
+            layoutWrapper.appendChild(carouselClip);
+            layoutWrapper.appendChild(arrowPrev);
+            layoutWrapper.appendChild(arrowNext);
+            layoutWrapper.appendChild(dotsEl);
+
+            // Store references for use by carousel methods
+            this._carousel.clip      = carouselClip;
+            this._carousel.track     = carouselTrack;
+            this._carousel.layoutEl  = layoutWrapper;
+            this._carousel.arrowPrev = arrowPrev;
+            this._carousel.arrowNext = arrowNext;
+            this._carousel.dotsEl    = dotsEl;
+            this._carousel.panelEls  = {
+                queue:  this.cartContainer,
+                recent: recentPanelEl,
+                main:   mainPanelEl,
+                flavor: flavorPanelEl,
+            };
 
             if (this.resizeObserver) {
                 if (this.mainListWrapper) this.resizeObserver.observe(this.mainListWrapper);
@@ -2933,6 +3687,9 @@
             document.body.appendChild(this.overlay);
             this.updateListData('');
             this.refreshSidePanels();
+
+            // Init carousel after the overlay is in the DOM (needs live dimensions)
+            this._carouselInit();
 
             setTimeout(() => { if (this.searchInput) this.searchInput.focus(); }, 50);
         },
@@ -2994,6 +3751,8 @@
                     clearInterval(this.syncTimeInterval);
                     this.syncTimeInterval = null;
                 }
+                // Detach resize + mouseup listeners; reset carousel state
+                this._carouselDestroy();
             }
         }
     };
@@ -3014,7 +3773,7 @@
             Storage.init(this.isSilentMode);
 
             if (this.isSilentMode) {
-                Logger.info('Initialized Silent Cloud Worker v11.9');
+                Logger.info('Initialized Silent Cloud Worker v14.3');
                 return;
             }
 
@@ -3031,7 +3790,7 @@
                 }
             }, CONFIG.CLOUD_HISTORY_THROTTLE_MS);
 
-            Logger.info('Initialized K-Pop Media Downloader v11.9');
+            Logger.info('Initialized K-Pop Media Downloader v14.3');
         },
 
         isDirectMediaPage() {
@@ -3063,6 +3822,14 @@
                 if (UI.overlay) {
                     if (e.key === 'Escape') {
                         UI.closeMenu();
+                        return;
+                    }
+                    // ← / → navigate the carousel (only when not typing in a field)
+                    if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') &&
+                        !e.target.matches('input, textarea, [contenteditable]')) {
+                        e.preventDefault();
+                        if (e.key === 'ArrowLeft') UI._carouselPrev();
+                        else                       UI._carouselNext();
                         return;
                     }
                     if (e.altKey && e.key.toLowerCase() === 's') {
