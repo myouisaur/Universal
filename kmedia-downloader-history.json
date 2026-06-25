@@ -1,5 +1,4 @@
 [
-  {"g": "BLACKPINK"    , "n": "Jennie"       , "t": 1780983748356},
   {"g": "IZONE"        , "n": "Eunbi"        , "t": 1780983816490},
   {"g": "aespa"        , "n": "Karina"       , "t": 1780983850932},
   {"g": "aespa"        , "n": "Karina"       , "t": 1780983862538},
@@ -998,5 +997,6 @@
   {"g": "aespa"        , "n": "Karina"       , "t": 1782364033895},
   {"g": "BINI"         , "n": "Maloi"        , "t": 1782369945009},
   {"g": "TWICE"        , "n": "Nayeon"       , "t": 1782370090897},
-  {"g": "KISS OF LIFE" , "n": "Haneul"       , "t": 1782370189073}
+  {"g": "KISS OF LIFE" , "n": "Haneul"       , "t": 1782370189073},
+  {"g": "KISS OF LIFE" , "n": "Haneul"       , "t": 1782370195276}
 ]
