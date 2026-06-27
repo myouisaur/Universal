@@ -2,7 +2,7 @@
 // @name         [Universal] K-Media Downloader
 // @namespace    https://github.com/myouisaur/Universal
 // @icon         data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23FF4081'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 11h3l-4 4-4-4h3V8h2v5z'/%3E%3C/svg%3E
-// @version      14.4
+// @version      14.5
 // @description  Organizes, tracks, and saves categorized K-Pop media files through a centralized overlay.
 // @author       Xiv
 // @match        *://*/*
@@ -1113,6 +1113,10 @@
         cachedContainerHeight: 400,
         resizeObserver: null,
 
+        // rAF handles — cancel-and-reschedule keeps rapid updates coalesced into one paint
+        _pendingRenderFrame: null,
+        _pendingResizeFrame: null,
+
         // ── Carousel system state (purely visual; zero functional logic) ──────
         _carousel: {
             isActive: false,         // Whether carousel mode is currently engaged
@@ -1129,6 +1133,8 @@
             _resizeHandler: null,
             _mouseUpHandler: null,
             breakpointPx: 1450,      // px below which carousel activates — above this panels fit side-by-side
+            cachedCardWidth: 0,      // cached layout width — avoids getBoundingClientRect() on every swipe
+            isSwitching: false,      // guard against overlapping mode-switch calls during rapid resize
         },
 
         initTemplates() {
@@ -1723,15 +1729,27 @@
                 el.style.display = panels.includes(id) ? '' : 'none';
             });
 
-            const idx      = this._carouselCurrentIndex();
-            const cardWidth = layoutEl.getBoundingClientRect().width;
+            const idx = this._carouselCurrentIndex();
+
+            // Use cached card width — only measure the layout when the cache is stale.
+            // getBoundingClientRect() forces a synchronous layout reflow; calling it on
+            // every swipe is the primary source of carousel jank. The cache is invalidated
+            // in _carouselUpdateMode() whenever a resize event fires.
+            if (!this._carousel.cachedCardWidth) {
+                this._carousel.cachedCardWidth = layoutEl.getBoundingClientRect().width;
+            }
+            const cardWidth = this._carousel.cachedCardWidth;
 
             if (!animated) {
-                // Instant snap — suppress CSS transition for one frame
+                // Instant snap — suppress the CSS transition, apply the new position,
+                // then restore the transition in the next rAF so subsequent swipes
+                // still animate. A single rAF is sufficient because transition:none and
+                // the new transform are both committed in the same synchronous style
+                // update; the browser processes them together with no animation.
+                // This replaces the old `void track.offsetWidth` forced-reflow hack.
                 track.style.transition = 'none';
                 track.style.transform  = `translateX(${-idx * cardWidth}px)`;
-                void track.offsetWidth; // force reflow before restoring
-                track.style.transition = '';
+                requestAnimationFrame(() => { track.style.transition = ''; });
             } else {
                 track.style.transform = `translateX(${-idx * cardWidth}px)`;
             }
@@ -1745,14 +1763,29 @@
             const currentIdx = this._carouselCurrentIndex();
             const labels     = { queue: 'Queue', recent: 'Recent', main: 'Main', flavor: 'Flavor' };
 
+            // Fast path: panel count is unchanged (normal navigation).
+            // Toggle the active class on existing dot elements — no DOM creation at all.
+            // The slow rebuild path only runs when multi-select is toggled (Queue card
+            // enters or leaves the deck), which is rare.
+            const existingDots = dotsEl.children;
+            if (existingDots.length === panels.length) {
+                for (let i = 0; i < existingDots.length; i++) {
+                    existingDots[i].classList.toggle('active', i === currentIdx);
+                }
+                return;
+            }
+
+            // Slow path: panel count changed — rebuild from scratch with a fragment
             dotsEl.textContent = '';
+            const frag = document.createDocumentFragment();
             panels.forEach((id, i) => {
                 const dot = document.createElement('button');
                 dot.className = `${CONFIG.UI_PREFIX}-carousel-dot${i === currentIdx ? ' active' : ''}`;
                 dot.setAttribute('aria-label', `Go to ${labels[id] || id} panel`);
                 dot.onclick = () => this._carouselGoTo(i);
-                dotsEl.appendChild(dot);
+                frag.appendChild(dot);
             });
+            dotsEl.appendChild(frag);
         },
 
         /** Dims the prev/next arrow that would navigate past the deck edge. */
@@ -1912,6 +1945,11 @@
         _carouselUpdateMode() {
             const layoutEl = this._carousel.layoutEl;
             if (!layoutEl) return;
+
+            // Always invalidate the cached card width on resize — the layout may
+            // have changed dimensions even if the mode hasn't switched.
+            this._carousel.cachedCardWidth = 0;
+
             const shouldBeCarousel = window.innerWidth <= this._carousel.breakpointPx;
             const wasActive = this._carousel.isActive;
 
@@ -1924,12 +1962,16 @@
                 return;
             }
 
+            // Guard against overlapping mode-switch calls that can occur when the
+            // viewport is resized repeatedly near the breakpoint. Without this,
+            // each resize fires a new 180 ms timeout that mutates the same elements.
+            if (this._carousel.isSwitching) return;
+            this._carousel.isSwitching = true;
+
             // ── Mode-switch transition ─────────────────────────────────────
             // Simple opacity fade: add switching class (opacity:0, no pointer
-            // events), swap the carousel class after one rAF so the CSS
-            // transition is in progress, perform the structural changes, then
-            // remove the switching class on the next rAF so the transition
-            // fades back in on the newly-laid-out content.
+            // events), perform the structural changes while invisible, then
+            // remove the switching class so the layout fades back in.
             const P = CONFIG.UI_PREFIX;
             const switchingClass = `${P}-mode-switching`;
 
@@ -1950,6 +1992,8 @@
                     const track = this._carousel.track;
                     if (track) { track.style.transform = ''; track.style.transition = ''; }
                 } else {
+                    // Re-measure width after class swap so the first snap uses correct dimensions
+                    this._carousel.cachedCardWidth = 0;
                     this._carouselApplyTransform(false);
                     this._carouselRefreshNav();
                 }
@@ -1958,6 +2002,7 @@
                 // then remove the switching class to trigger the fade-in.
                 requestAnimationFrame(() => {
                     layoutEl.classList.remove(switchingClass);
+                    this._carousel.isSwitching = false;
                 });
             }, FADE_MS);
         },
@@ -2012,16 +2057,18 @@
             clearTimeout(this._carousel.wheelTimer);
 
             // Reset mutable state so the next render() starts clean
-            this._carousel.isActive   = false;
-            this._carousel.currentId  = 'main';
-            this._carousel.panelEls   = {};
-            this._carousel.layoutEl   = null;
-            this._carousel.clip       = null;
-            this._carousel.track      = null;
-            this._carousel.arrowPrev  = null;
-            this._carousel.arrowNext  = null;
-            this._carousel.dotsEl     = null;
-            this._carousel.pillEl     = null;
+            this._carousel.isActive       = false;
+            this._carousel.currentId      = 'main';
+            this._carousel.panelEls       = {};
+            this._carousel.layoutEl       = null;
+            this._carousel.clip           = null;
+            this._carousel.track          = null;
+            this._carousel.arrowPrev      = null;
+            this._carousel.arrowNext      = null;
+            this._carousel.dotsEl         = null;
+            this._carousel.pillEl         = null;
+            this._carousel.cachedCardWidth = 0;
+            this._carousel.isSwitching    = false;
         },
 
         injectGlobals() {
@@ -2320,13 +2367,30 @@
                         btn.classList.add(`${CONFIG.UI_PREFIX}-history-selected`);
                     }
 
-                    btn.innerHTML = `
-                        <div style="display:flex; align-items:center; gap:0.5rem; overflow:hidden;">
-                            <button class="${CONFIG.UI_PREFIX}-queue-remove" data-id="${id}">✕</button>
-                            <span style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${itemData.n}</span>
-                        </div>
-                        <span class="${CONFIG.UI_PREFIX}-badge accent" style="flex-shrink:0;">${itemData.g}</span>
-                    `;
+                    // Build history item with DOM APIs — avoids innerHTML parsing overhead
+                    // and eliminates any XSS surface from stored group/member names.
+                    const histLeftDiv = document.createElement('div');
+                    histLeftDiv.style.cssText = 'display:flex;align-items:center;gap:0.5rem;overflow:hidden;';
+
+                    const histRemoveBtn = document.createElement('button');
+                    histRemoveBtn.className = `${CONFIG.UI_PREFIX}-queue-remove`;
+                    histRemoveBtn.dataset.id = id;
+                    histRemoveBtn.textContent = '✕';
+
+                    const histNameSpan = document.createElement('span');
+                    histNameSpan.style.cssText = 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
+                    histNameSpan.textContent = itemData.n;
+
+                    histLeftDiv.appendChild(histRemoveBtn);
+                    histLeftDiv.appendChild(histNameSpan);
+
+                    const histBadge = document.createElement('span');
+                    histBadge.className = `${CONFIG.UI_PREFIX}-badge accent`;
+                    histBadge.style.flexShrink = '0';
+                    histBadge.textContent = itemData.g;
+
+                    btn.appendChild(histLeftDiv);
+                    btn.appendChild(histBadge);
                 } else {
                     const nameSpan = document.createElement('span');
                     nameSpan.textContent = itemData.n;
@@ -2606,10 +2670,20 @@
         // Used by renderCart() so cart state changes (add/remove/cancel) are
         // reflected instantly across Main, Recent, and Flavor without the
         // heavier Storage reload that refreshSidePanels() performs.
+        //
+        // Wrapped in a cancel-and-reschedule rAF so that rapid cart toggles
+        // (e.g. quickly checking several members) coalesce into a single paint
+        // cycle instead of triggering three full list rebuilds per tap.
         _reRenderAllPanels() {
-            this.renderVirtualList();
-            this._renderSidePanelVirtual('recent');
-            this._renderSidePanelVirtual('flavor');
+            if (this._pendingRenderFrame !== null) {
+                cancelAnimationFrame(this._pendingRenderFrame);
+            }
+            this._pendingRenderFrame = requestAnimationFrame(() => {
+                this._pendingRenderFrame = null;
+                this.renderVirtualList();
+                this._renderSidePanelVirtual('recent');
+                this._renderSidePanelVirtual('flavor');
+            });
         },
 
         get currentConfigState() {
@@ -2690,13 +2764,30 @@
                 const el = document.createElement('div');
                 el.className = `${CONFIG.UI_PREFIX}-queue-item`;
                 el.style.transform = `translate3d(0, ${i * itemHeight}px, 0)`;
-                el.innerHTML = `
-                    <div style="display:flex; align-items:center; gap:0.5rem; overflow:hidden;">
-                        <button class="${CONFIG.UI_PREFIX}-queue-remove" data-index="${i}">✕</button>
-                        <span style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${item.n}</span>
-                    </div>
-                    <span class="${CONFIG.UI_PREFIX}-badge accent" style="flex-shrink:0;">${item.g}</span>
-                `;
+                // Build queue item with DOM APIs — avoids innerHTML parsing overhead
+                // and eliminates any XSS surface from stored group/member names.
+                const cartLeftDiv = document.createElement('div');
+                cartLeftDiv.style.cssText = 'display:flex;align-items:center;gap:0.5rem;overflow:hidden;';
+
+                const cartRemoveBtn = document.createElement('button');
+                cartRemoveBtn.className = `${CONFIG.UI_PREFIX}-queue-remove`;
+                cartRemoveBtn.dataset.index = i;
+                cartRemoveBtn.textContent = '✕';
+
+                const cartNameSpan = document.createElement('span');
+                cartNameSpan.style.cssText = 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
+                cartNameSpan.textContent = item.n;
+
+                cartLeftDiv.appendChild(cartRemoveBtn);
+                cartLeftDiv.appendChild(cartNameSpan);
+
+                const cartBadge = document.createElement('span');
+                cartBadge.className = `${CONFIG.UI_PREFIX}-badge accent`;
+                cartBadge.style.flexShrink = '0';
+                cartBadge.textContent = item.g;
+
+                el.appendChild(cartLeftDiv);
+                el.appendChild(cartBadge);
                 fragment.appendChild(el);
             }
             this.cartListInner.appendChild(fragment);
@@ -3476,6 +3567,16 @@
 
             if (typeof ResizeObserver !== 'undefined') {
                 this.resizeObserver = new ResizeObserver(entries => {
+                    // Cancel any pending resize render so rapid resize events
+                    // (e.g. dragging a window edge) coalesce into one render pass.
+                    if (this._pendingResizeFrame !== null) {
+                        cancelAnimationFrame(this._pendingResizeFrame);
+                    }
+
+                    // Sync phase: update cached dimensions only — pure math, no DOM reads.
+                    // Track which panels need re-rendering so the rAF knows what to do.
+                    let needsMain = false, needsRecent = false, needsFlavor = false, needsCart = false;
+
                     for (let entry of entries) {
                         const h = entry.contentRect.height;
                         const snappedHeight = Math.floor(h / CONFIG.VIRTUAL_ITEM_HEIGHT) * CONFIG.VIRTUAL_ITEM_HEIGHT;
@@ -3484,21 +3585,31 @@
                         if (entry.target === this.mainListWrapper) {
                             this.listContainer.style.height = `${finalHeight}px`;
                             this.cachedContainerHeight = finalHeight;
-                            this.renderVirtualList();
+                            needsMain = true;
                         } else if (entry.target === this.sidePanels.recent.wrapper) {
                             this.sidePanels.recent.container.style.height = `${finalHeight}px`;
                             this.sidePanels.recent.cachedHeight = finalHeight;
-                            this._renderSidePanelVirtual('recent');
+                            needsRecent = true;
                         } else if (entry.target === this.sidePanels.flavor.wrapper) {
                             this.sidePanels.flavor.container.style.height = `${finalHeight}px`;
                             this.sidePanels.flavor.cachedHeight = finalHeight;
-                            this._renderSidePanelVirtual('flavor');
+                            needsFlavor = true;
                         } else if (entry.target === this.cartListWrapper) {
                             this.cartList.style.height = `${finalHeight}px`;
                             this.cachedCartHeight = finalHeight;
-                            this._renderCartVirtual();
+                            needsCart = true;
                         }
                     }
+
+                    // Render phase: schedule a single paint after all dimension
+                    // updates are committed. Flags are captured in the closure.
+                    this._pendingResizeFrame = requestAnimationFrame(() => {
+                        this._pendingResizeFrame = null;
+                        if (needsMain)   this.renderVirtualList();
+                        if (needsRecent) this._renderSidePanelVirtual('recent');
+                        if (needsFlavor) this._renderSidePanelVirtual('flavor');
+                        if (needsCart)   this._renderCartVirtual();
+                    });
                 });
             }
 
@@ -3748,6 +3859,16 @@
                     clearInterval(this.syncTimeInterval);
                     this.syncTimeInterval = null;
                 }
+                // Cancel any in-flight rAF render passes to prevent
+                // callbacks firing against detached DOM elements.
+                if (this._pendingRenderFrame !== null) {
+                    cancelAnimationFrame(this._pendingRenderFrame);
+                    this._pendingRenderFrame = null;
+                }
+                if (this._pendingResizeFrame !== null) {
+                    cancelAnimationFrame(this._pendingResizeFrame);
+                    this._pendingResizeFrame = null;
+                }
                 // Detach resize + mouseup listeners; reset carousel state
                 this._carouselDestroy();
             }
@@ -3770,7 +3891,7 @@
             Storage.init(this.isSilentMode);
 
             if (this.isSilentMode) {
-                Logger.info('Initialized Silent Cloud Worker v14.4');
+                Logger.info('Initialized Silent Cloud Worker v14.5');
                 return;
             }
 
@@ -3787,7 +3908,7 @@
                 }
             }, CONFIG.CLOUD_HISTORY_THROTTLE_MS);
 
-            Logger.info('Initialized K-Pop Media Downloader v14.4');
+            Logger.info('Initialized K-Pop Media Downloader v14.5');
         },
 
         isDirectMediaPage() {
