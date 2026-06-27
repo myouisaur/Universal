@@ -628,16 +628,6 @@
     "Lee Suhyun",
     "Han Hyeri"
   ],
-  "ICHILLIN'": [
-    "Jiyoon",
-    "E.Ji",
-    "Jackie",
-    "Joonie",
-    "Chaerin",
-    "Sohee",
-    "Yeju",
-    "Chowon"
-  ],
   "ILLIT": [
     "Yunah",
     "Minju",
@@ -1638,5 +1628,15 @@
     "Riina",
     "Hwiseo",
     "Yel"
+  ],
+  "ICHILLIN": [
+    "Jiyoon",
+    "E.Ji",
+    "Jackie",
+    "Joonie",
+    "Chaerin",
+    "Sohee",
+    "Yeju",
+    "Chowon"
   ]
 }
