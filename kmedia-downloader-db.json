@@ -559,13 +559,6 @@
     "Hyosun",
     "Keina"
   ],
-  "H1-KEY": [
-    "Sitala",
-    "Seoi",
-    "Riina",
-    "Hwiseo",
-    "Yel"
-  ],
   "Hashtag": [
     "Hyunji",
     "Sua",
@@ -1638,5 +1631,12 @@
     "Heejoo",
     "Saebyeok",
     "Sarah"
+  ],
+  "H1KEY": [
+    "Sitala",
+    "Seoi",
+    "Riina",
+    "Hwiseo",
+    "Yel"
   ]
 }
