@@ -1,11 +1,4 @@
 [
-  {"g": "BABYMONSTER"  , "n": "Asa"          , "t": 1780098273055},
-  {"g": "IZONE"        , "n": "Eunbi"        , "t": 1780098530765},
-  {"g": "IZONE"        , "n": "Eunbi"        , "t": 1780098538301},
-  {"g": "BLACKPINK"    , "n": "Lisa"         , "t": 1780098541897},
-  {"g": "BLACKPINK"    , "n": "Lisa"         , "t": 1780098545777},
-  {"g": "BLACKPINK"    , "n": "Lisa"         , "t": 1780098549469},
-  {"g": "KISS OF LIFE" , "n": "Natty"        , "t": 1780098859190},
   {"g": "tripleS"      , "n": "Hayeon"       , "t": 1780100188680},
   {"g": "tripleS"      , "n": "Hayeon"       , "t": 1780100195987},
   {"g": "tripleS"      , "n": "Hayeon"       , "t": 1780100196636},
@@ -2261,5 +2254,6 @@
   {"g": "NMIXX"        , "n": "Kyujin"       , "t": 1782680229116},
   {"g": "NMIXX"        , "n": "Kyujin"       , "t": 1782680237507},
   {"g": "ITZY"         , "n": "Chaeryeong"   , "t": 1782690207837},
-  {"g": "ITZY"         , "n": "Yuna"         , "t": 1782690265263}
+  {"g": "ITZY"         , "n": "Yuna"         , "t": 1782690265263},
+  {"g": "ITZY"         , "n": "Chaeryeong"   , "t": 1782691118022}
 ]
