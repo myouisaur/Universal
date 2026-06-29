@@ -2,7 +2,7 @@
 // @name         [Universal] K-Media Downloader
 // @namespace    https://github.com/myouisaur/Universal
 // @icon         data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23FF4081'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 11h3l-4 4-4-4h3V8h2v5z'/%3E%3C/svg%3E
-// @version      14.5
+// @version      15.0
 // @description  Organizes, tracks, and saves categorized K-Pop media files through a centralized overlay.
 // @author       Xiv
 // @match        *://*/*
@@ -59,6 +59,10 @@
         MAX_ACTIVE_TOASTS: 3,
         AUTO_CLOSE_COUNTDOWN_MS: 3000,
 
+        // Custom Name History
+        CUSTOM_NAME_HISTORY_MAX: 15,          // Max suggestions stored; adjust to taste
+        CUSTOM_NAME_HISTORY_KEY: 'tm_kpop_dl_custom_name_history',
+
         // Database
         DB_URL: 'https://raw.githubusercontent.com/myouisaur/Universal/refs/heads/main/kmedia-downloader-db.json',
         DB_CACHE_KEY: 'tm_kpop_dl_db_cache',
@@ -76,7 +80,7 @@
         config: "M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z",
         close: "M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z",
         trash: "M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z",
-        checklist: "M3 13h2v-2H3v2zm0 4h2v-2H3v2zm0-8h2V7H3v2zm4 4h14v-2H7v2zm0 4h14v-2H7v2zM7 7v2h14V7H7z",
+        checklist: "M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z",
         history: "M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z",
         recent: "M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"
     };
@@ -122,6 +126,97 @@
             interval = seconds / 60;
             if (interval > 1) return Math.floor(interval) + " minutes ago";
             return Math.floor(seconds) + " seconds ago";
+        }
+    };
+
+    // =========================================================
+    // CUSTOM NAME HISTORY MODULE
+    // =========================================================
+    // Stores the last N custom names, ordered newest-first (MRU).
+    // Uses GM_setValue/GM_getValue — global to the script across all domains,
+    // local to this device/TM installation. No cloud sync.
+    // Cross-tab updates are delivered via GM_addValueChangeListener.
+    const CustomNameHistory = {
+        // Callback set by the UI when a dropdown is open — called on cross-tab
+        // storage changes so the live dropdown re-renders without a page reload.
+        _activeDropdownRefresh: null,
+
+        /**
+         * Reads the stored history array from GM storage.
+         * Always returns a valid array; corrupted or missing data → [].
+         * @returns {string[]}
+         */
+        load() {
+            try {
+                const raw = GM_getValue(CONFIG.CUSTOM_NAME_HISTORY_KEY, '[]');
+                const parsed = JSON.parse(raw);
+                if (!Array.isArray(parsed)) return [];
+                return parsed.filter(v => typeof v === 'string' && v.length > 0);
+            } catch (e) {
+                Logger.warn('[CustomNameHistory] GM storage read failed — returning empty history.');
+                return [];
+            }
+        },
+
+        /**
+         * Prepends `name`, deduplicates (case-sensitive), trims to max, persists.
+         * Most-recently-used is always index 0.
+         * @param {string} name
+         */
+        save(name) {
+            const trimmed = name.trim();
+            if (!trimmed) return;
+            try {
+                const history = this.load();
+                const deduped = history.filter(v => v !== trimmed);
+                deduped.unshift(trimmed);
+                GM_setValue(
+                    CONFIG.CUSTOM_NAME_HISTORY_KEY,
+                    JSON.stringify(deduped.slice(0, CONFIG.CUSTOM_NAME_HISTORY_MAX))
+                );
+            } catch (e) {
+                Logger.warn('[CustomNameHistory] GM storage write failed — history not saved.');
+            }
+        },
+
+        /**
+         * Removes a single entry by value and persists the result.
+         * @param {string} name
+         */
+        remove(name) {
+            try {
+                const updated = this.load().filter(v => v !== name);
+                GM_setValue(CONFIG.CUSTOM_NAME_HISTORY_KEY, JSON.stringify(updated));
+            } catch (e) {
+                Logger.warn('[CustomNameHistory] GM storage write failed during remove.');
+            }
+        },
+
+        /**
+         * Returns the current history array (newest-first).
+         * @returns {string[]}
+         */
+        getRecent() {
+            return this.load();
+        },
+
+        /**
+         * Registers a GM_addValueChangeListener so that when another tab saves
+         * or removes a name, the currently-open dropdown refreshes automatically.
+         * Falls back gracefully if the GM API is unavailable.
+         * Safe to call multiple times — only one listener is ever attached.
+         */
+        bindCrossTabSync() {
+            if (this._crossTabBound) return;
+            this._crossTabBound = true;
+            if (typeof GM_addValueChangeListener !== 'function') return;
+            GM_addValueChangeListener(CONFIG.CUSTOM_NAME_HISTORY_KEY, (key, oldVal, newVal, remote) => {
+                // `remote` is true only when the change originated in another tab
+                if (!remote) return;
+                if (typeof this._activeDropdownRefresh === 'function') {
+                    this._activeDropdownRefresh();
+                }
+            });
         }
     };
 
@@ -1424,6 +1519,52 @@
                 .${CONFIG.UI_PREFIX}-custom-confirm       { background: #1e3a2b; border-color: #2c5941; color: #4ade80; }
                 .${CONFIG.UI_PREFIX}-custom-confirm:hover { background: #244935; }
                 .${CONFIG.UI_PREFIX}-custom-cancel:hover  { background: var(--tm-bg-hover-subtle); border-color: var(--tm-text-dark); }
+
+                /* ── Custom Name Suggestion Dropdown ─────────────────────── */
+                /* Position relative on the wrapper so the dropdown anchors
+                   below the input row without affecting footer flow.         */
+                .${CONFIG.UI_PREFIX}-custom-wrapper { position: relative; }
+                .${CONFIG.UI_PREFIX}-suggestion-dropdown {
+                    display: none;
+                    position: absolute;
+                    bottom: calc(100% + 0.4rem); /* opens upward above the input row */
+                    left: 0; right: 0;
+                    background: var(--tm-bg-input);
+                    border: 1px solid var(--tm-border-light);
+                    border-radius: 0.6rem;
+                    overflow: hidden;
+                    box-shadow: 0 -0.5rem 1.5rem rgba(0,0,0,0.5);
+                    z-index: 10;
+                    max-height: 10rem;
+                    overflow-y: auto;
+                }
+                .${CONFIG.UI_PREFIX}-suggestion-dropdown::-webkit-scrollbar { width: 4px; }
+                .${CONFIG.UI_PREFIX}-suggestion-dropdown::-webkit-scrollbar-thumb { background: var(--tm-border-light); border-radius: 4px; }
+                .${CONFIG.UI_PREFIX}-suggestion-dropdown--open { display: block; }
+                .${CONFIG.UI_PREFIX}-suggestion-row {
+                    display: flex; align-items: center; justify-content: space-between;
+                    padding: 0.5rem 0.7rem; gap: 0.5rem;
+                    cursor: pointer; transition: background 0.15s;
+                    font-size: 0.88rem; color: var(--tm-text-main);
+                }
+                .${CONFIG.UI_PREFIX}-suggestion-row:hover,
+                .${CONFIG.UI_PREFIX}-suggestion-row--active { background: var(--tm-bg-hover); }
+                .${CONFIG.UI_PREFIX}-suggestion-label {
+                    flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+                    /* Ensure the label itself captures hover/mousedown for fill action */
+                    cursor: pointer;
+                }
+                .${CONFIG.UI_PREFIX}-suggestion-remove {
+                    flex-shrink: 0; background: none; border: none;
+                    cursor: pointer; padding: 0.15rem; display: flex;
+                    align-items: center; justify-content: center;
+                    border-radius: 0.3rem; transition: background 0.15s; opacity: 0;
+                }
+                .${CONFIG.UI_PREFIX}-suggestion-row:hover    .${CONFIG.UI_PREFIX}-suggestion-remove,
+                .${CONFIG.UI_PREFIX}-suggestion-row--active  .${CONFIG.UI_PREFIX}-suggestion-remove { opacity: 1; }
+                .${CONFIG.UI_PREFIX}-suggestion-remove:hover { background: rgba(229,115,115,0.18); }
+                .${CONFIG.UI_PREFIX}-suggestion-remove svg { width: 0.85rem; height: 0.85rem; fill: var(--tm-text-dark); pointer-events: none; }
+                .${CONFIG.UI_PREFIX}-suggestion-remove:hover svg { fill: var(--tm-danger); }
 
                 /* ── CRUD Bar ─────────────────────────────────────────────── */
                 .${CONFIG.UI_PREFIX}-crud-bar       { display: none; gap: 0.5rem; margin-bottom: 1rem; flex-shrink: 0; transition: opacity 0.2s; }
@@ -3219,9 +3360,11 @@
             const customWrapper = document.createElement('div');
             customWrapper.className = `${CONFIG.UI_PREFIX}-custom-wrapper`;
 
+            // Input field — no native autocomplete; our custom dropdown handles it
             const customNameInput = document.createElement('input');
             customNameInput.className = `${CONFIG.UI_PREFIX}-custom-input`;
             customNameInput.type = "text";
+            customNameInput.setAttribute('autocomplete', 'off');
             customNameInput.placeholder = "Enter custom name...";
 
             const customCancelBtn = document.createElement('button');
@@ -3232,22 +3375,123 @@
             customConfirmBtn.className = `${CONFIG.UI_PREFIX}-custom-confirm`;
             customConfirmBtn.innerText = "Save";
 
+            // ── Suggestion dropdown ────────────────────────────────────────
+            // Positioned below the input via CSS; hidden when empty or unfocused.
+            // Each row: suggestion text (click → fill) + × button (click → delete).
+            const suggestionDropdown = document.createElement('div');
+            suggestionDropdown.className = `${CONFIG.UI_PREFIX}-suggestion-dropdown`;
+
+            // Tracks the keyboard-highlighted row index (-1 = none)
+            let suggestionActiveIdx = -1;
+
+            /**
+             * Renders the suggestion dropdown from the current GM storage history.
+             * Called on open, on keystroke (filter), on delete, and on cross-tab sync.
+             * @param {string} [filter=''] - only show rows containing this substring
+             */
+            const renderSuggestions = (filter = '') => {
+                suggestionDropdown.textContent = '';
+                suggestionActiveIdx = -1;
+
+                const history = CustomNameHistory.getRecent();
+                const lc = filter.toLowerCase();
+                // Reverse so the most-recently-saved entry sits at the bottom —
+                // closest to the input since the dropdown grows upward.
+                const matches = (filter
+                    ? history.filter(n => n.toLowerCase().includes(lc))
+                    : history).slice().reverse();
+
+                if (matches.length === 0) {
+                    suggestionDropdown.classList.remove(`${CONFIG.UI_PREFIX}-suggestion-dropdown--open`);
+                    return;
+                }
+
+                const frag = document.createDocumentFragment();
+                matches.forEach((name) => {
+                    const row = document.createElement('div');
+                    row.className = `${CONFIG.UI_PREFIX}-suggestion-row`;
+                    row.dataset.value = name;
+
+                    const label = document.createElement('span');
+                    label.className = `${CONFIG.UI_PREFIX}-suggestion-label`;
+                    label.textContent = name;
+
+                    // × remove button — styled to match the existing trash/close icon language
+                    const removeBtn = document.createElement('button');
+                    removeBtn.className = `${CONFIG.UI_PREFIX}-suggestion-remove`;
+                    removeBtn.title = 'Remove suggestion';
+                    removeBtn.setAttribute('aria-label', `Remove "${name}" from suggestions`);
+                    // Inline SVG close path matches ICONS.close already in the dict
+                    const rmSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                    rmSvg.setAttribute('viewBox', '0 0 24 24');
+                    const rmPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                    rmPath.setAttribute('d', ICONS.close);
+                    rmSvg.appendChild(rmPath);
+                    removeBtn.appendChild(rmSvg);
+
+                    // mousedown prevents input blur from firing before click lands
+                    removeBtn.addEventListener('mousedown', (e) => {
+                        e.preventDefault();
+                        CustomNameHistory.remove(name);
+                        renderSuggestions(customNameInput.value.trim());
+                        customNameInput.focus();
+                    });
+
+                    // Clicking the row text fills the input and closes the dropdown
+                    label.addEventListener('mousedown', (e) => {
+                        e.preventDefault();
+                        customNameInput.value = name;
+                        suggestionDropdown.classList.remove(`${CONFIG.UI_PREFIX}-suggestion-dropdown--open`);
+                        customNameInput.focus();
+                    });
+
+                    row.appendChild(label);
+                    row.appendChild(removeBtn);
+                    frag.appendChild(row);
+                });
+
+                suggestionDropdown.appendChild(frag);
+                suggestionDropdown.classList.add(`${CONFIG.UI_PREFIX}-suggestion-dropdown--open`);
+            };
+
+            // ── Keyboard navigation inside the dropdown ────────────────────
+            // Arrow keys move the highlight; Enter selects; Escape closes.
+            const highlightRow = (idx) => {
+                const rows = suggestionDropdown.querySelectorAll(`.${CONFIG.UI_PREFIX}-suggestion-row`);
+                rows.forEach((r, i) => r.classList.toggle(`${CONFIG.UI_PREFIX}-suggestion-row--active`, i === idx));
+                suggestionActiveIdx = idx;
+            };
+
+            // ── Cross-tab live refresh ─────────────────────────────────────
+            // Registered once via bindCrossTabSync(); called by the storage event
+            // only while this dropdown instance is active (overlay open).
+            CustomNameHistory._activeDropdownRefresh = () => {
+                renderSuggestions(customNameInput.value.trim());
+            };
+
             customWrapper.appendChild(customNameInput);
             customWrapper.appendChild(customCancelBtn);
             customWrapper.appendChild(customConfirmBtn);
+            // Dropdown sits outside the flex row so it can overflow below it
+            customWrapper.appendChild(suggestionDropdown);
 
             this.footer.appendChild(this.footerMainRow);
             this.footer.appendChild(customWrapper);
 
             const resetCustomInput = () => {
+                suggestionDropdown.classList.remove(`${CONFIG.UI_PREFIX}-suggestion-dropdown--open`);
                 customWrapper.style.display = 'none';
                 this.footerMainRow.style.display = 'flex';
                 customNameInput.value = '';
+                // Detach cross-tab refresh when the panel is closed
+                CustomNameHistory._activeDropdownRefresh = null;
             };
 
             const submitCustomSave = () => {
                 const customName = customNameInput.value.trim();
                 if (customName) {
+                    // Save to history before the download so MRU order is correct
+                    CustomNameHistory.save(customName);
                     Downloader.executeCustomSave(customName, this.isMultiSelectMode ? this.cart : null);
                     if (this.isMultiSelectMode) this.exitMultiSelectMode();
                 } else {
@@ -3258,21 +3502,65 @@
             this.customBtn.onclick = () => {
                 this.footerMainRow.style.display = 'none';
                 customWrapper.style.display = 'flex';
+                // Re-attach cross-tab refresh for this dropdown session
+                CustomNameHistory._activeDropdownRefresh = () => {
+                    renderSuggestions(customNameInput.value.trim());
+                };
+                // Pre-populate with full history on open
+                renderSuggestions('');
                 requestAnimationFrame(() => customNameInput.focus());
             };
 
             customCancelBtn.onclick = resetCustomInput;
             customConfirmBtn.onclick = submitCustomSave;
 
+            // Show/filter suggestions as the user types
+            customNameInput.addEventListener('input', () => {
+                renderSuggestions(customNameInput.value.trim());
+            });
+
+            customNameInput.addEventListener('focus', () => {
+                renderSuggestions(customNameInput.value.trim());
+            });
+
+            // Close dropdown when focus leaves the entire wrapper
+            customWrapper.addEventListener('focusout', (e) => {
+                // relatedTarget is null when focus moves outside the document
+                // or to a non-focusable element — treat both as blur
+                if (!customWrapper.contains(e.relatedTarget)) {
+                    suggestionDropdown.classList.remove(`${CONFIG.UI_PREFIX}-suggestion-dropdown--open`);
+                }
+            });
+
             customNameInput.addEventListener('keydown', (e) => {
-                if (e.key === 'Enter') {
+                const rows = suggestionDropdown.querySelectorAll(`.${CONFIG.UI_PREFIX}-suggestion-row`);
+                const isOpen = suggestionDropdown.classList.contains(`${CONFIG.UI_PREFIX}-suggestion-dropdown--open`);
+
+                if (e.key === 'ArrowDown' && isOpen) {
                     e.preventDefault();
-                    submitCustomSave();
+                    highlightRow(Math.min(suggestionActiveIdx + 1, rows.length - 1));
+                } else if (e.key === 'ArrowUp' && isOpen) {
+                    e.preventDefault();
+                    highlightRow(Math.max(suggestionActiveIdx - 1, 0));
+                } else if (e.key === 'Enter') {
+                    e.preventDefault();
+                    // If a suggestion row is highlighted, select it; otherwise submit
+                    if (isOpen && suggestionActiveIdx >= 0 && rows[suggestionActiveIdx]) {
+                        customNameInput.value = rows[suggestionActiveIdx].dataset.value;
+                        suggestionDropdown.classList.remove(`${CONFIG.UI_PREFIX}-suggestion-dropdown--open`);
+                    } else {
+                        submitCustomSave();
+                    }
                 } else if (e.key === 'Escape') {
                     e.preventDefault();
                     e.stopPropagation();
-                    resetCustomInput();
-                    this.searchInput.focus();
+                    if (isOpen) {
+                        // First Escape closes only the dropdown; second resets the whole panel
+                        suggestionDropdown.classList.remove(`${CONFIG.UI_PREFIX}-suggestion-dropdown--open`);
+                    } else {
+                        resetCustomInput();
+                        this.searchInput.focus();
+                    }
                 }
             });
 
@@ -3303,7 +3591,7 @@
                 this.footer.style.display = 'flex';
 
                 if (this.currentView === 'groups') {
-                    this.headerTitle.textContent = 'K-Pop Database';
+                    this.headerTitle.textContent = 'Database';
                     this.headerBackBtn.style.display = 'none';
                 } else {
                     this.headerTitle.textContent = this.selectedGroup;
@@ -3891,7 +4179,7 @@
             Storage.init(this.isSilentMode);
 
             if (this.isSilentMode) {
-                Logger.info('Initialized Silent Cloud Worker v14.5');
+                Logger.info('Initialized Silent Cloud Worker v14.9');
                 return;
             }
 
@@ -3899,6 +4187,10 @@
             UI.injectGlobals();
             UI.injectStyles();
             this.bindEvents();
+
+            // Bind the cross-tab storage listener once so the custom name
+            // suggestion dropdown stays live across tabs without page reloads.
+            CustomNameHistory.bindCrossTabSync();
 
             Database.init();
 
@@ -3908,7 +4200,7 @@
                 }
             }, CONFIG.CLOUD_HISTORY_THROTTLE_MS);
 
-            Logger.info('Initialized K-Pop Media Downloader v14.5');
+            Logger.info('Initialized K-Pop Media Downloader v14.9');
         },
 
         isDirectMediaPage() {
