@@ -2,7 +2,7 @@
 // @name         [Universal] K-Media Downloader
 // @namespace    https://github.com/myouisaur/Universal
 // @icon         data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23FF4081'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 11h3l-4 4-4-4h3V8h2v5z'/%3E%3C/svg%3E
-// @version      15.0
+// @version      15.1
 // @description  Organizes, tracks, and saves categorized K-Pop media files through a centralized overlay.
 // @author       Xiv
 // @match        *://*/*
@@ -3452,6 +3452,10 @@
 
                 suggestionDropdown.appendChild(frag);
                 suggestionDropdown.classList.add(`${CONFIG.UI_PREFIX}-suggestion-dropdown--open`);
+                // Dropdown grows upward — scroll to bottom so the most recent
+                // entry (index 0, rendered last after .reverse()) is always
+                // visible without manual scrolling.
+                suggestionDropdown.scrollTop = suggestionDropdown.scrollHeight;
             };
 
             // ── Keyboard navigation inside the dropdown ────────────────────
@@ -4179,7 +4183,7 @@
             Storage.init(this.isSilentMode);
 
             if (this.isSilentMode) {
-                Logger.info('Initialized Silent Cloud Worker v14.9');
+                Logger.info('Initialized Silent Cloud Worker v15.1');
                 return;
             }
 
@@ -4188,11 +4192,14 @@
             UI.injectStyles();
             this.bindEvents();
 
-            // Bind the cross-tab storage listener once so the custom name
-            // suggestion dropdown stays live across tabs without page reloads.
-            CustomNameHistory.bindCrossTabSync();
-
+            // Initialize the database first — isLoaded must be set as early as
+            // possible so showMenu() doesn't stall in waitForLoad().
+            // GM_addValueChangeListener forces TM to initialize its cross-tab
+            // messaging bridge, inserting a microtask delay. Calling
+            // bindCrossTabSync() after Database.init() ensures that delay never
+            // sits between script start and isLoaded being set.
             Database.init();
+            CustomNameHistory.bindCrossTabSync();
 
             setInterval(() => {
                 if (document.visibilityState === 'visible' && !UI.overlay) {
@@ -4200,7 +4207,7 @@
                 }
             }, CONFIG.CLOUD_HISTORY_THROTTLE_MS);
 
-            Logger.info('Initialized K-Pop Media Downloader v14.9');
+            Logger.info('Initialized K-Pop Media Downloader v15.1');
         },
 
         isDirectMediaPage() {
