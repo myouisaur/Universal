@@ -2,7 +2,7 @@
 // @name         [Universal] K-Media Downloader
 // @namespace    https://github.com/myouisaur/Universal
 // @icon         data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23FF4081'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 11h3l-4 4-4-4h3V8h2v5z'/%3E%3C/svg%3E
-// @version      15.1
+// @version      15.5
 // @description  Organizes, tracks, and saves categorized K-Pop media files through a centralized overlay.
 // @author       Xiv
 // @match        *://*/*
@@ -26,6 +26,10 @@
 
 (function () {
     'use strict';
+
+    // ── Debug Mode ────────────────────────────────────────────────────────────
+    // Set to true to enable verbose console logging. Keep false in production.
+    const DEBUG = false;
 
     // =========================================================
     // CONFIGURATION
@@ -59,9 +63,12 @@
         MAX_ACTIVE_TOASTS: 3,
         AUTO_CLOSE_COUNTDOWN_MS: 3000,
 
-        // Custom Name History
-        CUSTOM_NAME_HISTORY_MAX: 15,          // Max suggestions stored; adjust to taste
-        CUSTOM_NAME_HISTORY_KEY: 'tm_kpop_dl_custom_name_history',
+        // Custom Presets
+        CUSTOM_PRESETS_MAX: 100,              // Max saved presets; adjust to taste
+        CUSTOM_PRESETS_KEY: 'tm_kpop_dl_custom_presets',
+
+        // Carousel
+        CAROUSEL_BREAKPOINT_PX: 1450,         // px below which carousel activates
 
         // Database
         DB_URL: 'https://raw.githubusercontent.com/myouisaur/Universal/refs/heads/main/kmedia-downloader-db.json',
@@ -89,7 +96,7 @@
     // UTILITIES
     // =========================================================
     const Logger = {
-        info(msg) { console.log(`[K-Pop DL] ${msg}`); },
+        info(msg)  { if (DEBUG) console.log(`[K-Pop DL] ${msg}`); },
         warn(msg) { console.warn(`[K-Pop DL] ${msg}`); },
         error(msg, err) { console.error(`[K-Pop DL] ${msg}`, err); }
     };
@@ -126,83 +133,108 @@
             interval = seconds / 60;
             if (interval > 1) return Math.floor(interval) + " minutes ago";
             return Math.floor(seconds) + " seconds ago";
+        },
+        // Display-only: converts "hello world" → "Hello World"
+        // Raw preset strings are never modified — only the rendered label uses this.
+        toProperCase(str) {
+            return str.replace(/\w\S*/g, w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
         }
     };
 
     // =========================================================
-    // CUSTOM NAME HISTORY MODULE
+    // CUSTOM PRESETS MODULE
     // =========================================================
-    // Stores the last N custom names, ordered newest-first (MRU).
-    // Uses GM_setValue/GM_getValue — global to the script across all domains,
+    // Explicit user-managed list of saved custom name presets.
+    // Ordered newest-first (MRU). GM storage — global across all domains,
     // local to this device/TM installation. No cloud sync.
-    // Cross-tab updates are delivered via GM_addValueChangeListener.
-    const CustomNameHistory = {
-        // Callback set by the UI when a dropdown is open — called on cross-tab
-        // storage changes so the live dropdown re-renders without a page reload.
-        _activeDropdownRefresh: null,
+    // Cross-tab updates delivered via GM_addValueChangeListener.
+    //
+    // Naming convention: "{group}-{name}" — the dash separates group from name.
+    // Both segments may contain spaces. Split on first dash only.
+    const CustomPresets = {
+        // Set by UI when the 'custom-save' view is open — called on cross-tab
+        // changes to live-refresh the list without a page reload.
+        _onRemoteChange: null,
 
         /**
-         * Reads the stored history array from GM storage.
-         * Always returns a valid array; corrupted or missing data → [].
-         * @returns {string[]}
+         * Parses a preset string into { group, name } segments.
+         * Splits on the FIRST dash only. If no dash, returns { group: '', name: preset }.
+         * @param {string} preset
+         * @returns {{ group: string, name: string }}
          */
-        load() {
-            try {
-                const raw = GM_getValue(CONFIG.CUSTOM_NAME_HISTORY_KEY, '[]');
-                const parsed = JSON.parse(raw);
-                if (!Array.isArray(parsed)) return [];
-                return parsed.filter(v => typeof v === 'string' && v.length > 0);
-            } catch (e) {
-                Logger.warn('[CustomNameHistory] GM storage read failed — returning empty history.');
-                return [];
-            }
+        parse(preset) {
+            // Guard: return a safe default for empty/whitespace-only strings
+            const safe = (preset || '').trim();
+            if (!safe) return { group: '', name: '' };
+            const idx = safe.indexOf('-');
+            // Note: toProperCase() in the renderer is ASCII-scoped (a-z A-Z 0-9).
+            // Korean/Japanese group names will pass through unchanged — intentional.
+            if (idx === -1) return { group: '', name: safe };
+            return {
+                group: safe.slice(0, idx).trim(),
+                name:  safe.slice(idx + 1).trim()
+            };
         },
 
         /**
          * Prepends `name`, deduplicates (case-sensitive), trims to max, persists.
-         * Most-recently-used is always index 0.
+         * Most-recently-added is always index 0.
          * @param {string} name
          */
+        // In-memory cache — avoids a GM storage JSON parse on every save/remove.
+        // Invalidated (set null) on every write so the next load() re-reads cleanly.
+        _cache: null,
+
+        load() {
+            if (this._cache !== null) return this._cache;
+            try {
+                const raw = GM_getValue(CONFIG.CUSTOM_PRESETS_KEY, '[]');
+                const parsed = JSON.parse(raw);
+                if (!Array.isArray(parsed)) { this._cache = []; return []; }
+                this._cache = parsed.filter(v => typeof v === 'string' && v.trim().length > 0);
+                return this._cache;
+            } catch (e) {
+                Logger.warn('[CustomPresets] GM storage read failed — returning empty list.');
+                this._cache = [];
+                return [];
+            }
+        },
+
+        _persist(list) {
+            // Single write path — always invalidates cache after persisting
+            GM_setValue(CONFIG.CUSTOM_PRESETS_KEY, JSON.stringify(list));
+            this._cache = null;
+        },
+
         save(name) {
             const trimmed = name.trim();
             if (!trimmed) return;
             try {
-                const history = this.load();
-                const deduped = history.filter(v => v !== trimmed);
+                const list = this.load();
+                const deduped = list.filter(v => v !== trimmed);
                 deduped.unshift(trimmed);
-                GM_setValue(
-                    CONFIG.CUSTOM_NAME_HISTORY_KEY,
-                    JSON.stringify(deduped.slice(0, CONFIG.CUSTOM_NAME_HISTORY_MAX))
-                );
+                this._persist(deduped.slice(0, CONFIG.CUSTOM_PRESETS_MAX));
             } catch (e) {
-                Logger.warn('[CustomNameHistory] GM storage write failed — history not saved.');
+                Logger.warn('[CustomPresets] GM storage write failed — preset not saved.');
             }
         },
 
         /**
-         * Removes a single entry by value and persists the result.
+         * Removes a single entry by exact value and persists the result.
          * @param {string} name
          */
         remove(name) {
             try {
                 const updated = this.load().filter(v => v !== name);
-                GM_setValue(CONFIG.CUSTOM_NAME_HISTORY_KEY, JSON.stringify(updated));
+                this._persist(updated);
             } catch (e) {
-                Logger.warn('[CustomNameHistory] GM storage write failed during remove.');
+                Logger.warn('[CustomPresets] GM storage write failed during remove.');
             }
         },
 
         /**
-         * Returns the current history array (newest-first).
-         * @returns {string[]}
-         */
-        getRecent() {
-            return this.load();
-        },
-
-        /**
-         * Registers a GM_addValueChangeListener so that when another tab saves
-         * or removes a name, the currently-open dropdown refreshes automatically.
+         * Registers a GM_addValueChangeListener for cross-tab sync.
+         * When another tab saves/removes a preset, calls _onRemoteChange if set.
          * Falls back gracefully if the GM API is unavailable.
          * Safe to call multiple times — only one listener is ever attached.
          */
@@ -210,11 +242,12 @@
             if (this._crossTabBound) return;
             this._crossTabBound = true;
             if (typeof GM_addValueChangeListener !== 'function') return;
-            GM_addValueChangeListener(CONFIG.CUSTOM_NAME_HISTORY_KEY, (key, oldVal, newVal, remote) => {
-                // `remote` is true only when the change originated in another tab
+            GM_addValueChangeListener(CONFIG.CUSTOM_PRESETS_KEY, (key, oldVal, newVal, remote) => {
                 if (!remote) return;
-                if (typeof this._activeDropdownRefresh === 'function') {
-                    this._activeDropdownRefresh();
+                // Invalidate in-memory cache so next load() re-reads fresh GM data
+                this._cache = null;
+                if (typeof this._onRemoteChange === 'function') {
+                    this._onRemoteChange();
                 }
             });
         }
@@ -1227,7 +1260,7 @@
             wheelTimer: null,
             _resizeHandler: null,
             _mouseUpHandler: null,
-            breakpointPx: 1450,      // px below which carousel activates — above this panels fit side-by-side
+            breakpointPx: CONFIG.CAROUSEL_BREAKPOINT_PX, // see CONFIG — moved from magic number
             cachedCardWidth: 0,      // cached layout width — avoids getBoundingClientRect() on every swipe
             isSwitching: false,      // guard against overlapping mode-switch calls during rapid resize
         },
@@ -1263,15 +1296,24 @@
                     --tm-bg-input: #161616;
                     --tm-bg-hover: #1c1c1c;
                     --tm-bg-hover-subtle: #2a2a2a;
+                    --tm-bg-elevated: #1a1a1a;   /* raised surfaces: icon-btns, inputs, badges */
                     --tm-border: #222;
                     --tm-border-light: #333;
                     --tm-border-focus: #555;
                     --tm-text-main: #fff;
+                    --tm-text-heading: #eee;     /* panel headings, slightly softer than pure white */
                     --tm-text-muted: #aaa;
                     --tm-text-dark: #666;
+                    --tm-text-subtle: #888;      /* badges, secondary labels */
+                    --tm-text-dim: #999;         /* placeholder / inactive controls */
                     --tm-danger: #e57373;
                     --tm-success: #81c784;
                     --tm-warning: #ffb74d;
+                    /* Custom Save confirm button — green accent */
+                    --tm-confirm-bg: #1e3a2b;
+                    --tm-confirm-border: #2c5941;
+                    --tm-confirm-text: #4ade80;
+                    --tm-confirm-hover: #244935;
                 }
 
                 /* ── Floating Action Button ───────────────────────────────── */
@@ -1382,7 +1424,7 @@
                 .${CONFIG.UI_PREFIX}-header-right { display: flex; align-items: center; justify-content: flex-end; flex-shrink: 0; }
                 .${CONFIG.UI_PREFIX}-header h2 {
                     font-size: clamp(0.85rem, 1.1vw, 1.1rem);
-                    margin: 0; font-weight: 600; color: #eee; text-align: left;
+                    margin: 0; font-weight: 600; color: var(--tm-text-heading); text-align: left;
                     overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex-grow: 1;
                 }
                 .${CONFIG.UI_PREFIX}-history-subtitle {
@@ -1391,7 +1433,7 @@
                 }
 
                 .${CONFIG.UI_PREFIX}-icon-btn {
-                    background: #1a1a1a; border: 1px solid var(--tm-border-light);
+                    background: var(--tm-bg-elevated); border: 1px solid var(--tm-border-light);
                     border-radius: 0.7rem; width: 2.5rem; height: 2.5rem;
                     display: flex; align-items: center; justify-content: center;
                     cursor: pointer; transition: background 0.2s, border-color 0.2s; flex-shrink: 0;
@@ -1405,7 +1447,7 @@
 
                 .${CONFIG.UI_PREFIX}-notification-dot {
                     position: absolute; top: -2px; right: -2px; width: 10px; height: 10px;
-                    background-color: var(--tm-danger); border-radius: 50%; border: 2px solid #1a1a1a; box-sizing: content-box;
+                    background-color: var(--tm-danger); border-radius: 50%; border: 2px solid var(--tm-bg-elevated); box-sizing: content-box;
                 }
 
                 /* ── Toast Notifications ──────────────────────────────────── */
@@ -1445,7 +1487,7 @@
                     padding: 0.3rem 0.5rem; border-radius: 0.4rem; font-size: 0.75rem;
                     cursor: pointer; transition: background 0.2s, border-color 0.2s; outline: none; flex-shrink: 0;
                 }
-                .${CONFIG.UI_PREFIX}-cancel-btn:hover { background: #333; border-color: #666; }
+                .${CONFIG.UI_PREFIX}-cancel-btn:hover { background: var(--tm-border-light); border-color: var(--tm-text-dark); }
 
                 /* ── Queue Panel Items ────────────────────────────────────── */
                 .${CONFIG.UI_PREFIX}-queue-item {
@@ -1461,7 +1503,7 @@
                     background: none; border: none; color: var(--tm-danger); cursor: pointer;
                     padding: 0 0.5rem 0 0; font-size: 1rem; font-weight: bold; line-height: 1; transition: color 0.2s;
                 }
-                .${CONFIG.UI_PREFIX}-queue-remove:hover { color: #fff; }
+                .${CONFIG.UI_PREFIX}-queue-remove:hover { color: var(--tm-text-main); }
 
                 /* ── Search & Toolbar ─────────────────────────────────────── */
                 .${CONFIG.UI_PREFIX}-search-container { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem; flex-shrink: 0; }
@@ -1470,7 +1512,7 @@
                     border-radius: 0.8rem; padding: 0.8rem 1rem; color: var(--tm-text-main);
                     font-size: 0.95rem; outline: none; box-sizing: border-box; transition: border-color 0.2s, background 0.2s;
                 }
-                .${CONFIG.UI_PREFIX}-search-input:focus { border-color: var(--tm-text-dark); background: #1a1a1a; }
+                .${CONFIG.UI_PREFIX}-search-input:focus { border-color: var(--tm-text-dark); background: var(--tm-bg-elevated); }
 
                 /* ── Virtual List Architecture ────────────────────────────── */
                 .${CONFIG.UI_PREFIX}-list-wrapper { flex-grow: 1; min-height: 0; width: 100%; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-start; }
@@ -1491,10 +1533,10 @@
                 .${CONFIG.UI_PREFIX}-item.active-focus { background: var(--tm-bg-hover); border-color: var(--tm-border-focus); }
 
                 .${CONFIG.UI_PREFIX}-badge {
-                    font-size: 0.7rem; color: #888; background: #1a1a1a; padding: 0.2rem 0.5rem;
+                    font-size: 0.7rem; color: var(--tm-text-subtle); background: var(--tm-bg-elevated); padding: 0.2rem 0.5rem;
                     border-radius: 0.4rem; border: 1px solid #252525; font-weight: 500; transition: background 0.2s, border-color 0.2s, color 0.2s;
                 }
-                .${CONFIG.UI_PREFIX}-badge.accent { color: var(--tm-text-muted); border-color: #444; background: #222; }
+                .${CONFIG.UI_PREFIX}-badge.accent { color: var(--tm-text-muted); border-color: var(--tm-border-focus); background: var(--tm-border); }
                 .${CONFIG.UI_PREFIX}-badge-actionable:hover       { background: var(--tm-bg-hover-subtle); border-color: var(--tm-border-focus); color: var(--tm-text-main); cursor: pointer; }
                 .${CONFIG.UI_PREFIX}-badge-actionable.accent:hover { background: var(--tm-border-light); border-color: var(--tm-text-dark); color: var(--tm-text-main); }
 
@@ -1504,67 +1546,21 @@
                 .${CONFIG.UI_PREFIX}-btn-row      { display: flex; gap: 0.5rem; width: 100%; }
                 .${CONFIG.UI_PREFIX}-action-btn {
                     flex: 1; display: flex; align-items: center; justify-content: center;
-                    background: #1a1a1a; color: #999; border: 1px dashed #444; padding: 0.8rem;
+                    background: var(--tm-bg-elevated); color: var(--tm-text-dim); border: 1px dashed var(--tm-border-focus); padding: 0.8rem;
                     border-radius: 0.8rem; cursor: pointer; font-size: 0.9rem; transition: background 0.2s, border-color 0.2s, color 0.2s; outline: none;
                 }
                 .${CONFIG.UI_PREFIX}-action-btn:hover:not(:disabled),
-                .${CONFIG.UI_PREFIX}-action-btn:focus:not(:disabled) { background: #222; color: var(--tm-text-main); border-color: var(--tm-text-dark); }
+                .${CONFIG.UI_PREFIX}-action-btn:focus:not(:disabled) { background: var(--tm-border); color: var(--tm-text-main); border-color: var(--tm-text-dark); }
                 .${CONFIG.UI_PREFIX}-action-btn:disabled { opacity: 0.4; cursor: not-allowed; pointer-events: none; }
 
                 /* ── Custom Input Prompt ──────────────────────────────────── */
                 .${CONFIG.UI_PREFIX}-custom-wrapper  { display: none; width: 100%; gap: 0.5rem; align-items: center; }
                 .${CONFIG.UI_PREFIX}-custom-input    { flex: 1; background: var(--tm-bg-input); border: 1px solid var(--tm-border-light); border-radius: 0.5rem; padding: 0.7rem 0.8rem; color: var(--tm-text-main); font-size: 0.9rem; outline: none; transition: border-color 0.2s, background 0.2s; }
-                .${CONFIG.UI_PREFIX}-custom-input:focus { border-color: var(--tm-text-dark); background: #1a1a1a; }
-                .${CONFIG.UI_PREFIX}-custom-confirm, .${CONFIG.UI_PREFIX}-custom-cancel { background: #1a1a1a; color: var(--tm-text-main); border: 1px solid #444; padding: 0.7rem 1rem; border-radius: 0.5rem; cursor: pointer; font-size: 0.9rem; transition: background 0.2s; }
-                .${CONFIG.UI_PREFIX}-custom-confirm       { background: #1e3a2b; border-color: #2c5941; color: #4ade80; }
-                .${CONFIG.UI_PREFIX}-custom-confirm:hover { background: #244935; }
+                .${CONFIG.UI_PREFIX}-custom-input:focus { border-color: var(--tm-text-dark); background: var(--tm-bg-elevated); }
+                .${CONFIG.UI_PREFIX}-custom-confirm, .${CONFIG.UI_PREFIX}-custom-cancel { background: var(--tm-bg-elevated); color: var(--tm-text-main); border: 1px solid #444; padding: 0.7rem 1rem; border-radius: 0.5rem; cursor: pointer; font-size: 0.9rem; transition: background 0.2s; }
+                .${CONFIG.UI_PREFIX}-custom-confirm       { background: var(--tm-confirm-bg); border-color: var(--tm-confirm-border); color: var(--tm-confirm-text); }
+                .${CONFIG.UI_PREFIX}-custom-confirm:hover { background: var(--tm-confirm-hover); }
                 .${CONFIG.UI_PREFIX}-custom-cancel:hover  { background: var(--tm-bg-hover-subtle); border-color: var(--tm-text-dark); }
-
-                /* ── Custom Name Suggestion Dropdown ─────────────────────── */
-                /* Position relative on the wrapper so the dropdown anchors
-                   below the input row without affecting footer flow.         */
-                .${CONFIG.UI_PREFIX}-custom-wrapper { position: relative; }
-                .${CONFIG.UI_PREFIX}-suggestion-dropdown {
-                    display: none;
-                    position: absolute;
-                    bottom: calc(100% + 0.4rem); /* opens upward above the input row */
-                    left: 0; right: 0;
-                    background: var(--tm-bg-input);
-                    border: 1px solid var(--tm-border-light);
-                    border-radius: 0.6rem;
-                    overflow: hidden;
-                    box-shadow: 0 -0.5rem 1.5rem rgba(0,0,0,0.5);
-                    z-index: 10;
-                    max-height: 10rem;
-                    overflow-y: auto;
-                }
-                .${CONFIG.UI_PREFIX}-suggestion-dropdown::-webkit-scrollbar { width: 4px; }
-                .${CONFIG.UI_PREFIX}-suggestion-dropdown::-webkit-scrollbar-thumb { background: var(--tm-border-light); border-radius: 4px; }
-                .${CONFIG.UI_PREFIX}-suggestion-dropdown--open { display: block; }
-                .${CONFIG.UI_PREFIX}-suggestion-row {
-                    display: flex; align-items: center; justify-content: space-between;
-                    padding: 0.5rem 0.7rem; gap: 0.5rem;
-                    cursor: pointer; transition: background 0.15s;
-                    font-size: 0.88rem; color: var(--tm-text-main);
-                }
-                .${CONFIG.UI_PREFIX}-suggestion-row:hover,
-                .${CONFIG.UI_PREFIX}-suggestion-row--active { background: var(--tm-bg-hover); }
-                .${CONFIG.UI_PREFIX}-suggestion-label {
-                    flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-                    /* Ensure the label itself captures hover/mousedown for fill action */
-                    cursor: pointer;
-                }
-                .${CONFIG.UI_PREFIX}-suggestion-remove {
-                    flex-shrink: 0; background: none; border: none;
-                    cursor: pointer; padding: 0.15rem; display: flex;
-                    align-items: center; justify-content: center;
-                    border-radius: 0.3rem; transition: background 0.15s; opacity: 0;
-                }
-                .${CONFIG.UI_PREFIX}-suggestion-row:hover    .${CONFIG.UI_PREFIX}-suggestion-remove,
-                .${CONFIG.UI_PREFIX}-suggestion-row--active  .${CONFIG.UI_PREFIX}-suggestion-remove { opacity: 1; }
-                .${CONFIG.UI_PREFIX}-suggestion-remove:hover { background: rgba(229,115,115,0.18); }
-                .${CONFIG.UI_PREFIX}-suggestion-remove svg { width: 0.85rem; height: 0.85rem; fill: var(--tm-text-dark); pointer-events: none; }
-                .${CONFIG.UI_PREFIX}-suggestion-remove:hover svg { fill: var(--tm-danger); }
 
                 /* ── CRUD Bar ─────────────────────────────────────────────── */
                 .${CONFIG.UI_PREFIX}-crud-bar       { display: none; gap: 0.5rem; margin-bottom: 1rem; flex-shrink: 0; transition: opacity 0.2s; }
@@ -1589,13 +1585,13 @@
                 .${CONFIG.UI_PREFIX}-settings-field { display: flex; flex-direction: column; gap: 0.3rem; }
                 .${CONFIG.UI_PREFIX}-settings-field label { font-size: 0.8rem; color: var(--tm-text-muted); font-weight: 500; text-align: left; }
                 .${CONFIG.UI_PREFIX}-settings-input { background: var(--tm-bg-input); border: 1px solid var(--tm-border-light); border-radius: 0.6rem; padding: 0.7rem 0.8rem; color: var(--tm-text-main); font-size: 0.9rem; outline: none; transition: border-color 0.2s, background 0.2s; }
-                .${CONFIG.UI_PREFIX}-settings-input:focus { border-color: var(--tm-primary); background: #1a1a1a; }
+                .${CONFIG.UI_PREFIX}-settings-input:focus { border-color: var(--tm-primary); background: var(--tm-bg-elevated); }
                 .${CONFIG.UI_PREFIX}-settings-save-btn    { width: 100%; background: var(--tm-primary); color: var(--tm-text-main); border: none; border-radius: 0.6rem; padding: 0.8rem; font-size: 0.95rem; font-weight: 600; cursor: pointer; transition: background 0.2s; }
                 .${CONFIG.UI_PREFIX}-settings-save-btn:hover:not(:disabled) { background: var(--tm-primary-hover); }
                 .${CONFIG.UI_PREFIX}-history-delete-btn   { width: 100%; background: rgba(229,115,115,0.15); color: var(--tm-danger); border: 1px solid var(--tm-danger); border-radius: 0.6rem; padding: 0.8rem; font-size: 0.95rem; font-weight: 600; cursor: pointer; transition: background 0.2s, color 0.2s; }
                 .${CONFIG.UI_PREFIX}-history-delete-btn:hover:not(:disabled) { background: var(--tm-danger); color: #fff; }
                 .${CONFIG.UI_PREFIX}-settings-save-btn:disabled,
-                .${CONFIG.UI_PREFIX}-history-delete-btn:disabled { opacity: 0.4; cursor: not-allowed; border-color: #444; color: #666; background: #1a1a1a; }
+                .${CONFIG.UI_PREFIX}-history-delete-btn:disabled { opacity: 0.4; cursor: not-allowed; border-color: var(--tm-border-focus); color: var(--tm-text-dark); background: var(--tm-bg-elevated); }
 
                 /* ════════════════════════════════════════════════════════════
                    CAROUSEL SYSTEM
@@ -2296,23 +2292,27 @@
             const toast = document.createElement('div');
             toast.className = `${CONFIG.UI_PREFIX}-toast ${CONFIG.UI_PREFIX}-dl-toast`;
 
-            toast.innerHTML = `
-                <div class="${CONFIG.UI_PREFIX}-dl-info">
-                    <div class="${CONFIG.UI_PREFIX}-dl-title">Saving: ${filename}</div>
-                    <div class="${CONFIG.UI_PREFIX}-dl-status">Initializing stream...</div>
-                </div>
-                <div class="${CONFIG.UI_PREFIX}-progress-bg">
-                    <div class="${CONFIG.UI_PREFIX}-progress-fill"></div>
-                </div>
-            `;
+            const dlInfo   = document.createElement('div');
+            dlInfo.className = `${CONFIG.UI_PREFIX}-dl-info`;
+            const dlTitle  = document.createElement('div');
+            dlTitle.className = `${CONFIG.UI_PREFIX}-dl-title`;
+            dlTitle.textContent = `Saving: ${filename}`;
+            const dlStatus = document.createElement('div');
+            dlStatus.className = `${CONFIG.UI_PREFIX}-dl-status`;
+            dlStatus.textContent = 'Initializing stream...';
+            dlInfo.appendChild(dlTitle);
+            dlInfo.appendChild(dlStatus);
+            const progBg   = document.createElement('div');
+            progBg.className = `${CONFIG.UI_PREFIX}-progress-bg`;
+            const progFill = document.createElement('div');
+            progFill.className = `${CONFIG.UI_PREFIX}-progress-fill`;
+            progBg.appendChild(progFill);
+            toast.appendChild(dlInfo);
+            toast.appendChild(progBg);
             toast.style.animation = 'tmToastFadeIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards';
 
             this.toastContainer.appendChild(toast);
-            return {
-                el: toast,
-                fill: toast.querySelector(`.${CONFIG.UI_PREFIX}-progress-fill`),
-                status: toast.querySelector(`.${CONFIG.UI_PREFIX}-dl-status`)
-            };
+            return { el: toast, fill: progFill, status: dlStatus };
         },
 
         updateDownloadToast(toastObj, loaded, total, customMessage) {
@@ -2327,7 +2327,7 @@
                 toastObj.status.textContent = `${Utils.formatBytes(loaded)} / ${Utils.formatBytes(total)} (${percent}%)`;
             } else {
                 toastObj.fill.style.width = '100%';
-                toastObj.fill.style.background = '#888';
+                toastObj.fill.style.background = 'var(--tm-text-subtle)';
                 toastObj.status.textContent = `${Utils.formatBytes(loaded)} buffered...`;
             }
         },
@@ -2389,18 +2389,24 @@
             const duration = CONFIG.AUTO_CLOSE_COUNTDOWN_MS;
             toast.className = `${CONFIG.UI_PREFIX}-toast ${CONFIG.UI_PREFIX}-dl-toast`;
             toast.style.animation = `tmToastFadeIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards, tmCountdownBorder ${duration}ms linear forwards`;
-            toast.innerHTML = `
-                <div style="display:flex; justify-content:space-between; align-items:center; width:100%; gap: 1rem;">
-                    <span class="${CONFIG.UI_PREFIX}-countdown-text" style="font-weight: 500;">${actionText} Closing in ${Math.ceil(duration / 1000)}s...</span>
-                    <button class="${CONFIG.UI_PREFIX}-cancel-btn">Cancel</button>
-                </div>
-                <div class="${CONFIG.UI_PREFIX}-progress-bg">
-                    <div class="${CONFIG.UI_PREFIX}-progress-fill"></div>
-                </div>
-            `;
-            const textSpan = toast.querySelector(`.${CONFIG.UI_PREFIX}-countdown-text`);
-            const cancelBtn = toast.querySelector(`.${CONFIG.UI_PREFIX}-cancel-btn`);
-            const fill = toast.querySelector(`.${CONFIG.UI_PREFIX}-progress-fill`);
+            const rowDiv    = document.createElement('div');
+            rowDiv.style.cssText = 'display:flex;justify-content:space-between;align-items:center;width:100%;gap:1rem;';
+            const textSpan  = document.createElement('span');
+            textSpan.className = `${CONFIG.UI_PREFIX}-countdown-text`;
+            textSpan.style.fontWeight = '500';
+            textSpan.textContent = `${actionText} Closing in ${Math.ceil(duration / 1000)}s...`;
+            const cancelBtn = document.createElement('button');
+            cancelBtn.className = `${CONFIG.UI_PREFIX}-cancel-btn`;
+            cancelBtn.textContent = 'Cancel';
+            rowDiv.appendChild(textSpan);
+            rowDiv.appendChild(cancelBtn);
+            const progBg2   = document.createElement('div');
+            progBg2.className = `${CONFIG.UI_PREFIX}-progress-bg`;
+            const fill      = document.createElement('div');
+            fill.className  = `${CONFIG.UI_PREFIX}-progress-fill`;
+            progBg2.appendChild(fill);
+            toast.appendChild(rowDiv);
+            toast.appendChild(progBg2);
 
             let isCancelled = false;
             const startTime = Date.now();
@@ -2608,14 +2614,14 @@
                 if (this.recentPanelMode === 'history') {
                     title.textContent = '📜 Raw History';
                     subtitle.style.display = 'block';
-                    toggleBtn.innerHTML = '';
+                    toggleBtn.replaceChildren();
                     toggleBtn.appendChild(this._createSVG(ICONS.recent));
                     toggleBtn.title = "View Recent Saves";
                     footer.style.display = 'flex';
                 } else {
                     title.textContent = '🕒 Recent Saves';
                     subtitle.style.display = 'none';
-                    toggleBtn.innerHTML = '';
+                    toggleBtn.replaceChildren();
                     toggleBtn.appendChild(this._createSVG(ICONS.history));
                     toggleBtn.title = "View Raw History";
                     footer.style.display = 'none';
@@ -2853,7 +2859,7 @@
 
             if (this.multiSelectBtn) {
                 this.multiSelectBtn.title = "Select Multiple Members";
-                this.multiSelectBtn.innerHTML = '';
+                this.multiSelectBtn.replaceChildren();
                 this.multiSelectBtn.appendChild(this._createSVG(ICONS.checklist));
                 this.multiSelectBtn.style.borderColor = '';
                 const svg = this.multiSelectBtn.querySelector('svg');
@@ -2963,6 +2969,9 @@
                 if (this.currentView === 'config') {
                     if (this.hasUnsavedChanges() && !confirm("You have unsaved changes. Discard them?")) return;
                     this.currentView = this.selectedGroup ? 'members' : 'groups';
+                } else if (this.currentView === 'custom-save') {
+                    this._teardownCustomSaveView();
+                    return;
                 } else if (this.currentView === 'members') {
                     this.currentView = 'groups';
                     this.selectedGroup = null;
@@ -3075,7 +3084,7 @@
                 if (!this.isMultiSelectMode) {
                     this.isMultiSelectMode = true;
                     this.multiSelectBtn.title = "Cancel Selection";
-                    this.multiSelectBtn.innerHTML = '';
+                    this.multiSelectBtn.replaceChildren();
                     this.multiSelectBtn.appendChild(this._createSVG(ICONS.close));
                     this.multiSelectBtn.style.borderColor = 'var(--tm-danger)';
                     this.multiSelectBtn.querySelector('svg').style.fill = 'var(--tm-danger)';
@@ -3360,211 +3369,65 @@
             const customWrapper = document.createElement('div');
             customWrapper.className = `${CONFIG.UI_PREFIX}-custom-wrapper`;
 
-            // Input field — no native autocomplete; our custom dropdown handles it
             const customNameInput = document.createElement('input');
             customNameInput.className = `${CONFIG.UI_PREFIX}-custom-input`;
-            customNameInput.type = "text";
+            customNameInput.type = 'text';
             customNameInput.setAttribute('autocomplete', 'off');
-            customNameInput.placeholder = "Enter custom name...";
+            customNameInput.placeholder = 'Enter custom name...';
 
             const customCancelBtn = document.createElement('button');
             customCancelBtn.className = `${CONFIG.UI_PREFIX}-custom-cancel`;
-            customCancelBtn.innerText = "Cancel";
+            customCancelBtn.innerText = 'Cancel';
 
             const customConfirmBtn = document.createElement('button');
             customConfirmBtn.className = `${CONFIG.UI_PREFIX}-custom-confirm`;
-            customConfirmBtn.innerText = "Save";
-
-            // ── Suggestion dropdown ────────────────────────────────────────
-            // Positioned below the input via CSS; hidden when empty or unfocused.
-            // Each row: suggestion text (click → fill) + × button (click → delete).
-            const suggestionDropdown = document.createElement('div');
-            suggestionDropdown.className = `${CONFIG.UI_PREFIX}-suggestion-dropdown`;
-
-            // Tracks the keyboard-highlighted row index (-1 = none)
-            let suggestionActiveIdx = -1;
-
-            /**
-             * Renders the suggestion dropdown from the current GM storage history.
-             * Called on open, on keystroke (filter), on delete, and on cross-tab sync.
-             * @param {string} [filter=''] - only show rows containing this substring
-             */
-            const renderSuggestions = (filter = '') => {
-                suggestionDropdown.textContent = '';
-                suggestionActiveIdx = -1;
-
-                const history = CustomNameHistory.getRecent();
-                const lc = filter.toLowerCase();
-                // Reverse so the most-recently-saved entry sits at the bottom —
-                // closest to the input since the dropdown grows upward.
-                const matches = (filter
-                    ? history.filter(n => n.toLowerCase().includes(lc))
-                    : history).slice().reverse();
-
-                if (matches.length === 0) {
-                    suggestionDropdown.classList.remove(`${CONFIG.UI_PREFIX}-suggestion-dropdown--open`);
-                    return;
-                }
-
-                const frag = document.createDocumentFragment();
-                matches.forEach((name) => {
-                    const row = document.createElement('div');
-                    row.className = `${CONFIG.UI_PREFIX}-suggestion-row`;
-                    row.dataset.value = name;
-
-                    const label = document.createElement('span');
-                    label.className = `${CONFIG.UI_PREFIX}-suggestion-label`;
-                    label.textContent = name;
-
-                    // × remove button — styled to match the existing trash/close icon language
-                    const removeBtn = document.createElement('button');
-                    removeBtn.className = `${CONFIG.UI_PREFIX}-suggestion-remove`;
-                    removeBtn.title = 'Remove suggestion';
-                    removeBtn.setAttribute('aria-label', `Remove "${name}" from suggestions`);
-                    // Inline SVG close path matches ICONS.close already in the dict
-                    const rmSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-                    rmSvg.setAttribute('viewBox', '0 0 24 24');
-                    const rmPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-                    rmPath.setAttribute('d', ICONS.close);
-                    rmSvg.appendChild(rmPath);
-                    removeBtn.appendChild(rmSvg);
-
-                    // mousedown prevents input blur from firing before click lands
-                    removeBtn.addEventListener('mousedown', (e) => {
-                        e.preventDefault();
-                        CustomNameHistory.remove(name);
-                        renderSuggestions(customNameInput.value.trim());
-                        customNameInput.focus();
-                    });
-
-                    // Clicking the row text fills the input and closes the dropdown
-                    label.addEventListener('mousedown', (e) => {
-                        e.preventDefault();
-                        customNameInput.value = name;
-                        suggestionDropdown.classList.remove(`${CONFIG.UI_PREFIX}-suggestion-dropdown--open`);
-                        customNameInput.focus();
-                    });
-
-                    row.appendChild(label);
-                    row.appendChild(removeBtn);
-                    frag.appendChild(row);
-                });
-
-                suggestionDropdown.appendChild(frag);
-                suggestionDropdown.classList.add(`${CONFIG.UI_PREFIX}-suggestion-dropdown--open`);
-                // Dropdown grows upward — scroll to bottom so the most recent
-                // entry (index 0, rendered last after .reverse()) is always
-                // visible without manual scrolling.
-                suggestionDropdown.scrollTop = suggestionDropdown.scrollHeight;
-            };
-
-            // ── Keyboard navigation inside the dropdown ────────────────────
-            // Arrow keys move the highlight; Enter selects; Escape closes.
-            const highlightRow = (idx) => {
-                const rows = suggestionDropdown.querySelectorAll(`.${CONFIG.UI_PREFIX}-suggestion-row`);
-                rows.forEach((r, i) => r.classList.toggle(`${CONFIG.UI_PREFIX}-suggestion-row--active`, i === idx));
-                suggestionActiveIdx = idx;
-            };
-
-            // ── Cross-tab live refresh ─────────────────────────────────────
-            // Registered once via bindCrossTabSync(); called by the storage event
-            // only while this dropdown instance is active (overlay open).
-            CustomNameHistory._activeDropdownRefresh = () => {
-                renderSuggestions(customNameInput.value.trim());
-            };
+            customConfirmBtn.innerText = 'Save';
 
             customWrapper.appendChild(customNameInput);
             customWrapper.appendChild(customCancelBtn);
             customWrapper.appendChild(customConfirmBtn);
-            // Dropdown sits outside the flex row so it can overflow below it
-            customWrapper.appendChild(suggestionDropdown);
 
             this.footer.appendChild(this.footerMainRow);
             this.footer.appendChild(customWrapper);
 
-            const resetCustomInput = () => {
-                suggestionDropdown.classList.remove(`${CONFIG.UI_PREFIX}-suggestion-dropdown--open`);
-                customWrapper.style.display = 'none';
-                this.footerMainRow.style.display = 'flex';
-                customNameInput.value = '';
-                // Detach cross-tab refresh when the panel is closed
-                CustomNameHistory._activeDropdownRefresh = null;
-            };
+            // Exits custom-save view — delegates all teardown to the shared helper
+            const exitCustomSaveView = () => this._teardownCustomSaveView();
 
             const submitCustomSave = () => {
-                const customName = customNameInput.value.trim();
-                if (customName) {
-                    // Save to history before the download so MRU order is correct
-                    CustomNameHistory.save(customName);
-                    Downloader.executeCustomSave(customName, this.isMultiSelectMode ? this.cart : null);
-                    if (this.isMultiSelectMode) this.exitMultiSelectMode();
-                } else {
-                    customNameInput.focus();
-                }
+                const name = customNameInput.value.trim();
+                if (!name) { customNameInput.focus(); return; }
+                // Save to history first so MRU order is correct even if download fails
+                CustomPresets.save(name);
+                Downloader.executeCustomSave(name, this.isMultiSelectMode ? this.cart : null);
+                if (this.isMultiSelectMode) this.exitMultiSelectMode();
+                exitCustomSaveView();
             };
 
+            // "Custom" button: enter the custom-save panel view
             this.customBtn.onclick = () => {
+                this._previousView = this.currentView;
+                this.currentView = 'custom-save';
+                // Wire cross-tab refresh while this view is active
+                CustomPresets._onRemoteChange = () => this.updateListData(this.searchInput ? this.searchInput.value.toLowerCase().trim() : '');
+                this.isCrudMode = false;
+                if (this.searchInput) this.searchInput.value = '';
+                this.updateListData('');
                 this.footerMainRow.style.display = 'none';
                 customWrapper.style.display = 'flex';
-                // Re-attach cross-tab refresh for this dropdown session
-                CustomNameHistory._activeDropdownRefresh = () => {
-                    renderSuggestions(customNameInput.value.trim());
-                };
-                // Pre-populate with full history on open
-                renderSuggestions('');
                 requestAnimationFrame(() => customNameInput.focus());
             };
 
-            customCancelBtn.onclick = resetCustomInput;
+            customCancelBtn.onclick = exitCustomSaveView;
             customConfirmBtn.onclick = submitCustomSave;
 
-            // Show/filter suggestions as the user types
-            customNameInput.addEventListener('input', () => {
-                renderSuggestions(customNameInput.value.trim());
-            });
-
-            customNameInput.addEventListener('focus', () => {
-                renderSuggestions(customNameInput.value.trim());
-            });
-
-            // Close dropdown when focus leaves the entire wrapper
-            customWrapper.addEventListener('focusout', (e) => {
-                // relatedTarget is null when focus moves outside the document
-                // or to a non-focusable element — treat both as blur
-                if (!customWrapper.contains(e.relatedTarget)) {
-                    suggestionDropdown.classList.remove(`${CONFIG.UI_PREFIX}-suggestion-dropdown--open`);
-                }
-            });
-
             customNameInput.addEventListener('keydown', (e) => {
-                const rows = suggestionDropdown.querySelectorAll(`.${CONFIG.UI_PREFIX}-suggestion-row`);
-                const isOpen = suggestionDropdown.classList.contains(`${CONFIG.UI_PREFIX}-suggestion-dropdown--open`);
-
-                if (e.key === 'ArrowDown' && isOpen) {
+                if (e.key === 'Enter') {
                     e.preventDefault();
-                    highlightRow(Math.min(suggestionActiveIdx + 1, rows.length - 1));
-                } else if (e.key === 'ArrowUp' && isOpen) {
-                    e.preventDefault();
-                    highlightRow(Math.max(suggestionActiveIdx - 1, 0));
-                } else if (e.key === 'Enter') {
-                    e.preventDefault();
-                    // If a suggestion row is highlighted, select it; otherwise submit
-                    if (isOpen && suggestionActiveIdx >= 0 && rows[suggestionActiveIdx]) {
-                        customNameInput.value = rows[suggestionActiveIdx].dataset.value;
-                        suggestionDropdown.classList.remove(`${CONFIG.UI_PREFIX}-suggestion-dropdown--open`);
-                    } else {
-                        submitCustomSave();
-                    }
+                    submitCustomSave();
                 } else if (e.key === 'Escape') {
                     e.preventDefault();
                     e.stopPropagation();
-                    if (isOpen) {
-                        // First Escape closes only the dropdown; second resets the whole panel
-                        suggestionDropdown.classList.remove(`${CONFIG.UI_PREFIX}-suggestion-dropdown--open`);
-                    } else {
-                        resetCustomInput();
-                        this.searchInput.focus();
-                    }
+                    exitCustomSaveView();
                 }
             });
 
@@ -3573,6 +3436,27 @@
             container.appendChild(panel);
 
             return container;
+        },
+
+        /**
+         * Tears down the 'custom-save' view cleanly from any exit path.
+         * Resets footer, clears inputs, restores previous view state, and
+         * calls updateListData + updateVisibility so the UI is fully consistent.
+         * Called by: back button, Cancel button, Escape key, handleItemClick.
+         */
+        _teardownCustomSaveView() {
+            const customWrapper = this.footer ? this.footer.querySelector(`.${CONFIG.UI_PREFIX}-custom-wrapper`) : null;
+            const footerInput   = customWrapper ? customWrapper.querySelector(`.${CONFIG.UI_PREFIX}-custom-input`) : null;
+            if (customWrapper) customWrapper.style.display = 'none';
+            if (footerInput)   footerInput.value = '';
+            if (this.searchInput) this.searchInput.value = '';
+            if (this.footerMainRow) this.footerMainRow.style.display = 'flex';
+            CustomPresets._onRemoteChange = null;
+            this.currentView  = this._previousView || 'groups';
+            this._previousView = null;
+            this.isCrudMode   = false;
+            this.updateListData('');
+            this.updateVisibility();
         },
 
         updateVisibility() {
@@ -3588,6 +3472,19 @@
                 requestAnimationFrame(() => {
                     if (this.configInputs && this.configInputs.token) this.configInputs.token.focus();
                 });
+            } else if (this.currentView === 'custom-save') {
+                this.configContainer.style.display = 'none';
+                this.searchContainer.style.display = 'flex';
+                this.mainListWrapper.style.display = 'flex';
+                this.footer.style.display = 'flex';
+                this.crudBarContainer.style.display = 'none';
+                this.headerTitle.textContent = 'Custom Save';
+                this.headerBackBtn.style.display = 'flex';
+                if (this.editBtn) {
+                    this.editBtn.style.borderColor = '';
+                    const svg = this.editBtn.querySelector('svg');
+                    if (svg) svg.style.fill = '';
+                }
             } else {
                 this.configContainer.style.display = 'none';
                 this.searchContainer.style.display = 'flex';
@@ -3626,7 +3523,26 @@
             this.currentListData = [];
             const isSearch = searchVal.length > 0;
 
-            if (this.currentView === 'groups') {
+            if (this.currentView === 'custom-save') {
+                // Preset list — search filters on both group and name segments.
+                // Display label and badge are formatted for readability;
+                // itemData.preset stays as the raw original string for filename use.
+                CustomPresets.load().forEach(preset => {
+                    const { group, name } = CustomPresets.parse(preset);
+                    if (isSearch) {
+                        const lc = searchVal.toLowerCase();
+                        const groupMatch = group.toLowerCase().includes(lc);
+                        const nameMatch  = (name || preset).toLowerCase().includes(lc);
+                        if (!groupMatch && !nameMatch) return;
+                    }
+                    this.currentListData.push({
+                        type:   'preset',
+                        preset: preset,                                        // raw — used for filename
+                        label:  Utils.toProperCase(name || preset),            // display only
+                        badge:  group ? group.toUpperCase() : ''               // display only
+                    });
+                });
+            } else if (this.currentView === 'groups') {
                 Database.sortedGroups.forEach(gName => {
                     const groupMatches = !isSearch || gName.toLowerCase().includes(searchVal);
                     if (groupMatches) {
@@ -3683,7 +3599,9 @@
                 this.listInner.textContent = '';
                 const emptyState = document.createElement('div');
                 emptyState.className = `${CONFIG.UI_PREFIX}-empty-state`;
-                emptyState.textContent = 'No matching database profiles tracked.';
+                emptyState.textContent = this.currentView === 'custom-save'
+                    ? 'No saved presets yet. Type a name below and press Save.'
+                    : 'No matching database profiles tracked.';
                 this.listInner.appendChild(emptyState);
                 return;
             }
@@ -3762,6 +3680,19 @@
                     }
                 }
 
+                // Preset rows always show a delete button (no crud mode needed)
+                if (itemData.type === 'preset' && this.deleteBtnTemplate) {
+                    const delBtn = this.deleteBtnTemplate.cloneNode(true);
+                    delBtn.dataset.index = i;
+                    // Override the delegated click so it removes from CustomPresets
+                    delBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        CustomPresets.remove(itemData.preset);
+                        this.updateListData('');
+                    });
+                    rightWrapper.appendChild(delBtn);
+                }
+
                 btn.appendChild(rightWrapper);
                 fragment.appendChild(btn);
             }
@@ -3787,6 +3718,15 @@
         },
 
         handleItemClick(itemData) {
+            if (itemData.type === 'preset') {
+                // Promote to top of MRU before executing so recency is correct
+                CustomPresets.save(itemData.preset);
+                Downloader.executeCustomSave(itemData.preset, this.isMultiSelectMode ? this.cart : null);
+                if (this.isMultiSelectMode) this.exitMultiSelectMode();
+                // Tear down custom-save view cleanly via shared helper
+                this._teardownCustomSaveView();
+                return;
+            }
             if (itemData.type === 'group') {
                 this.selectedGroup = itemData.group;
                 this.currentView = 'members';
@@ -3920,7 +3860,12 @@
             cartTitle.style.margin = '0';
             cartTitle.style.fontSize = '1rem';
             cartTitle.style.whiteSpace = 'nowrap';
-            cartTitle.innerHTML = `Queue (<span id="${CONFIG.UI_PREFIX}-cart-count">0</span>)`;
+            cartTitle.textContent = 'Queue (';
+            const cartCountSpan = document.createElement('span');
+            cartCountSpan.id = `${CONFIG.UI_PREFIX}-cart-count`;
+            cartCountSpan.textContent = '0';
+            cartTitle.appendChild(cartCountSpan);
+            cartTitle.appendChild(document.createTextNode(')'));
 
             const btnGroup = document.createElement('div');
             btnGroup.style.display = 'flex';
@@ -4183,7 +4128,7 @@
             Storage.init(this.isSilentMode);
 
             if (this.isSilentMode) {
-                Logger.info('Initialized Silent Cloud Worker v15.1');
+                Logger.info('Initialized Silent Cloud Worker v15.5');
                 return;
             }
 
@@ -4199,7 +4144,7 @@
             // bindCrossTabSync() after Database.init() ensures that delay never
             // sits between script start and isLoaded being set.
             Database.init();
-            CustomNameHistory.bindCrossTabSync();
+            CustomPresets.bindCrossTabSync();
 
             setInterval(() => {
                 if (document.visibilityState === 'visible' && !UI.overlay) {
@@ -4207,7 +4152,7 @@
                 }
             }, CONFIG.CLOUD_HISTORY_THROTTLE_MS);
 
-            Logger.info('Initialized K-Pop Media Downloader v15.1');
+            Logger.info('Initialized K-Pop Media Downloader v15.5');
         },
 
         isDirectMediaPage() {
