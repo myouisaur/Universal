@@ -2,7 +2,7 @@
 // @name         [Universal] K-Media Downloader
 // @namespace    https://github.com/myouisaur/Universal
 // @icon         data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23FF4081'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 11h3l-4 4-4-4h3V8h2v5z'/%3E%3C/svg%3E
-// @version      15.5
+// @version      15.7
 // @description  Organizes, tracks, and saves categorized K-Pop media files through a centralized overlay.
 // @author       Xiv
 // @match        *://*/*
@@ -64,7 +64,6 @@
         AUTO_CLOSE_COUNTDOWN_MS: 3000,
 
         // Custom Presets
-        CUSTOM_PRESETS_MAX: 100,              // Max saved presets; adjust to taste
         CUSTOM_PRESETS_KEY: 'tm_kpop_dl_custom_presets',
 
         // Carousel
@@ -213,7 +212,7 @@
                 const list = this.load();
                 const deduped = list.filter(v => v !== trimmed);
                 deduped.unshift(trimmed);
-                this._persist(deduped.slice(0, CONFIG.CUSTOM_PRESETS_MAX));
+                this._persist(deduped);
             } catch (e) {
                 Logger.warn('[CustomPresets] GM storage write failed — preset not saved.');
             }
@@ -968,7 +967,7 @@
             this.triggerDownload(url, originalName, null, null, true, true, null);
         },
 
-        executeCustomSave(customName, cart = null) {
+        executeCustomSave(customName, cart = null, onSuccess = null) {
             const ext = this.getExtension();
             const safeName = customName.replace(/[\\/:*?"<>|]/g, '_').trim();
             const fileName = CONFIG.CUSTOM_NAMING_FORMAT
@@ -981,7 +980,7 @@
             let skipCloudSync = true;
             if (cart && cart.length > 0) skipCloudSync = false;
 
-            this.triggerDownload(window.location.href, fileName, null, null, true, skipCloudSync, cart);
+            this.triggerDownload(window.location.href, fileName, null, null, true, skipCloudSync, cart, onSuccess);
         },
 
         executeIdolSave(group, name) {
@@ -997,12 +996,12 @@
             this.triggerDownload(window.location.href, fileName, null, null, CONFIG.PROMPT_ON_IDOL_SAVE, false, cart);
         },
 
-        triggerDownload(url, name, groupContext, nameContext, promptUser = true, skipCloudSync = false, cartContext = null) {
+        triggerDownload(url, name, groupContext, nameContext, promptUser = true, skipCloudSync = false, cartContext = null, onSuccess = null) {
             const displayFileName = name.includes('/') ? name.substring(name.lastIndexOf('/') + 1) : name;
             const toastObj = UI.createDownloadToast(displayFileName);
 
             if (url.startsWith('file://')) {
-                this.bufferLocalFile(url, name, groupContext, nameContext, toastObj, promptUser, skipCloudSync, cartContext);
+                this.bufferLocalFile(url, name, groupContext, nameContext, toastObj, promptUser, skipCloudSync, cartContext, onSuccess);
                 return;
             }
 
@@ -1012,13 +1011,13 @@
             } catch (e) {}
 
             if (isSafeImage && typeof GM_download === 'function') {
-                this._executeGMDownload(url, name, groupContext, nameContext, toastObj, promptUser, skipCloudSync, cartContext);
+                this._executeGMDownload(url, name, groupContext, nameContext, toastObj, promptUser, skipCloudSync, cartContext, onSuccess);
             } else {
-                this.fallbackDownload(url, name, groupContext, nameContext, toastObj, promptUser, skipCloudSync, cartContext);
+                this.fallbackDownload(url, name, groupContext, nameContext, toastObj, promptUser, skipCloudSync, cartContext, onSuccess);
             }
         },
 
-        bufferLocalFile(url, name, groupContext, nameContext, toastObj, promptUser, skipCloudSync, cartContext) {
+        bufferLocalFile(url, name, groupContext, nameContext, toastObj, promptUser, skipCloudSync, cartContext, onSuccess = null) {
             Logger.info('Buffering local file to bypass browser name enforcement...');
             UI.updateDownloadToast(toastObj, 0, 0, 'Buffering local file into memory...');
 
@@ -1037,9 +1036,9 @@
                         let mimeType = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : `image/${ext}`;
                         canvas.toBlob((blob) => {
                             if (blob) {
-                                this._saveBlob(blob, name, groupContext, nameContext, toastObj, promptUser, skipCloudSync, cartContext);
+                                this._saveBlob(blob, name, groupContext, nameContext, toastObj, promptUser, skipCloudSync, cartContext, onSuccess);
                             } else {
-                                this._bufferViaNetwork(url, name, groupContext, nameContext, toastObj, promptUser, skipCloudSync, cartContext);
+                                this._bufferViaNetwork(url, name, groupContext, nameContext, toastObj, promptUser, skipCloudSync, cartContext, onSuccess);
                             }
                         }, mimeType, 1.0);
                         return;
@@ -1049,15 +1048,15 @@
                 }
             }
 
-            this._bufferViaNetwork(url, name, groupContext, nameContext, toastObj, promptUser, skipCloudSync, cartContext);
+            this._bufferViaNetwork(url, name, groupContext, nameContext, toastObj, promptUser, skipCloudSync, cartContext, onSuccess);
         },
 
-        async _bufferViaNetwork(url, name, groupContext, nameContext, toastObj, promptUser, skipCloudSync, cartContext) {
+        async _bufferViaNetwork(url, name, groupContext, nameContext, toastObj, promptUser, skipCloudSync, cartContext, onSuccess = null) {
             try {
                 const res = await fetch(url);
                 if (res.ok) {
                     const blob = await res.blob();
-                    this._saveBlob(blob, name, groupContext, nameContext, toastObj, promptUser, skipCloudSync, cartContext);
+                    this._saveBlob(blob, name, groupContext, nameContext, toastObj, promptUser, skipCloudSync, cartContext, onSuccess);
                     return;
                 }
             } catch (e) {}
@@ -1070,7 +1069,7 @@
                     timeout: 30000,
                     onload: (res) => {
                         if (res.status >= 200 && res.status < 300 || res.status === 0) {
-                            this._saveBlob(res.response, name, groupContext, nameContext, toastObj, promptUser, skipCloudSync, cartContext);
+                            this._saveBlob(res.response, name, groupContext, nameContext, toastObj, promptUser, skipCloudSync, cartContext, onSuccess);
                         } else {
                             UI.finishDownloadToast(toastObj, 'error', 'Failed to read local file.');
                         }
@@ -1088,7 +1087,7 @@
             }
         },
 
-        _saveBlob(blob, name, groupContext, nameContext, toastObj, promptUser, skipCloudSync, cartContext) {
+        _saveBlob(blob, name, groupContext, nameContext, toastObj, promptUser, skipCloudSync, cartContext, onSuccess = null) {
             const blobUrl = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = blobUrl;
@@ -1100,11 +1099,14 @@
             if (cartContext && cartContext.length > 0) Storage.recordBatchSuccess(cartContext);
             else if (groupContext && nameContext) Storage.recordSuccess(groupContext, nameContext);
 
+            // Fire onSuccess only after confirmed save — preset recording happens here
+            if (typeof onSuccess === 'function') onSuccess();
+
             UI.finishDownloadToast(toastObj, 'success', 'Saved Successfully!');
             UI.startAutoCloseSequence(skipCloudSync);
         },
 
-        _executeGMDownload(url, name, groupContext, nameContext, toastObj, promptUser, skipCloudSync, cartContext) {
+        _executeGMDownload(url, name, groupContext, nameContext, toastObj, promptUser, skipCloudSync, cartContext, onSuccess = null) {
             let hasStarted = false;
             GM_download({
                 url: url,
@@ -1119,6 +1121,9 @@
                     if (cartContext && cartContext.length > 0) Storage.recordBatchSuccess(cartContext);
                     else if (groupContext && nameContext) Storage.recordSuccess(groupContext, nameContext);
 
+                    // Fire onSuccess only on confirmed download completion
+                    if (typeof onSuccess === 'function') onSuccess();
+
                     UI.finishDownloadToast(toastObj, 'success', 'Saved Successfully!');
                     UI.startAutoCloseSequence(skipCloudSync);
                 },
@@ -1127,7 +1132,7 @@
                         UI.finishDownloadToast(toastObj, 'error', 'Download interrupted or blocked.');
                     } else {
                         UI.updateDownloadToast(toastObj, 0, 0, 'GM Engine blocked, triggering fallback override...');
-                        this.fallbackDownload(url, name, groupContext, nameContext, toastObj, promptUser, skipCloudSync, cartContext);
+                        this.fallbackDownload(url, name, groupContext, nameContext, toastObj, promptUser, skipCloudSync, cartContext, onSuccess);
                     }
                 },
                 ontimeout: () => {
@@ -1136,7 +1141,7 @@
             });
         },
 
-        fallbackDownload(url, name, groupContext, nameContext, toastObj, promptUser, skipCloudSync, cartContext) {
+        fallbackDownload(url, name, groupContext, nameContext, toastObj, promptUser, skipCloudSync, cartContext, onSuccess = null) {
             Logger.info('Using generic XHR fallback download method...');
             if (typeof GM_xmlhttpRequest === 'function') {
                 GM_xmlhttpRequest({
@@ -1149,7 +1154,7 @@
                     },
                     onload: (res) => {
                         if (res.status >= 200 && res.status < 300) {
-                            this._saveBlob(res.response, name, groupContext, nameContext, toastObj, promptUser, skipCloudSync, cartContext);
+                            this._saveBlob(res.response, name, groupContext, nameContext, toastObj, promptUser, skipCloudSync, cartContext, onSuccess);
                         } else {
                             UI.finishDownloadToast(toastObj, 'error', `HTTP ${res.status}`);
                         }
@@ -3396,9 +3401,8 @@
             const submitCustomSave = () => {
                 const name = customNameInput.value.trim();
                 if (!name) { customNameInput.focus(); return; }
-                // Save to history first so MRU order is correct even if download fails
-                CustomPresets.save(name);
-                Downloader.executeCustomSave(name, this.isMultiSelectMode ? this.cart : null);
+                // Pass CustomPresets.save as onSuccess — only records after confirmed download
+                Downloader.executeCustomSave(name, this.isMultiSelectMode ? this.cart : null, () => CustomPresets.save(name));
                 if (this.isMultiSelectMode) this.exitMultiSelectMode();
                 exitCustomSaveView();
             };
@@ -3419,6 +3423,17 @@
 
             customCancelBtn.onclick = exitCustomSaveView;
             customConfirmBtn.onclick = submitCustomSave;
+
+            // While in custom-save view, typing in the footer input also filters
+            // the preset list live — so users can see if the name already exists
+            // before saving. Clears to full list when the input is empty.
+            customNameInput.addEventListener('input', () => {
+                if (this.currentView !== 'custom-save') return;
+                const val = customNameInput.value.trim().toLowerCase();
+                // Also sync the search bar so the filter is visually acknowledged
+                if (this.searchInput) this.searchInput.value = customNameInput.value.trim();
+                this.updateListData(val);
+            });
 
             customNameInput.addEventListener('keydown', (e) => {
                 if (e.key === 'Enter') {
@@ -3533,7 +3548,8 @@
                         const lc = searchVal.toLowerCase();
                         const groupMatch = group.toLowerCase().includes(lc);
                         const nameMatch  = (name || preset).toLowerCase().includes(lc);
-                        if (!groupMatch && !nameMatch) return;
+                        const rawMatch   = preset.toLowerCase().includes(lc);
+                        if (!groupMatch && !nameMatch && !rawMatch) return;
                     }
                     this.currentListData.push({
                         type:   'preset',
@@ -3664,6 +3680,20 @@
                             this.updateListData('');
                         };
                     }
+
+                    // In custom-save view, clicking the group badge filters the list by that group
+                    if (itemData.type === 'preset' && itemData.badge) {
+                        badgeSpan.classList.add(`${CONFIG.UI_PREFIX}-badge-actionable`);
+                        badgeSpan.title = `Filter by ${itemData.badge}`;
+                        badgeSpan.onclick = (e) => {
+                            e.stopPropagation();
+                            // Use the raw group (before toUpperCase) for the filter
+                            const rawGroup = CustomPresets.parse(itemData.preset).group;
+                            if (this.searchInput) this.searchInput.value = rawGroup;
+                            this.updateListData(rawGroup.toLowerCase());
+                        };
+                    }
+
                     rightWrapper.appendChild(badgeSpan);
                 }
 
@@ -3719,9 +3749,8 @@
 
         handleItemClick(itemData) {
             if (itemData.type === 'preset') {
-                // Promote to top of MRU before executing so recency is correct
-                CustomPresets.save(itemData.preset);
-                Downloader.executeCustomSave(itemData.preset, this.isMultiSelectMode ? this.cart : null);
+                // Pass CustomPresets.save as onSuccess to promote MRU only on confirmed download
+                Downloader.executeCustomSave(itemData.preset, this.isMultiSelectMode ? this.cart : null, () => CustomPresets.save(itemData.preset));
                 if (this.isMultiSelectMode) this.exitMultiSelectMode();
                 // Tear down custom-save view cleanly via shared helper
                 this._teardownCustomSaveView();
@@ -4128,7 +4157,7 @@
             Storage.init(this.isSilentMode);
 
             if (this.isSilentMode) {
-                Logger.info('Initialized Silent Cloud Worker v15.5');
+                Logger.info('Initialized Silent Cloud Worker v15.7');
                 return;
             }
 
@@ -4152,7 +4181,7 @@
                 }
             }, CONFIG.CLOUD_HISTORY_THROTTLE_MS);
 
-            Logger.info('Initialized K-Pop Media Downloader v15.5');
+            Logger.info('Initialized K-Pop Media Downloader v15.7');
         },
 
         isDirectMediaPage() {
