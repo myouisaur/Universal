@@ -555,13 +555,6 @@
     "Soyeon",
     "Yuqi"
   ],
-  "Girl's Day": [
-    "Hyeri",
-    "Jisun",
-    "Minah",
-    "Sojin",
-    "Yura"
-  ],
   "Girlkind": [
     "Ellyn",
     "JK",
@@ -1652,5 +1645,12 @@
     "Hari",
     "Kyrin",
     "Windy"
+  ],
+  "Girls Day": [
+    "Hyeri",
+    "Jisun",
+    "Minah",
+    "Sojin",
+    "Yura"
   ]
 }
