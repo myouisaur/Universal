@@ -572,12 +572,6 @@
   "Girls Alert": [
     "Satbyeol"
   ],
-  "Girls' World": [
-    "A-ra",
-    "Hari",
-    "Kyrin",
-    "Windy"
-  ],
   "GIRLSET": [
     "Camila",
     "Kaylee",
@@ -1652,5 +1646,11 @@
     "Jieun",
     "Sunhye",
     "Yeonjung"
+  ],
+  "Girls World": [
+    "A-ra",
+    "Hari",
+    "Kyrin",
+    "Windy"
   ]
 }
