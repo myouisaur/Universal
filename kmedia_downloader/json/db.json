@@ -7,195 +7,229 @@
     "Suhyeon"
   ],
   "2EYES": [
-    "Hyangsuk",
-    "Hyerin",
+    "Daeun",
     "Dasom",
-    "Daeun"
+    "Hyangsuk",
+    "Hyerin"
   ],
   "2NE1": [
     "Bom",
-    "Dara",
     "CL",
+    "Dara",
     "Minzy"
   ],
   "3YE": [
-    "Yurim",
+    "Haeun",
     "Yuji",
-    "Haeun"
+    "Yurim"
   ],
   "4minute": [
-    "Jihyun",
     "Gayoon",
-    "Jiyoon",
     "HyunA",
+    "Jihyun",
+    "Jiyoon",
     "Sohyun"
   ],
   "4TEN": [
-    "Hyeji",
     "Heeo",
-    "Yoon",
-    "Hyejin"
+    "Hyeji",
+    "Hyejin",
+    "Yoon"
   ],
   "9Muses": [
-    "Hyuna",
     "Euaerin",
-    "Sungah",
-    "Kyungri",
     "Hyemi",
+    "Hyuna",
+    "Keumjo",
+    "Kyungri",
     "Minha",
     "Sojin",
-    "Keumjo"
+    "Sungah"
   ],
   "ADYA": [
-    "Yeonsu",
-    "Seowon",
-    "Sena",
     "Chaeeun",
-    "Seungchae"
+    "Sena",
+    "Seowon",
+    "Seungchae",
+    "Yeonsu"
   ],
   "aespa": [
-    "Karina",
     "Giselle",
-    "Winter",
-    "Ningning"
+    "Karina",
+    "Ningning",
+    "Winter"
   ],
   "After School": [
-    "Kahi",
-    "Jungah",
-    "Jooyeon",
-    "Uee",
-    "Raina",
     "Bekah",
-    "Nana",
-    "Lizzy",
     "E-Young",
+    "Jooyeon",
+    "Jungah",
     "Kaeun",
-    "Soyoung"
+    "Kahi",
+    "Lizzy",
+    "Nana",
+    "Raina",
+    "Soyoung",
+    "Uee"
   ],
   "ALICE": [
-    "EJ",
-    "Do-A",
     "Chaejeong",
-    "Yeonje",
-    "Yukyung",
+    "Do-A",
+    "EJ",
+    "Karin",
     "Sohee",
-    "Karin"
+    "Yeonje",
+    "Yukyung"
   ],
   "ANS": [
-    "Lina",
-    "J",
-    "Royeon",
-    "Dalyn",
-    "Raon",
     "Bian",
+    "Dalyn",
     "Dami",
-    "Haena"
+    "Haena",
+    "J",
+    "Lina",
+    "Raon",
+    "Royeon"
   ],
   "AoA": [
+    "Chanmi",
     "Choa",
-    "Jimin",
-    "Yuna",
     "Hyejeong",
+    "Jimin",
     "Mina",
     "Seolhyun",
-    "Chanmi",
-    "Youkyung"
+    "Youkyung",
+    "Yuna"
+  ],
+  "API": [
+    "Cheongeum",
+    "Dany",
+    "Haru",
+    "Heejoo",
+    "Saebyeok",
+    "Sarah"
   ],
   "Apink": [
-    "Chorong",
     "Bomi",
+    "Chorong",
     "Eunji",
+    "Hayoung",
     "Naeun",
-    "Namjoo",
-    "Hayoung"
+    "Namjoo"
   ],
   "Apple.B": [
-    "Yurim",
+    "Haeun",
     "Yuji",
-    "Haeun"
+    "Yurim"
   ],
   "APRIL": [
     "Chaekyung",
     "Chaewon",
     "Hyunjoo",
+    "Jinsol",
     "Naeun",
-    "Yena",
     "Rachel",
-    "Jinsol"
+    "Yena"
   ],
   "April": [
     "Somin"
   ],
   "AREAL": [
-    "Hyebin",
     "Areum",
-    "Segye",
-    "Dabi"
+    "Dabi",
+    "Hyebin",
+    "Segye"
   ],
   "ARIAZ": [
-    "Yunji",
     "Dawon",
+    "Hyogyeong",
+    "Jueun",
     "Sihyeon",
     "Yeori",
-    "Hyogyeong",
-    "Jueun"
+    "Yunji"
   ],
   "ARTBEAT": [
-    "Yubin",
-    "Seyoung",
-    "Yoojin",
     "Damhee",
     "Gaeun",
+    "Haeun",
+    "Seyoung",
     "Sieun",
-    "Haeun"
+    "Yoojin",
+    "Yubin"
+  ],
+  "AtHeart": [
+    "Arin",
+    "Aurora",
+    "Bome",
+    "Katelyn",
+    "Michi",
+    "Nahyun",
+    "Seohyeon",
+    "Sorin"
+  ],
+  "Baby DONT Cry": [
+    "Beni",
+    "Kumi",
+    "Mia",
+    "Yihyun"
   ],
   "BABYMONSTER": [
-    "Ruka",
-    "Pharita",
-    "Asa",
     "Ahyeon",
+    "Asa",
+    "Chiquita",
     "Haram",
+    "Pharita",
     "Rora",
-    "Chiquita"
+    "Ruka"
   ],
   "BADKIZ": [
-    "Monika",
-    "LuA",
     "K.Me",
+    "LuA",
+    "Monika",
     "Somin",
     "U-Si"
   ],
   "BADVILLAIN": [
-    "Emma",
     "Chloe Young",
+    "Emma",
     "Hu'e",
     "Ina",
-    "Yunseo",
+    "Kelly",
     "Vin",
-    "Kelly"
+    "Yunseo"
   ],
   "Berry Good": [
-    "Taeha",
-    "Johyun",
-    "Seoyul",
     "Daye",
+    "Gowoon",
+    "Johyun",
     "Sehyung",
-    "Gowoon"
+    "Seoyul",
+    "Taeha"
   ],
   "BESTie": [
-    "Hyeyeon",
-    "Uji",
     "Dahye",
-    "Haeryeong"
+    "Haeryeong",
+    "Hyeyeon",
+    "Uji"
   ],
   "Billlie": [
-    "Moon Sua",
-    "Suhyeon",
     "Haram",
-    "Tsuki",
+    "Haruna",
+    "Moon Sua",
     "Sheon",
     "Siyoon",
-    "Haruna"
+    "Suhyeon",
+    "Tsuki"
+  ],
+  "BINI": [
+    "Aiah",
+    "Colet",
+    "Gwen",
+    "Jhoanna",
+    "Maloi",
+    "Mikha",
+    "Sheena",
+    "Stacey"
   ],
   "BLACKPINK": [
     "Jennie",
@@ -204,244 +238,253 @@
     "Rose"
   ],
   "Blackswan": [
-    "Youngheun",
     "Fatou",
-    "Judy",
-    "Nvee",
-    "Leia",
     "Gabi",
-    "Sriya"
+    "Judy",
+    "Leia",
+    "Nvee",
+    "Sriya",
+    "Youngheun"
   ],
   "Blady": [
-    "Gabin",
     "Dayoung",
+    "Gabin",
     "Giru",
     "Tina",
     "Yeeun"
   ],
   "Bling Bling": [
-    "Juhyun",
     "Ayamy",
     "Jieun",
+    "Juhyun",
     "Marin",
     "Narin",
     "Yubin"
   ],
   "Bolbbalgan4": [
-    "Jiyoung",
-    "Jiyoon"
+    "Jiyoon",
+    "Jiyoung"
   ],
   "Bonus Baby": [
-    "Moonhee",
-    "Hayoon",
     "Chaehyun",
     "Dayun",
     "Gaon",
-    "Kongyoo"
+    "Hayoon",
+    "Kongyoo",
+    "Moonhee"
   ],
   "BOTOPASS": [
-    "Seoyoon",
-    "Sang",
-    "Jiwon",
-    "Ria",
-    "Mihee",
+    "Ahyoon",
     "Harin",
-    "Shiho",
-    "Ahyoon"
+    "Jiwon",
+    "Mihee",
+    "Ria",
+    "Sang",
+    "Seoyoon",
+    "Shiho"
   ],
   "Brave Girls": [
-    "Minyoung",
-    "Yujeong",
     "Eunji",
-    "Yoojin",
-    "Yuna",
+    "Hayun",
     "Hyeran",
-    "Hayun"
+    "Minyoung",
+    "Yoojin",
+    "Yujeong",
+    "Yuna"
   ],
   "Brown Eyed Girls": [
+    "Gain",
     "Jea",
     "Miryo",
-    "Narsha",
-    "Gain"
+    "Narsha"
   ],
   "bugAboo": [
-    "Eunchae",
-    "Yoona",
-    "Rainie",
-    "Cyan",
     "Choyeon",
+    "Cyan",
+    "Eunchae",
+    "Rainie",
+    "Yoona",
     "Zin"
   ],
   "Busters": [
-    "Minji",
+    "Chaeyeon",
     "Hyungseo",
     "Jisoo",
+    "Minji",
     "Minjung",
-    "Chaeyeon",
     "Yeseo"
   ],
   "BVNDIT": [
-    "Yiyeon",
-    "Songhee",
     "Jungwoo",
+    "Seungeun",
     "Simyeong",
-    "Seungeun"
+    "Songhee",
+    "Yiyeon"
   ],
   "Candy Shop": [
+    "Sarang",
     "Soram",
-    "Yuina",
     "Sui",
-    "Sarang"
+    "Yuina"
   ],
   "CHECKMATE": [
     "Sieun",
     "Suri"
   ],
   "Cherry Bullet": [
-    "Haeyoon",
-    "Yuju",
-    "Ella",
     "Bora",
+    "Chaerin",
+    "Ella",
+    "Haeyoon",
     "Jiwon",
     "Kokoro",
-    "Remi",
-    "Chaerin",
     "Lin Lin",
-    "May"
+    "May",
+    "Remi",
+    "Yuju"
   ],
   "Cignature": [
-    "Chaesol",
-    "Jeewon",
-    "Yeah",
-    "Sunn",
-    "Seline",
-    "Chloe",
     "Belle",
+    "Chaesol",
+    "Chloe",
+    "Dohee",
+    "Jeewon",
+    "Seline",
     "Semi",
-    "Dohee"
+    "Sunn",
+    "Yeah"
+  ],
+  "CLASSy": [
+    "Boeun",
+    "Chaewon",
+    "Hyeju",
+    "Hyungseo",
+    "Jimin",
+    "Riwon",
+    "Seonyu"
   ],
   "CLC": [
+    "Elkie",
+    "Eunbin",
     "Seunghee",
-    "Yujin",
     "Seungyeon",
     "Sorn",
     "YeeEun",
-    "Elkie",
-    "Eunbin"
+    "Yujin"
   ],
   "Clear:I": [
     "Sang"
   ],
   "CRAXY": [
-    "Woo-ah",
-    "Karin",
+    "ChaeY",
     "Hyejin",
+    "Karin",
     "Swan",
-    "ChaeY"
+    "Woo-ah"
   ],
   "Crayon Pop": [
-    "Geummi",
-    "Ellin",
     "Choa",
-    "Way",
-    "Soyul"
+    "Ellin",
+    "Geummi",
+    "Soyul",
+    "Way"
   ],
   "CSR": [
-    "Geumhee",
-    "Sihyeon",
-    "Seoyeon",
-    "Yuna",
     "Duna",
+    "Geumhee",
+    "Seoyeon",
+    "Sihyeon",
     "Sua",
-    "Yeham"
+    "Yeham",
+    "Yuna"
   ],
   "D-Unit": [
     "Yujin"
   ],
   "Dal Shabet": [
-    "Viki",
-    "Serri",
     "Ahyoung",
-    "Jiyul",
-    "Woohee",
     "Gaeun",
-    "Subin"
+    "Jiyul",
+    "Serri",
+    "Subin",
+    "Viki",
+    "Woohee"
   ],
   "Davichi": [
     "Haeri",
     "Minkyung"
   ],
   "DIA": [
-    "Eunice",
-    "Huihyeon",
-    "Jueun",
-    "Jenny",
-    "Yebin",
-    "Eunjin",
     "Chaeyeon",
     "Eunchae",
-    "Somyi"
+    "Eunice",
+    "Eunjin",
+    "Huihyeon",
+    "Jenny",
+    "Jueun",
+    "Somyi",
+    "Yebin"
   ],
   "Dreamcatcher": [
-    "Jiu",
-    "Sua",
-    "Siyeon",
-    "Handong",
-    "Yoohyeon",
     "Dami",
-    "Gahyeon"
+    "Gahyeon",
+    "Handong",
+    "Jiu",
+    "Siyeon",
+    "Sua",
+    "Yoohyeon"
   ],
   "Dreamnote": [
     "Boni",
-    "Youi",
+    "Eunjo",
+    "Habin",
+    "Hanbyeol",
     "Lara",
     "Miso",
     "Sumin",
-    "Eunjo",
-    "Habin",
-    "Hanbyeol"
+    "Youi"
   ],
   "Everglow": [
+    "Aisha",
     "E:U",
-    "Sihyeon",
     "Mia",
     "Onda",
-    "Aisha",
+    "Sihyeon",
     "Yiren"
   ],
   "EXID": [
-    "Solji",
-    "Hyeyeon",
-    "Uji",
-    "LE",
-    "Hani",
     "Dahye",
+    "Hani",
     "Hyerin",
-    "Junghwa"
+    "Hyeyeon",
+    "Junghwa",
+    "LE",
+    "Solji",
+    "Uji"
   ],
   "FANATICS": [
-    "Doi",
-    "Sika",
     "Chaelin",
     "Chiayi",
-    "Via",
-    "Yoonhye",
+    "Doah",
+    "Doi",
     "Rayeon",
-    "Doah"
+    "Sika",
+    "Via",
+    "Yoonhye"
   ],
   "Favorite": [
+    "Ahra",
+    "Gaeul",
+    "Jeonghee",
     "Saebom",
     "Seoyeon",
-    "Gaeul",
-    "Sugyeong",
-    "Jeonghee",
-    "Ahra"
+    "Sugyeong"
   ],
   "Fiestar": [
     "Cao Lu",
+    "Hyemi",
     "Jei",
     "Linzy",
-    "Hyemi",
     "Yezi"
   ],
   "FIFTY FIFTY": [
@@ -465,6 +508,13 @@
     "Saerom",
     "Seoyeon"
   ],
+  "fx": [
+    "Amber",
+    "Krystal",
+    "Luna",
+    "Sulli",
+    "Victoria"
+  ],
   "G-reyish": [
     "Hyunseo",
     "Shinyoung",
@@ -472,226 +522,312 @@
     "Yeso"
   ],
   "Gate9": [
-    "Haeyeon",
-    "Taera",
-    "Yeori",
-    "Haru",
     "Gaga",
-    "Kady",
+    "Haeyeon",
+    "Haru",
     "Juju",
-    "Yoon",
-    "Vivian"
+    "Kady",
+    "Taera",
+    "Vivian",
+    "Yeori",
+    "Yoon"
   ],
   "Geenius": [
-    "Yeyoung",
-    "Sion",
+    "Andamiro",
     "Mika",
-    "Zoe",
-    "Andamiro"
+    "Sion",
+    "Yeyoung",
+    "Zoe"
   ],
   "Gfriend": [
-    "Sowon",
-    "Yerin",
     "Eunha",
-    "Yuju",
     "SinB",
-    "Umji"
+    "Sowon",
+    "Umji",
+    "Yerin",
+    "Yuju"
+  ],
+  "GIDLE": [
+    "Minnie",
+    "Miyeon",
+    "Shuhua",
+    "Soojin",
+    "Soyeon",
+    "Yuqi"
   ],
   "Girl's Day": [
-    "Sojin",
+    "Hyeri",
     "Jisun",
-    "Yura",
     "Minah",
-    "Hyeri"
+    "Sojin",
+    "Yura"
   ],
   "Girlkind": [
-    "Medic Jin",
+    "Ellyn",
     "JK",
-    "Xeheun",
+    "Medic Jin",
     "Sun J",
-    "Ellyn"
+    "Xeheun"
   ],
   "Girls Alert": [
     "Satbyeol"
   ],
   "Girls' World": [
-    "Kyrin",
-    "Windy",
     "A-ra",
-    "Hari"
+    "Hari",
+    "Kyrin",
+    "Windy"
+  ],
+  "GIRLSET": [
+    "Camila",
+    "Kaylee",
+    "Kendall",
+    "KG",
+    "Lexi",
+    "Savanna"
   ],
   "Good Day": [
+    "Belle",
+    "Bomin",
+    "Chaesol",
     "Heejin",
     "I.L",
-    "Liv",
-    "Chaesol",
-    "Yunseul",
     "Jeewon",
-    "Yeah",
+    "Liv",
     "Sunn",
-    "Bomin",
-    "Belle"
+    "Yeah",
+    "Yunseul"
   ],
   "Gugudan": [
-    "Mimi",
-    "Hana",
     "Haebin",
-    "Nayoung",
-    "Sejeong",
-    "Sally",
-    "Soyee",
+    "Hana",
+    "Hyeyeon",
+    "Mimi",
     "Mina",
-    "Hyeyeon"
+    "Nayoung",
+    "Sally",
+    "Sejeong",
+    "Soyee"
   ],
   "GWSN": [
+    "Anne",
+    "Lena",
+    "Minju",
     "Miya",
     "Seokyoung",
     "Seoryoung",
-    "Anne",
-    "Minju",
-    "Soso",
-    "Lena"
+    "Soso"
   ],
   "H.U.B": [
-    "Rui",
     "Gracie",
-    "Yuem",
     "Hyosun",
-    "Keina"
+    "Keina",
+    "Rui",
+    "Yuem"
+  ],
+  "H1KEY": [
+    "Hwiseo",
+    "Riina",
+    "Seoi",
+    "Sitala",
+    "Yel"
   ],
   "Hashtag": [
-    "Hyunji",
-    "Sua",
+    "Aeji",
     "Dajeong",
+    "Hyunji",
     "Seungmin",
-    "Subin",
     "Sojin",
-    "Aeji"
+    "Sua",
+    "Subin"
   ],
   "Hearts2Hearts": [
-    "Jiwoo",
-    "Carmen",
-    "Yuha",
-    "Stella",
-    "Juun",
     "A-na",
+    "Carmen",
     "Ian",
-    "Ye-on"
+    "Jiwoo",
+    "Juun",
+    "Stella",
+    "Ye-on",
+    "Yuha"
   ],
   "Hello Venus": [
     "Alice",
-    "Nara",
-    "Yoonjo",
     "Lime",
+    "Nara",
     "Seoyoung",
-    "Yooyoung",
-    "Yeoreum"
+    "Yeoreum",
+    "Yoonjo",
+    "Yooyoung"
   ],
   "Hi-L": [
+    "Dakyung",
+    "Hayun",
+    "JooA",
     "Lee Jin",
     "Soojung",
-    "Dakyung",
-    "JooA",
-    "Hayun",
     "Yeseul"
   ],
   "Highteen": [
     "Eunjin",
-    "Hyejoo",
     "Hyebin",
+    "Hyejoo",
     "Sea"
   ],
   "Hinapia": [
-    "Roa",
-    "Yuha",
+    "Bada",
     "Eunwoo",
     "Rena",
-    "Bada"
+    "Roa",
+    "Yuha"
   ],
   "Honey Popcorn": [
+    "Miko",
     "Moko",
-    "Yua",
-    "Miko"
+    "Yua"
   ],
   "HOT ISSUE": [
+    "Dain",
+    "Dana",
+    "Hyeongshin",
     "Mayna",
     "Nahyun",
-    "Hyeongshin",
-    "Dana",
-    "Yewon",
     "Yebin",
-    "Dain"
+    "Yewon"
   ],
   "I.B.I": [
+    "Han Hyeri",
     "Lee Haein",
-    "Sohee",
     "Lee Suhyun",
-    "Han Hyeri"
+    "Sohee"
+  ],
+  "ICHILLIN": [
+    "Chaerin",
+    "Chowon",
+    "E.Ji",
+    "Jackie",
+    "Jiyoon",
+    "Joonie",
+    "Sohee",
+    "Yeju"
+  ],
+  "ifeye": [
+    "Hwayeon",
+    "Kasia",
+    "Meu",
+    "Rahee",
+    "Sasha",
+    "Taerin"
   ],
   "ILLIT": [
-    "Yunah",
+    "Iroha",
     "Minju",
     "Moka",
     "Wonhee",
-    "Iroha"
+    "Yunah"
   ],
   "ILUV": [
-    "Seoyoon",
+    "Jiwon",
     "Sang",
-    "Jiwon"
+    "Seoyoon"
   ],
   "ILY:1": [
-    "Hana",
     "Ara",
-    "Rona",
-    "Ririka",
+    "Elva",
+    "Hana",
     "Nayu",
-    "Elva"
+    "Ririka",
+    "Rona"
+  ],
+  "IOI": [
+    "Chaeyeon",
+    "Chungha",
+    "Doyeon",
+    "Kyulkyung",
+    "Mina",
+    "Nayoung",
+    "Sohye",
+    "Somi",
+    "Yeonjung",
+    "Yoojung"
   ],
   "IRRIS": [
     "I.L",
     "Liv",
-    "Yunseul",
-    "Nina"
+    "Nina",
+    "Yunseul"
   ],
   "ITZY": [
-    "Yeji",
+    "Chaeryeong",
     "Lia",
     "Ryujin",
-    "Chaeryeong",
+    "Yeji",
     "Yuna"
   ],
   "IVE": [
     "Gaeul",
-    "Yujin",
+    "Leeseo",
+    "Liz",
     "Rei",
     "Wonyoung",
-    "Liz",
-    "Leeseo"
+    "Yujin"
+  ],
+  "izna": [
+    "Jeemin",
+    "Jiyoon",
+    "Jungeun",
+    "Koko",
+    "Mai",
+    "Saebi",
+    "Sarang"
+  ],
+  "IZONE": [
+    "Chaeyeon",
+    "Eunbi",
+    "Hyewon",
+    "Jo Yuri",
+    "Minju",
+    "Nako",
+    "Yena"
+  ],
+  "KAIA": [
+    "Alexa",
+    "Angela",
+    "Charice",
+    "Charlotte",
+    "Sophia"
   ],
   "KARA": [
     "Gyuri",
-    "Seungyeon",
     "Hara",
-    "Nicole",
     "Jiyoung",
+    "Nicole",
+    "Seungyeon",
     "Youngji"
   ],
   "KARD": [
-    "Somin",
-    "Jiwoo"
+    "Jiwoo",
+    "Somin"
+  ],
+  "KATSEYE": [
+    "Daniela",
+    "Lara",
+    "Manon",
+    "Megan",
+    "Sophia",
+    "Yoonchae"
   ],
   "KEEMBO": [
     "Boa",
     "Bohyung"
   ],
   "KELT9b": [
-    "Suhyun",
+    "Chaerin",
     "Euijeong",
     "Lua",
     "Minju",
-    "Youngjae",
-    "Chaerin"
+    "Suhyun",
+    "Youngjae"
   ],
   "Kep1er": [
     "Bahiyyih",
@@ -705,54 +841,59 @@
     "Yujin"
   ],
   "KiiiKiii": [
-    "Leesol",
-    "Sui",
-    "Jiyu",
     "Haum",
-    "Kya"
+    "Jiyu",
+    "Kya",
+    "Leesol",
+    "Sui"
   ],
   "KISS OF LIFE": [
-    "Julie",
-    "Natty",
     "Belle",
-    "Haneul"
+    "Haneul",
+    "Julie",
+    "Natty"
   ],
   "Kiwi Band": [
     "Hyosun"
   ],
   "LABOUM": [
-    "Yujeong",
-    "Soyeon",
-    "ZN",
     "Haein",
     "Solbin",
-    "Yulhee"
+    "Soyeon",
+    "Yujeong",
+    "Yulhee",
+    "ZN"
+  ],
+  "Ladies Code": [
+    "Ashley",
+    "Sojung",
+    "Zuny"
   ],
   "Lapillus": [
-    "Chanty",
-    "Shana",
-    "Yue",
     "Bessie",
+    "Chanty",
+    "Haeun",
     "Seowon",
-    "Haeun"
+    "Shana",
+    "Yue"
   ],
   "LE SSERAFIM": [
-    "Sakura",
     "Chaewon",
-    "Yunjin",
-    "Kazuha",
+    "Eunchae",
     "Garam",
-    "Eunchae"
+    "Kazuha",
+    "Sakura",
+    "Yunjin"
   ],
   "LIGHTSUM": [
-    "Sangah",
     "Chowon",
-    "Nayoung",
     "Hina",
-    "Juhyeon",
-    "Yujeong",
     "Huiyeon",
-    "Jian"
+    "Jian",
+    "Juhyeon",
+    "Nayoung",
+    "Sangah",
+    "Yujeong"
   ],
   "Lip Bubble": [
     "EunB"
@@ -774,75 +915,91 @@
   "Lovelyz": [
     "Babysoul",
     "Jiae",
-    "Jisoo",
-    "Mijoo",
-    "Kei",
     "JIN",
+    "Jisoo",
+    "Kei",
+    "Mijoo",
     "Sujeong",
     "Yein"
   ],
   "LUNARSOLAR": [
     "Eseo",
-    "Taeryeong",
     "Jian",
+    "Taeryeong",
     "Yuuri"
   ],
   "Lusty": [
     "Harin",
-    "Jinhui",
     "Isol",
-    "Yoonji",
-    "Yeryung"
+    "Jinhui",
+    "Yeryung",
+    "Yoonji"
+  ],
+  "MADEIN": [
+    "Gaeun",
+    "Mashiro",
+    "MiU",
+    "Nagomi",
+    "Serina",
+    "Suhye",
+    "Yeseo"
   ],
   "MAJORS": [
-    "Vita",
-    "Ida",
     "Aki",
     "Bian",
+    "Ida",
+    "Shinye",
     "Suzy",
-    "Shinye"
+    "Vita"
   ],
   "Maka Maka": [
-    "Heesu",
-    "Dia",
     "Chaewon",
     "Daseul",
-    "EunB"
+    "Dia",
+    "EunB",
+    "Heesu"
   ],
   "Mamamoo": [
-    "Solar",
+    "Hwasa",
     "Moonbyul",
-    "Wheein",
-    "Hwasa"
+    "Solar",
+    "Wheein"
   ],
   "Matilda": [
-    "Haena",
     "Dan-a",
-    "Semmi",
-    "Saebyeol"
+    "Haena",
+    "Saebyeol",
+    "Semmi"
   ],
   "MELODYDAY": [
-    "Yeoeun",
-    "Yoomin",
+    "Chahee",
     "Yein",
-    "Chahee"
+    "Yeoeun",
+    "Yoomin"
+  ],
+  "MEOVV": [
+    "Anna",
+    "Ella",
+    "Gawon",
+    "Narin",
+    "Sooin"
   ],
   "MIDNIGHT": [
     "Dabi"
   ],
   "mimiirose": [
     "Hyori",
+    "Jia",
     "Yeonjae",
     "Yewon",
-    "Jia",
     "Yunju"
   ],
   "Minx": [
+    "Dami",
     "Jiu",
-    "Sua",
     "Siyeon",
-    "Yoohyeon",
-    "Dami"
+    "Sua",
+    "Yoohyeon"
   ],
   "miss A": [
     "Fei",
@@ -851,494 +1008,301 @@
     "Suzy"
   ],
   "MIXX": [
-    "Hanna",
-    "Henny",
-    "Heeyu",
-    "Mia",
     "Arie",
-    "Liyah"
+    "Hanna",
+    "Heeyu",
+    "Henny",
+    "Liyah",
+    "Mia"
   ],
   "MOMOLAND": [
-    "Hyebin",
-    "Yeonwoo",
-    "Jane",
-    "Taeha",
-    "Nayun",
-    "Daisy",
-    "Joo E",
     "AhIn",
-    "Nancy"
+    "Daisy",
+    "Hyebin",
+    "Jane",
+    "Joo E",
+    "Nancy",
+    "Nayun",
+    "Taeha",
+    "Yeonwoo"
   ],
   "MyB": [
-    "Heejoo",
     "Haru",
-    "Moonhee",
-    "Hayoon"
+    "Hayoon",
+    "Heejoo",
+    "Moonhee"
   ],
   "N-Bulance": [
     "Rui"
   ],
   "NATURE": [
     "Aurora",
-    "Saebom",
-    "Lu",
     "Chaebin",
     "Gaga",
     "Haru",
-    "Uchae",
-    "Sunshine"
+    "Lu",
+    "Saebom",
+    "Sunshine",
+    "Uchae"
   ],
   "Nature": [
-    "Sohee",
-    "Loha"
+    "Loha",
+    "Sohee"
   ],
   "NeonPunch": [
-    "Dayeon",
-    "Hajeong",
-    "Terry",
-    "Dohee",
-    "Baekah",
     "Arang",
+    "Baekah",
+    "Dayeon",
+    "Dohee",
+    "Hajeong",
+    "Iaan",
     "May",
-    "Iaan"
+    "Terry"
   ],
   "New F.O": [
     "Jisun"
   ],
   "NewJeans": [
-    "Minji",
-    "Hanni",
     "Danielle",
     "Haerin",
-    "Hyein"
+    "Hanni",
+    "Hyein",
+    "Minji"
   ],
   "NMIXX": [
-    "Lily",
-    "Haewon",
-    "Sullyoon",
-    "Jinni",
     "Bae",
+    "Haewon",
+    "Jinni",
     "Jiwoo",
-    "Kyujin"
+    "Kyujin",
+    "Lily",
+    "Sullyoon"
+  ],
+  "ODD YOUTH": [
+    "Kanie",
+    "Maika",
+    "Myah",
+    "Summer",
+    "Yeeum"
   ],
   "Oh My Girl": [
+    "Arin",
     "Hyojung",
+    "Jiho",
     "JinE",
     "Mimi",
-    "Yooa",
     "Seunghee",
-    "Jiho",
-    "Yubin",
-    "Arin"
+    "Yooa",
+    "Yubin"
   ],
   "P.O.P": [
     "Ahyung",
+    "Haeri",
     "Miso",
     "Seol",
-    "Haeri",
-    "Yeonjoo",
-    "Yeonha"
+    "Yeonha",
+    "Yeonjoo"
   ],
   "Pink Fantasy": [
     "Aini",
+    "Arang",
+    "Daewang Nim",
+    "Harin",
+    "Heesun",
+    "Miku",
+    "Momoka",
+    "Sanga",
     "Seea",
     "Yechan",
-    "Daewang Nim",
-    "Sanga",
-    "Yubin",
-    "Harin",
-    "Momoka",
-    "Arang",
-    "Miku",
-    "Heesun"
+    "Yubin"
   ],
   "Pixy": [
+    "Dajeong",
+    "Dia",
     "Ella",
     "Lola",
+    "Rinji",
     "Satbyeol",
-    "Dia",
-    "Sua",
-    "Dajeong",
-    "Rinji"
+    "Sua"
   ],
   "Playback": [
-    "Yunji",
+    "Eunjin",
     "Hayoung",
-    "Yujin",
     "Woolim",
-    "Eunjin"
+    "Yujin",
+    "Yunji"
   ],
   "PRECIOUS": [
     "EunB",
-    "Jihyo",
+    "Hanbyul",
     "Hanwoom",
-    "Lee Soo",
-    "Hanbyul"
+    "Jihyo",
+    "Lee Soo"
   ],
   "PRIMROSE": [
-    "Rainie",
-    "Yeum",
+    "Hayun",
     "Nahyun",
+    "Rainie",
     "Ruby",
-    "Hayun"
+    "Yeum"
   ],
   "Pristin": [
-    "Nayoung",
-    "Roa",
-    "Yuha",
     "Eunwoo",
-    "Rena",
+    "Kyla",
     "Kyulkyung",
-    "Yehana",
+    "Nayoung",
+    "Rena",
+    "Roa",
     "Sungyeon",
     "Xiyeon",
-    "Kyla"
+    "Yehana",
+    "Yuha"
   ],
   "Pungdeng-E": [
+    "Blue",
     "Red",
-    "Yellow",
-    "Blue"
+    "Yellow"
   ],
   "Puretty": [
     "Chaekyung"
   ],
   "Purple Kiss": [
-    "Jieun",
-    "Goeun",
-    "Dosie",
-    "Ireh",
-    "Yuki",
     "Chaein",
-    "Swan"
+    "Dosie",
+    "Goeun",
+    "Ireh",
+    "Jieun",
+    "Swan",
+    "Yuki"
   ],
   "Purplebeck": [
-    "Yerim",
-    "Yeowool",
     "Layeon",
     "Mini",
-    "Seyeon"
+    "Seyeon",
+    "Yeowool",
+    "Yerim"
   ],
   "Queenz Eye": [
-    "Hannah",
-    "Narin",
-    "Wonchae",
     "Ahyoon",
     "Damin",
-    "Jenna"
+    "Hannah",
+    "Jenna",
+    "Narin",
+    "Wonchae"
+  ],
+  "QWER": [
+    "Chodan",
+    "Hina",
+    "Magenta",
+    "Siyeon"
   ],
   "Rainbow": [
-    "Woori",
-    "Seungah",
+    "Hyunyoung",
     "Jaekyung",
-    "Noeul",
-    "Yoonhye",
     "Jisook",
-    "Hyunyoung"
+    "Noeul",
+    "Seungah",
+    "Woori",
+    "Yoonhye"
   ],
   "Red Velvet": [
     "Irene",
+    "Joy",
     "Seulgi",
     "Wendy",
-    "Joy",
     "Yeri"
   ],
   "RedSquare": [
-    "Lina",
+    "Bomin",
     "I.L",
+    "Lina",
     "Liv",
-    "Yunseul",
-    "Bomin"
+    "Yunseul"
   ],
   "RESCENE": [
-    "Woni",
     "Liv",
-    "Minami",
     "May",
+    "Minami",
+    "Woni",
     "Zena"
   ],
   "Rocket Punch": [
+    "Dahyun",
     "Juri",
-    "Yeonhee",
-    "Suyun",
-    "Yunkyung",
     "Sohee",
-    "Dahyun"
+    "Suyun",
+    "Yeonhee",
+    "Yunkyung"
   ],
   "Rockit Girl": [
     "Della",
     "Han Leeseul"
   ],
   "Rose Finger": [
-    "Hyebin",
     "Areum",
+    "Hyebin",
     "Segye"
   ],
   "S#aFLA": [
-    "Suhyeon",
     "Jisun",
-    "Yujin",
-    "Seulgi"
+    "Seulgi",
+    "Suhyeon",
+    "Yujin"
   ],
   "S.E.T": [
     "Jian"
   ],
   "Saturday": [
+    "Ayeon",
     "Haneul",
     "Juyeon",
-    "Yuki",
-    "Ayeon",
-    "Minseo"
+    "Minseo",
+    "Yuki"
   ],
-  "SECRET NUMBER": [
-    "Lea",
-    "Dita",
-    "Jinny",
-    "Minji",
-    "Soodam",
-    "Zuu",
-    "Denise"
+  "Say My Name": [
+    "Dohee",
+    "Hitomi",
+    "Junhwi",
+    "Kanny",
+    "Mei",
+    "Seungjoo",
+    "Shuie",
+    "Soha"
   ],
   "SECRET": [
-    "Hyosung",
     "Hana",
+    "Hyosung",
     "Jieun",
     "Sunhwa"
   ],
+  "SECRET NUMBER": [
+    "Denise",
+    "Dita",
+    "Jinny",
+    "Lea",
+    "Minji",
+    "Soodam",
+    "Zuu"
+  ],
   "SISTAR": [
     "Bora",
+    "Dasom",
     "Hyorin",
-    "Soyou",
-    "Dasom"
+    "Soyou"
   ],
   "Skarf": [
     "Lea"
   ],
   "SNSD": [
-    "Taeyeon",
-    "Jessica",
-    "Sunny",
-    "Tiffany",
     "Hyoyeon",
-    "Yuri",
+    "Jessica",
+    "Seohyun",
     "Sooyoung",
+    "Sunny",
+    "Taeyeon",
+    "Tiffany",
     "Yoona",
-    "Seohyun"
-  ],
-  "Sonamoo": [
-    "Sumin",
-    "Minjae",
-    "D.ana",
-    "Nahyun",
-    "Euijin",
-    "High.D",
-    "New Sun"
-  ],
-  "SPICA": [
-    "Sihyun",
-    "Boa",
-    "Narae",
-    "Jiwon",
-    "Bohyung"
-  ],
-  "STAYC": [
-    "Sumin",
-    "Sieun",
-    "Isa",
-    "Seeun",
-    "Yoon",
-    "J"
-  ],
-  "Stellar": [
-    "Gayoung",
-    "Minhee",
-    "Hyeoeun",
-    "Jeonyul"
-  ],
-  "T-ara": [
-    "Boram",
-    "Qri",
-    "Soyeon",
-    "Eunjung",
-    "Hyomin",
-    "Jiyeon"
-  ],
-  "Tahiti": [
-    "Miso",
-    "Minjae",
-    "Jerrry",
-    "Jisoo",
-    "Ari"
-  ],
-  "The Ark": [
-    "Suji"
-  ],
-  "Tiny-G": [
-    "Mint",
-    "Dohee",
-    "J.Min",
-    "Myungji"
-  ],
-  "TRACER": [
-    "Alice",
-    "Genie",
-    "Sowon",
-    "Yubeen"
-  ],
-  "TRI.BE": [
-    "SongSun",
-    "Kelly",
-    "Jinha",
-    "Hyunbin",
-    "Jia",
-    "Soeun",
-    "Mire"
-  ],
-  "tripleS": [
-    "Chaewon",
-    "Chaeyeon",
-    "Dahyun",
-    "Hayeon",
-    "Hyerin",
-    "Jiwoo",
-    "Jiyeon",
-    "Joobin",
-    "Kaede",
-    "Kotone",
-    "Lynn",
-    "Mayu",
-    "Nakyoung",
-    "Nien",
-    "Seoah",
-    "Seoyeon",
-    "Shion",
-    "Sohyun",
-    "Soomin",
-    "Sullin",
-    "Xinyu",
-    "Yeonji",
-    "Yooyeon",
-    "Yubin"
-  ],
-  "TWICE": [
-    "Nayeon",
-    "Jeongyeon",
-    "Momo",
-    "Sana",
-    "Jihyo",
-    "Mina",
-    "Dahyun",
-    "Chaeyoung",
-    "Tzuyu"
-  ],
-  "Two X": [
-    "Jiyou",
-    "Eun",
-    "Surin",
-    "Eunyoung"
-  ],
-  "UNI.T": [
-    "Jiwon",
-    "Yoonjo",
-    "NC.A",
-    "Hyunjoo",
-    "Suji"
-  ],
-  "UNIS": [
-    "Nana",
-    "Gehlee",
-    "Kotoko",
-    "Yunha",
-    "Elisia",
-    "Yoona",
-    "Seowon"
-  ],
-  "VIVIZ": [
-    "Eunha",
-    "SinB",
-    "Umji"
-  ],
-  "Wassup": [
-    "Jinju",
-    "Dain",
-    "Nada",
-    "Nari",
-    "Jiae",
-    "Sujin",
-    "Woojoo"
-  ],
-  "We;Na": [
-    "Doa",
-    "Euna",
-    "Yeonseo",
-    "Wony"
-  ],
-  "Weeekly": [
-    "Soojin",
-    "Jiyoon",
-    "Monday",
-    "Soeun",
-    "Jaehee",
-    "Jihan",
-    "Zoa"
-  ],
-  "Weki Meki": [
-    "Suyeon",
-    "Elly",
-    "Yoojung",
-    "Doyeon",
-    "Sei",
-    "Lua",
-    "Rina",
-    "Lucy"
-  ],
-  "WJSN": [
-    "Seola",
-    "Xuanyi",
-    "Bona",
-    "Exy",
-    "Soobin",
-    "Luda",
-    "Dawon",
-    "Eunseo",
-    "Cheng Xiao",
-    "Meiqi",
-    "Yeoreum",
-    "Dayoung",
-    "Yeonjung"
-  ],
-  "Wonder Girls": [
-    "Yubin",
-    "Yenny",
-    "Sunmi",
-    "HyunA",
-    "Hyerim"
-  ],
-  "woo!ah!": [
-    "Nana",
-    "Wooyeon",
-    "Sora",
-    "Lucy",
-    "Minseo",
-    "Songyee"
-  ],
-  "XUM": [
-    "Dayeon",
-    "Baekah",
-    "Iaan"
-  ],
-  "YOUNG POSSE": [
-    "Sunhye",
-    "Yeonjung",
-    "Jiana",
-    "Doeun",
-    "Jieun"
-  ],
-  "MEOVV": [
-    "Anna",
-    "Ella",
-    "Gawon",
-    "Narin",
-    "Sooin"
+    "Yuri"
   ],
   "Solo_Act": [
     "Ailee",
@@ -1439,103 +1403,133 @@
     "Yulhee",
     "Yves"
   ],
-  "XG": [
-    "Chisa",
-    "Cocona",
-    "Harvey",
-    "Hinata",
-    "Juria",
-    "Jurin",
-    "Maya"
+  "Sonamoo": [
+    "D.ana",
+    "Euijin",
+    "High.D",
+    "Minjae",
+    "Nahyun",
+    "New Sun",
+    "Sumin"
   ],
-  "QWER": [
-    "Chodan",
-    "Hina",
-    "Magenta",
-    "Siyeon"
+  "SPICA": [
+    "Boa",
+    "Bohyung",
+    "Jiwon",
+    "Narae",
+    "Sihyun"
   ],
-  "Say My Name": [
+  "STAYC": [
+    "Isa",
+    "J",
+    "Seeun",
+    "Sieun",
+    "Sumin",
+    "Yoon"
+  ],
+  "Stellar": [
+    "Gayoung",
+    "Hyeoeun",
+    "Jeonyul",
+    "Minhee"
+  ],
+  "T-ara": [
+    "Boram",
+    "Eunjung",
+    "Hyomin",
+    "Jiyeon",
+    "Qri",
+    "Soyeon"
+  ],
+  "Tahiti": [
+    "Ari",
+    "Jerrry",
+    "Jisoo",
+    "Minjae",
+    "Miso"
+  ],
+  "The Ark": [
+    "Suji"
+  ],
+  "Tiny-G": [
     "Dohee",
-    "Hitomi",
-    "Junhwi",
-    "Kanny",
-    "Mei",
-    "Seungjoo",
-    "Shuie",
-    "Soha"
+    "J.Min",
+    "Mint",
+    "Myungji"
   ],
-  "VVS": [
-    "Brittney",
-    "Ilee",
-    "Jiu",
-    "Lena",
-    "Liwon",
-    "Rana"
+  "TRACER": [
+    "Alice",
+    "Genie",
+    "Sowon",
+    "Yubeen"
   ],
-  "ifeye": [
-    "Hwayeon",
-    "Kasia",
-    "Meu",
-    "Rahee",
-    "Sasha",
-    "Taerin"
+  "TRI.BE": [
+    "Hyunbin",
+    "Jia",
+    "Jinha",
+    "Kelly",
+    "Mire",
+    "Soeun",
+    "SongSun"
   ],
-  "Baby DONT Cry": [
-    "Beni",
-    "Kumi",
-    "Mia",
-    "Yihyun"
-  ],
-  "ODD YOUTH": [
-    "Kanie",
-    "Maika",
-    "Myah",
-    "Summer",
-    "Yeeum"
-  ],
-  "MADEIN": [
-    "Mashiro",
-    "MiU",
-    "Suhye",
-    "Yeseo",
-    "Gaeun",
-    "Serina",
-    "Nagomi"
-  ],
-  "GIDLE": [
-    "Minnie",
-    "Miyeon",
-    "Shuhua",
-    "Soojin",
-    "Soyeon",
-    "Yuqi"
-  ],
-  "IZONE": [
+  "tripleS": [
+    "Chaewon",
     "Chaeyeon",
-    "Eunbi",
-    "Hyewon",
-    "Jo Yuri",
-    "Minju",
-    "Nako",
-    "Yena"
+    "Dahyun",
+    "Hayeon",
+    "Hyerin",
+    "Jiwoo",
+    "Jiyeon",
+    "Joobin",
+    "Kaede",
+    "Kotone",
+    "Lynn",
+    "Mayu",
+    "Nakyoung",
+    "Nien",
+    "Seoah",
+    "Seoyeon",
+    "Shion",
+    "Sohyun",
+    "Soomin",
+    "Sullin",
+    "Xinyu",
+    "Yeonji",
+    "Yooyeon",
+    "Yubin"
   ],
-  "izna": [
-    "Jeemin",
-    "Jiyoon",
-    "Jungeun",
-    "Koko",
-    "Mai",
-    "Saebi",
-    "Sarang"
+  "TWICE": [
+    "Chaeyoung",
+    "Dahyun",
+    "Jeongyeon",
+    "Jihyo",
+    "Mina",
+    "Momo",
+    "Nayeon",
+    "Sana",
+    "Tzuyu"
   ],
-  "XIN": [
-    "Roa",
-    "Chi.u",
-    "E.sha",
-    "Nizz",
-    "Nova",
-    "Hannah",
-    "Aria"
+  "Two X": [
+    "Eun",
+    "Eunyoung",
+    "Jiyou",
+    "Surin"
+  ],
+  "UNI.T": [
+    "Hyunjoo",
+    "Jiwon",
+    "NC.A",
+    "Suji",
+    "Yoonjo"
+  ],
+  "UNIS": [
+    "Elisia",
+    "Gehlee",
+    "Kotoko",
+    "Nana",
+    "Seowon",
+    "Yoona",
+    "Yunha"
   ],
   "USPEER": [
     "Chaena",
@@ -1545,106 +1539,18 @@
     "Sian",
     "Soee"
   ],
-  "CLASSy": [
-    "Hyungseo",
-    "Chaewon",
-    "Hyeju",
-    "Riwon",
-    "Jimin",
-    "Boeun",
-    "Seonyu"
+  "VIVIZ": [
+    "Eunha",
+    "SinB",
+    "Umji"
   ],
-  "AtHeart": [
-    "Arin",
-    "Aurora",
-    "Bome",
-    "Katelyn",
-    "Michi",
-    "Nahyun",
-    "Seohyeon",
-    "Sorin"
-  ],
-  "KATSEYE": [
-    "Daniela",
-    "Lara",
-    "Manon",
-    "Megan",
-    "Sophia",
-    "Yoonchae"
-  ],
-  "KAIA": [
-    "Alexa",
-    "Angela",
-    "Charice",
-    "Charlotte",
-    "Sophia"
-  ],
-  "BINI": [
-    "Aiah",
-    "Colet",
-    "Gwen",
-    "Jhoanna",
-    "Maloi",
-    "Mikha",
-    "Sheena",
-    "Stacey"
-  ],
-  "IOI": [
-    "Chaeyeon",
-    "Chungha",
-    "Doyeon",
-    "Kyulkyung",
-    "Mina",
-    "Nayoung",
-    "Sohye",
-    "Somi",
-    "Yeonjung",
-    "Yoojung"
-  ],
-  "Ladies Code": [
-    "Ashley",
-    "Sojung",
-    "Zuny"
-  ],
-  "fx": [
-    "Victoria",
-    "Amber",
-    "Luna",
-    "Sulli",
-    "Krystal"
-  ],
-  "API": [
-    "Cheongeum",
-    "Dany",
-    "Haru",
-    "Heejoo",
-    "Saebyeok",
-    "Sarah"
-  ],
-  "H1KEY": [
-    "Sitala",
-    "Seoi",
-    "Riina",
-    "Hwiseo",
-    "Yel"
-  ],
-  "ICHILLIN": [
-    "Jiyoon",
-    "E.Ji",
-    "Jackie",
-    "Joonie",
-    "Chaerin",
-    "Sohee",
-    "Yeju",
-    "Chowon"
-  ],
-  "GIRLSET": [
-    "Camila",
-    "Kaylee",
-    "Kendall",
-    "KG",
-    "Lexi",
-    "Savanna"
+  "VVS": [
+    "Brittney",
+    "Ilee",
+    "Jiu",
+    "Lena",
+    "Liwon",
+    "Rana"
   ],
   "VVUP": [
     "Hyunny",
@@ -1652,5 +1558,99 @@
     "Kim",
     "Paan",
     "Suyeon"
+  ],
+  "Wassup": [
+    "Dain",
+    "Jiae",
+    "Jinju",
+    "Nada",
+    "Nari",
+    "Sujin",
+    "Woojoo"
+  ],
+  "We;Na": [
+    "Doa",
+    "Euna",
+    "Wony",
+    "Yeonseo"
+  ],
+  "Weeekly": [
+    "Jaehee",
+    "Jihan",
+    "Jiyoon",
+    "Monday",
+    "Soeun",
+    "Soojin",
+    "Zoa"
+  ],
+  "Weki Meki": [
+    "Doyeon",
+    "Elly",
+    "Lua",
+    "Lucy",
+    "Rina",
+    "Sei",
+    "Suyeon",
+    "Yoojung"
+  ],
+  "WJSN": [
+    "Bona",
+    "Cheng Xiao",
+    "Dawon",
+    "Dayoung",
+    "Eunseo",
+    "Exy",
+    "Luda",
+    "Meiqi",
+    "Seola",
+    "Soobin",
+    "Xuanyi",
+    "Yeonjung",
+    "Yeoreum"
+  ],
+  "Wonder Girls": [
+    "Hyerim",
+    "HyunA",
+    "Sunmi",
+    "Yenny",
+    "Yubin"
+  ],
+  "woo!ah!": [
+    "Lucy",
+    "Minseo",
+    "Nana",
+    "Songyee",
+    "Sora",
+    "Wooyeon"
+  ],
+  "XG": [
+    "Chisa",
+    "Cocona",
+    "Harvey",
+    "Hinata",
+    "Juria",
+    "Jurin",
+    "Maya"
+  ],
+  "XIN": [
+    "Aria",
+    "Chi.u",
+    "E.sha",
+    "Hannah",
+    "Nizz",
+    "Nova",
+    "Roa"
+  ],
+  "XUM": [
+    "Baekah",
+    "Dayeon",
+    "Iaan"
+  ],
+  "YOUNG POSSE": [
+    "Doeun",
+    "Jiana",
+    "Jieun",
+    "Sunhye",
+    "Yeonjung"
   ]
 }
