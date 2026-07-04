@@ -2422,12 +2422,12 @@
   {"g": "TWICE"        , "n": "Chaeyoung"    , "t": 1783008695960},
   {"g": "TWICE"        , "n": "Chaeyoung"    , "t": 1783008739956},
   {"g": "LE SSERAFIM"  , "n": "Kazuha"       , "t": 1783009258852},
-  {"g": "Girls Day"    , "n": "Hyeri"        , "t": 1783009309180},
   {"g": "Girl's Day"   , "n": "Hyeri"        , "t": 1783009309180},
-  {"g": "Girls Day"    , "n": "Hyeri"        , "t": 1783009314007},
+  {"g": "Girls Day"    , "n": "Hyeri"        , "t": 1783009309180},
   {"g": "Girl's Day"   , "n": "Hyeri"        , "t": 1783009314007},
-  {"g": "Girls Day"    , "n": "Hyeri"        , "t": 1783009320229},
+  {"g": "Girls Day"    , "n": "Hyeri"        , "t": 1783009314007},
   {"g": "Girl's Day"   , "n": "Hyeri"        , "t": 1783009320229},
+  {"g": "Girls Day"    , "n": "Hyeri"        , "t": 1783009320229},
   {"g": "fromis_9"     , "n": "Nagyung"      , "t": 1783009373704},
   {"g": "LE SSERAFIM"  , "n": "Kazuha"       , "t": 1783009444549},
   {"g": "LE SSERAFIM"  , "n": "Chaewon"      , "t": 1783009444549},
@@ -2659,5 +2659,6 @@
   {"g": "QWER"         , "n": "Hina"         , "t": 1783166913789},
   {"g": "QWER"         , "n": "Hina"         , "t": 1783166920019},
   {"g": "QWER"         , "n": "Hina"         , "t": 1783166929909},
-  {"g": "QWER"         , "n": "Hina"         , "t": 1783166936824}
+  {"g": "QWER"         , "n": "Hina"         , "t": 1783166936824},
+  {"g": "BINI"         , "n": "Maloi"        , "t": 1783168316296}
 ]
