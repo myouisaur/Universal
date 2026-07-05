@@ -1,9 +1,9 @@
 // ==UserScript==
-// @name         [Universal] K-Media Downloader
+// @name         [Universal] Xiv Media Downloader
 // @namespace    https://github.com/myouisaur/Universal
 // @icon         data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23FF4081'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 11h3l-4 4-4-4h3V8h2v5z'/%3E%3C/svg%3E
-// @version      15.8
-// @description  Organizes, tracks, and saves categorized K-Pop media files through a centralized overlay.
+// @version      19.1
+// @description  Organizes, tracks, and saves categorized media files through a centralized overlay.
 // @author       Xiv
 // @match        *://*/*
 // @match        file:///*
@@ -16,12 +16,12 @@
 // @grant        GM_addValueChangeListener
 // @grant        window.close
 // @connect      raw.githubusercontent.com
-// @connect      kmedia-db-proxy.myouisaur.workers.dev
+// @connect      xiv-media-proxy.myouisaur.workers.dev
 // @connect      *
 // @noframes
 // @run-at       document-end
-// @updateURL    https://myouisaur.github.io/Universal/kmedia_downloader/downloader.user.js
-// @downloadURL  https://myouisaur.github.io/Universal/kmedia_downloader/downloader.user.js
+// @updateURL    https://myouisaur.github.io/Universal/xiv_media_downloader/downloader.user.js
+// @downloadURL  https://myouisaur.github.io/Universal/xiv_media_downloader/downloader.user.js
 // ==/UserScript==
 
 (function () {
@@ -42,16 +42,21 @@
         PROMPT_ON_IDOL_SAVE: false,
 
         // Hardcoded Cloud Configs
-        WORKER_URL: 'https://kmedia-db-proxy.myouisaur.workers.dev',
+        WORKER_URL: 'https://xiv-media-proxy.myouisaur.workers.dev',
         GITHUB_OWNER: 'myouisaur',
         GITHUB_REPO: 'Universal',
-        GITHUB_DB_PATH: 'kmedia_downloader/json/db.json',
-        GITHUB_HISTORY_PATH: 'kmedia_downloader/json/history.json',
+        GITHUB_DB_PATH: 'xiv_media_downloader/json/db.json',
+        GITHUB_HISTORY_PATH: 'xiv_media_downloader/json/history.json',
         GITHUB_BRANCH: 'main',
 
         // UI & Storage Core
-        UI_PREFIX: 'tm-kpop-dl',
-        STORAGE_KEY: 'tm_kpop_dl_history',
+        UI_PREFIX: 'xiv-media-dl',
+        // Centralized GM storage key prefix — every persisted key is built as
+        // `${CONFIG.STORAGE_PREFIX}_suffix`. Previously scattered as inline
+        // string literals throughout the file (a maintainability gap fixed
+        // during the v18 rebrand, not just a find-replace of the old prefix).
+        STORAGE_PREFIX: 'xiv_media_dl',
+        STORAGE_KEY: 'xiv_media_dl_history',
         HISTORY_MAX_DAYS: 30,
         FAB_Z_INDEX: 999990,
         OVERLAY_Z_INDEX: 999999,
@@ -63,15 +68,12 @@
         MAX_ACTIVE_TOASTS: 3,
         AUTO_CLOSE_COUNTDOWN_MS: 3000,
 
-        // Custom Presets
-        CUSTOM_PRESETS_KEY: 'tm_kpop_dl_custom_presets',
-
         // Carousel
         CAROUSEL_BREAKPOINT_PX: 1450,         // px below which carousel activates
 
         // Database
-        DB_URL: 'https://raw.githubusercontent.com/myouisaur/Universal/refs/heads/main/kmedia_downloader/json/db.json',
-        DB_CACHE_KEY: 'tm_kpop_dl_db_cache',
+        DB_URL: 'https://raw.githubusercontent.com/myouisaur/Universal/refs/heads/main/xiv_media_downloader/json/db.json',
+        DB_CACHE_KEY: 'xiv_media_dl_db_cache',
         DB_CACHE_TTL_MS: 12 * 60 * 60 * 1000
     };
 
@@ -95,9 +97,9 @@
     // UTILITIES
     // =========================================================
     const Logger = {
-        info(msg)  { if (DEBUG) console.log(`[K-Pop DL] ${msg}`); },
-        warn(msg) { console.warn(`[K-Pop DL] ${msg}`); },
-        error(msg, err) { console.error(`[K-Pop DL] ${msg}`, err); }
+        info(msg)  { if (DEBUG) console.log(`[Xiv Media DL] ${msg}`); },
+        warn(msg) { console.warn(`[Xiv Media DL] ${msg}`); },
+        error(msg, err) { console.error(`[Xiv Media DL] ${msg}`, err); }
     };
 
     const Utils = {
@@ -137,118 +139,51 @@
         // Raw preset strings are never modified — only the rendered label uses this.
         toProperCase(str) {
             return str.replace(/\w\S*/g, w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
-        }
-    };
-
-    // =========================================================
-    // CUSTOM PRESETS MODULE
-    // =========================================================
-    // Explicit user-managed list of saved custom name presets.
-    // Ordered newest-first (MRU). GM storage — global across all domains,
-    // local to this device/TM installation. No cloud sync.
-    // Cross-tab updates delivered via GM_addValueChangeListener.
-    //
-    // Naming convention: "{group}-{name}" — the dash separates group from name.
-    // Both segments may contain spaces. Split on first dash only.
-    const CustomPresets = {
-        // Set by UI when the 'custom-save' view is open — called on cross-tab
-        // changes to live-refresh the list without a page reload.
-        _onRemoteChange: null,
+        },
 
         /**
-         * Parses a preset string into { group, name } segments.
-         * Splits on the FIRST dash only. If no dash, returns { group: '', name: preset }.
-         * @param {string} preset
-         * @returns {{ group: string, name: string }}
+         * Wraps a text input with a self-contained "clear" (×) button that
+         * appears once the input has a value, so users don't have to
+         * backspace repeatedly. Returns the wrapper — callers append the
+         * WRAPPER to the DOM in place of the raw input (the input itself is
+         * moved inside it), so this must be called before the input is
+         * attached anywhere, or on an already-detached input.
+         * @param {HTMLInputElement} inputEl
+         * @returns {HTMLDivElement} wrapper containing inputEl + clear button
          */
-        parse(preset) {
-            // Guard: return a safe default for empty/whitespace-only strings
-            const safe = (preset || '').trim();
-            if (!safe) return { group: '', name: '' };
-            const idx = safe.indexOf('-');
-            // Note: toProperCase() in the renderer is ASCII-scoped (a-z A-Z 0-9).
-            // Korean/Japanese group names will pass through unchanged — intentional.
-            if (idx === -1) return { group: '', name: safe };
-            return {
-                group: safe.slice(0, idx).trim(),
-                name:  safe.slice(idx + 1).trim()
+        attachClearButton(inputEl) {
+            const wrapper = document.createElement('div');
+            wrapper.className = `${CONFIG.UI_PREFIX}-input-clear-wrapper`;
+            wrapper.appendChild(inputEl);
+
+            const clearBtn = document.createElement('button');
+            clearBtn.type = 'button';
+            clearBtn.className = `${CONFIG.UI_PREFIX}-input-clear-btn`;
+            clearBtn.setAttribute('aria-label', 'Clear');
+            clearBtn.tabIndex = -1;
+            clearBtn.textContent = '×';
+            wrapper.appendChild(clearBtn);
+
+            const toggle = () => {
+                clearBtn.classList.toggle(`${CONFIG.UI_PREFIX}-visible`, inputEl.value.length > 0);
             };
-        },
 
-        /**
-         * Prepends `name`, deduplicates (case-sensitive), trims to max, persists.
-         * Most-recently-added is always index 0.
-         * @param {string} name
-         */
-        // In-memory cache — avoids a GM storage JSON parse on every save/remove.
-        // Invalidated (set null) on every write so the next load() re-reads cleanly.
-        _cache: null,
-
-        load() {
-            if (this._cache !== null) return this._cache;
-            try {
-                const raw = GM_getValue(CONFIG.CUSTOM_PRESETS_KEY, '[]');
-                const parsed = JSON.parse(raw);
-                if (!Array.isArray(parsed)) { this._cache = []; return []; }
-                this._cache = parsed.filter(v => typeof v === 'string' && v.trim().length > 0);
-                return this._cache;
-            } catch (e) {
-                Logger.warn('[CustomPresets] GM storage read failed — returning empty list.');
-                this._cache = [];
-                return [];
-            }
-        },
-
-        _persist(list) {
-            // Single write path — always invalidates cache after persisting
-            GM_setValue(CONFIG.CUSTOM_PRESETS_KEY, JSON.stringify(list));
-            this._cache = null;
-        },
-
-        save(name) {
-            const trimmed = name.trim();
-            if (!trimmed) return;
-            try {
-                const list = this.load();
-                const deduped = list.filter(v => v !== trimmed);
-                deduped.unshift(trimmed);
-                this._persist(deduped);
-            } catch (e) {
-                Logger.warn('[CustomPresets] GM storage write failed — preset not saved.');
-            }
-        },
-
-        /**
-         * Removes a single entry by exact value and persists the result.
-         * @param {string} name
-         */
-        remove(name) {
-            try {
-                const updated = this.load().filter(v => v !== name);
-                this._persist(updated);
-            } catch (e) {
-                Logger.warn('[CustomPresets] GM storage write failed during remove.');
-            }
-        },
-
-        /**
-         * Registers a GM_addValueChangeListener for cross-tab sync.
-         * When another tab saves/removes a preset, calls _onRemoteChange if set.
-         * Falls back gracefully if the GM API is unavailable.
-         * Safe to call multiple times — only one listener is ever attached.
-         */
-        bindCrossTabSync() {
-            if (this._crossTabBound) return;
-            this._crossTabBound = true;
-            if (typeof GM_addValueChangeListener !== 'function') return;
-            GM_addValueChangeListener(CONFIG.CUSTOM_PRESETS_KEY, (key, oldVal, newVal, remote) => {
-                if (!remote) return;
-                // Invalidate in-memory cache so next load() re-reads fresh GM data
-                this._cache = null;
-                if (typeof this._onRemoteChange === 'function') {
-                    this._onRemoteChange();
-                }
+            // Prevent the input from blurring before the click registers
+            clearBtn.addEventListener('mousedown', (e) => e.preventDefault());
+            clearBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                inputEl.value = '';
+                // Dispatched (not just cleared) so existing debounced search/filter
+                // listeners on the input fire exactly as if the user had typed
+                inputEl.dispatchEvent(new Event('input', { bubbles: true }));
+                inputEl.focus();
+                toggle();
             });
+
+            inputEl.addEventListener('input', toggle);
+            toggle();
+
+            return wrapper;
         }
     };
 
@@ -264,7 +199,7 @@
             this.config.owner = CONFIG.GITHUB_OWNER;
             this.config.repo = CONFIG.GITHUB_REPO;
             this.config.branch = CONFIG.GITHUB_BRANCH;
-            this.config.token = GM_getValue('tm_kpop_dl_github_token', '');
+            this.config.token = GM_getValue(`${CONFIG.STORAGE_PREFIX}_github_token`, '');
         },
 
         isValid() {
@@ -562,12 +497,12 @@
 
         cleanupDeprecatedConfig() {
             const deprecatedKeys = [
-                'tm_kpop_dl_worker_url',
-                'tm_kpop_dl_github_owner',
-                'tm_kpop_dl_github_repo',
-                'tm_kpop_dl_github_path',
-                'tm_kpop_dl_history_path',
-                'tm_kpop_dl_github_branch'
+                `${CONFIG.STORAGE_PREFIX}_worker_url`,
+                `${CONFIG.STORAGE_PREFIX}_github_owner`,
+                `${CONFIG.STORAGE_PREFIX}_github_repo`,
+                `${CONFIG.STORAGE_PREFIX}_github_path`,
+                `${CONFIG.STORAGE_PREFIX}_history_path`,
+                `${CONFIG.STORAGE_PREFIX}_github_branch`
             ];
 
             deprecatedKeys.forEach(key => {
@@ -1560,12 +1495,28 @@
 
                 /* ── Custom Input Prompt ──────────────────────────────────── */
                 .${CONFIG.UI_PREFIX}-custom-wrapper  { display: none; width: 100%; gap: 0.5rem; align-items: center; }
-                .${CONFIG.UI_PREFIX}-custom-input    { flex: 1; background: var(--tm-bg-input); border: 1px solid var(--tm-border-light); border-radius: 0.5rem; padding: 0.7rem 0.8rem; color: var(--tm-text-main); font-size: 0.9rem; outline: none; transition: border-color 0.2s, background 0.2s; }
+                .${CONFIG.UI_PREFIX}-custom-input    { background: var(--tm-bg-input); border: 1px solid var(--tm-border-light); border-radius: 0.5rem; padding: 0.7rem 0.8rem; color: var(--tm-text-main); font-size: 0.9rem; outline: none; transition: border-color 0.2s, background 0.2s; }
                 .${CONFIG.UI_PREFIX}-custom-input:focus { border-color: var(--tm-text-dark); background: var(--tm-bg-elevated); }
                 .${CONFIG.UI_PREFIX}-custom-confirm, .${CONFIG.UI_PREFIX}-custom-cancel { background: var(--tm-bg-elevated); color: var(--tm-text-main); border: 1px solid #444; padding: 0.7rem 1rem; border-radius: 0.5rem; cursor: pointer; font-size: 0.9rem; transition: background 0.2s; }
                 .${CONFIG.UI_PREFIX}-custom-confirm       { background: var(--tm-confirm-bg); border-color: var(--tm-confirm-border); color: var(--tm-confirm-text); }
                 .${CONFIG.UI_PREFIX}-custom-confirm:hover { background: var(--tm-confirm-hover); }
                 .${CONFIG.UI_PREFIX}-custom-cancel:hover  { background: var(--tm-bg-hover-subtle); border-color: var(--tm-text-dark); }
+
+                /* ── Input Clear Button ───────────────────────────────────── */
+                /* Wraps search/CRUD/settings inputs — shows a "×" once the
+                   input has a value so users don't have to backspace repeatedly. */
+                .${CONFIG.UI_PREFIX}-input-clear-wrapper { position: relative; display: flex; align-items: center; flex-grow: 1; min-width: 0; }
+                .${CONFIG.UI_PREFIX}-input-clear-wrapper input { width: 100%; padding-right: 2.2rem; box-sizing: border-box; }
+                .${CONFIG.UI_PREFIX}-input-clear-btn {
+                    position: absolute; right: 0.4rem; top: 50%; transform: translateY(-50%);
+                    width: 1.5rem; height: 1.5rem; display: flex; align-items: center; justify-content: center;
+                    background: transparent; border: none; border-radius: 50%; color: var(--tm-text-dim);
+                    font-size: 1.1rem; line-height: 1; cursor: pointer; opacity: 0; pointer-events: none;
+                    transition: opacity 0.15s, background 0.15s, color 0.15s;
+                }
+                .${CONFIG.UI_PREFIX}-input-clear-btn.${CONFIG.UI_PREFIX}-visible { opacity: 1; pointer-events: auto; }
+                .${CONFIG.UI_PREFIX}-input-clear-btn:hover,
+                .${CONFIG.UI_PREFIX}-input-clear-btn:focus { background: var(--tm-bg-hover-subtle); color: var(--tm-text-main); outline: none; }
 
                 /* ── CRUD Bar ─────────────────────────────────────────────── */
                 .${CONFIG.UI_PREFIX}-crud-bar       { display: none; gap: 0.5rem; margin-bottom: 1rem; flex-shrink: 0; transition: opacity 0.2s; }
@@ -2159,8 +2110,8 @@
             this._carouselRefreshNav();
 
             // One-time discoverable hint for first-time users
-            if (!GM_getValue('tm_kpop_dl_carousel_hint_shown', false)) {
-                GM_setValue('tm_kpop_dl_carousel_hint_shown', true);
+            if (!GM_getValue(`${CONFIG.STORAGE_PREFIX}_carousel_hint_shown`, false)) {
+                GM_setValue(`${CONFIG.STORAGE_PREFIX}_carousel_hint_shown`, true);
                 this.showToast('Your queue is a swipe away — slide left to view it.', 'info');
             }
         },
@@ -2974,9 +2925,6 @@
                 if (this.currentView === 'config') {
                     if (this.hasUnsavedChanges() && !confirm("You have unsaved changes. Discard them?")) return;
                     this.currentView = this.selectedGroup ? 'members' : 'groups';
-                } else if (this.currentView === 'custom-save') {
-                    this._teardownCustomSaveView();
-                    return;
                 } else if (this.currentView === 'members') {
                     this.currentView = 'groups';
                     this.selectedGroup = null;
@@ -3025,11 +2973,11 @@
                 input.placeholder = placeholder || '';
                 input.value = GM_getValue(inputId, defaultVal);
                 field.appendChild(label);
-                field.appendChild(input);
+                field.appendChild(Utils.attachClearButton(input));
                 return { fieldWrapper: field, inputElement: input };
             };
 
-            const token = createSettingsField('GitHub Fine-Grained Access Token', 'password', 'tm_kpop_dl_github_token', '', 'github_pat_...');
+            const token = createSettingsField('GitHub Fine-Grained Access Token', 'password', `${CONFIG.STORAGE_PREFIX}_github_token`, '', 'github_pat_...');
 
             this.configInputs = {
                 token: token.inputElement
@@ -3039,7 +2987,7 @@
             saveConfigBtn.className = `${CONFIG.UI_PREFIX}-settings-save-btn`;
             saveConfigBtn.textContent = 'Save Configuration';
             saveConfigBtn.onclick = () => {
-                GM_setValue('tm_kpop_dl_github_token', this.configInputs.token.value.trim());
+                GM_setValue(`${CONFIG.STORAGE_PREFIX}_github_token`, this.configInputs.token.value.trim());
                 this.initialConfigState = this.currentConfigState;
 
                 CloudAPI.loadConfig();
@@ -3130,7 +3078,7 @@
                 this.renderVirtualList();
             };
 
-            this.searchContainer.appendChild(this.searchInput);
+            this.searchContainer.appendChild(Utils.attachClearButton(this.searchInput));
             this.searchContainer.appendChild(this.multiSelectBtn);
             this.searchContainer.appendChild(this.editBtn);
             panel.appendChild(this.searchContainer);
@@ -3163,7 +3111,7 @@
                     this.showToast('Element empty or already exists.', 'error');
                 }
             };
-            this.crudBarContainer.appendChild(this.crudInput);
+            this.crudBarContainer.appendChild(Utils.attachClearButton(this.crudInput));
             this.crudBarContainer.appendChild(this.crudBtn);
             panel.appendChild(this.crudBarContainer);
 
@@ -3377,7 +3325,6 @@
             const customNameInput = document.createElement('input');
             customNameInput.className = `${CONFIG.UI_PREFIX}-custom-input`;
             customNameInput.type = 'text';
-            customNameInput.setAttribute('autocomplete', 'off');
             customNameInput.placeholder = 'Enter custom name...';
 
             const customCancelBtn = document.createElement('button');
@@ -3388,52 +3335,39 @@
             customConfirmBtn.className = `${CONFIG.UI_PREFIX}-custom-confirm`;
             customConfirmBtn.innerText = 'Save';
 
-            customWrapper.appendChild(customNameInput);
+            customWrapper.appendChild(Utils.attachClearButton(customNameInput));
             customWrapper.appendChild(customCancelBtn);
             customWrapper.appendChild(customConfirmBtn);
 
             this.footer.appendChild(this.footerMainRow);
             this.footer.appendChild(customWrapper);
 
-            // Exits custom-save view — delegates all teardown to the shared helper
-            const exitCustomSaveView = () => this._teardownCustomSaveView();
-
-            const submitCustomSave = () => {
-                const name = customNameInput.value.trim();
-                if (!name) { customNameInput.focus(); return; }
-                // Pass CustomPresets.save as onSuccess — only records after confirmed download
-                Downloader.executeCustomSave(name, this.isMultiSelectMode ? this.cart : null, () => CustomPresets.save(name));
-                if (this.isMultiSelectMode) this.exitMultiSelectMode();
-                exitCustomSaveView();
+            const resetCustomInput = () => {
+                customWrapper.style.display = 'none';
+                this.footerMainRow.style.display = 'flex';
+                customNameInput.value = '';
             };
 
-            // "Custom" button: enter the custom-save panel view
+            const submitCustomSave = () => {
+                const customName = customNameInput.value.trim();
+                if (customName) {
+                    Downloader.executeCustomSave(customName, this.isMultiSelectMode ? this.cart : null);
+                    if (this.isMultiSelectMode) this.exitMultiSelectMode();
+                } else {
+                    customNameInput.focus();
+                }
+            };
+
+            // "Custom" button: swaps the footer in place — the underlying
+            // groups/members list stays exactly as it was, no view change.
             this.customBtn.onclick = () => {
-                this._previousView = this.currentView;
-                this.currentView = 'custom-save';
-                // Wire cross-tab refresh while this view is active
-                CustomPresets._onRemoteChange = () => this.updateListData(this.searchInput ? this.searchInput.value.toLowerCase().trim() : '');
-                this.isCrudMode = false;
-                if (this.searchInput) this.searchInput.value = '';
-                this.updateListData('');
                 this.footerMainRow.style.display = 'none';
                 customWrapper.style.display = 'flex';
                 requestAnimationFrame(() => customNameInput.focus());
             };
 
-            customCancelBtn.onclick = exitCustomSaveView;
+            customCancelBtn.onclick = resetCustomInput;
             customConfirmBtn.onclick = submitCustomSave;
-
-            // While in custom-save view, typing in the footer input also filters
-            // the preset list live — so users can see if the name already exists
-            // before saving. Clears to full list when the input is empty.
-            customNameInput.addEventListener('input', () => {
-                if (this.currentView !== 'custom-save') return;
-                const val = customNameInput.value.trim().toLowerCase();
-                // Also sync the search bar so the filter is visually acknowledged
-                if (this.searchInput) this.searchInput.value = customNameInput.value.trim();
-                this.updateListData(val);
-            });
 
             customNameInput.addEventListener('keydown', (e) => {
                 if (e.key === 'Enter') {
@@ -3442,7 +3376,8 @@
                 } else if (e.key === 'Escape') {
                     e.preventDefault();
                     e.stopPropagation();
-                    exitCustomSaveView();
+                    resetCustomInput();
+                    this.searchInput.focus();
                 }
             });
 
@@ -3451,27 +3386,6 @@
             container.appendChild(panel);
 
             return container;
-        },
-
-        /**
-         * Tears down the 'custom-save' view cleanly from any exit path.
-         * Resets footer, clears inputs, restores previous view state, and
-         * calls updateListData + updateVisibility so the UI is fully consistent.
-         * Called by: back button, Cancel button, Escape key, handleItemClick.
-         */
-        _teardownCustomSaveView() {
-            const customWrapper = this.footer ? this.footer.querySelector(`.${CONFIG.UI_PREFIX}-custom-wrapper`) : null;
-            const footerInput   = customWrapper ? customWrapper.querySelector(`.${CONFIG.UI_PREFIX}-custom-input`) : null;
-            if (customWrapper) customWrapper.style.display = 'none';
-            if (footerInput)   footerInput.value = '';
-            if (this.searchInput) this.searchInput.value = '';
-            if (this.footerMainRow) this.footerMainRow.style.display = 'flex';
-            CustomPresets._onRemoteChange = null;
-            this.currentView  = this._previousView || 'groups';
-            this._previousView = null;
-            this.isCrudMode   = false;
-            this.updateListData('');
-            this.updateVisibility();
         },
 
         updateVisibility() {
@@ -3487,19 +3401,6 @@
                 requestAnimationFrame(() => {
                     if (this.configInputs && this.configInputs.token) this.configInputs.token.focus();
                 });
-            } else if (this.currentView === 'custom-save') {
-                this.configContainer.style.display = 'none';
-                this.searchContainer.style.display = 'flex';
-                this.mainListWrapper.style.display = 'flex';
-                this.footer.style.display = 'flex';
-                this.crudBarContainer.style.display = 'none';
-                this.headerTitle.textContent = 'Custom Save';
-                this.headerBackBtn.style.display = 'flex';
-                if (this.editBtn) {
-                    this.editBtn.style.borderColor = '';
-                    const svg = this.editBtn.querySelector('svg');
-                    if (svg) svg.style.fill = '';
-                }
             } else {
                 this.configContainer.style.display = 'none';
                 this.searchContainer.style.display = 'flex';
@@ -3538,27 +3439,7 @@
             this.currentListData = [];
             const isSearch = searchVal.length > 0;
 
-            if (this.currentView === 'custom-save') {
-                // Preset list — search filters on both group and name segments.
-                // Display label and badge are formatted for readability;
-                // itemData.preset stays as the raw original string for filename use.
-                CustomPresets.load().forEach(preset => {
-                    const { group, name } = CustomPresets.parse(preset);
-                    if (isSearch) {
-                        const lc = searchVal.toLowerCase();
-                        const groupMatch = group.toLowerCase().includes(lc);
-                        const nameMatch  = (name || preset).toLowerCase().includes(lc);
-                        const rawMatch   = preset.toLowerCase().includes(lc);
-                        if (!groupMatch && !nameMatch && !rawMatch) return;
-                    }
-                    this.currentListData.push({
-                        type:   'preset',
-                        preset: preset,                                        // raw — used for filename
-                        label:  Utils.toProperCase(name || preset),            // display only
-                        badge:  group ? group.toUpperCase() : ''               // display only
-                    });
-                });
-            } else if (this.currentView === 'groups') {
+            if (this.currentView === 'groups') {
                 Database.sortedGroups.forEach(gName => {
                     const groupMatches = !isSearch || gName.toLowerCase().includes(searchVal);
                     if (groupMatches) {
@@ -3615,9 +3496,7 @@
                 this.listInner.textContent = '';
                 const emptyState = document.createElement('div');
                 emptyState.className = `${CONFIG.UI_PREFIX}-empty-state`;
-                emptyState.textContent = this.currentView === 'custom-save'
-                    ? 'No saved presets yet. Type a name below and press Save.'
-                    : 'No matching database profiles tracked.';
+                emptyState.textContent = 'No matching database profiles tracked.';
                 this.listInner.appendChild(emptyState);
                 return;
             }
@@ -3681,19 +3560,6 @@
                         };
                     }
 
-                    // In custom-save view, clicking the group badge filters the list by that group
-                    if (itemData.type === 'preset' && itemData.badge) {
-                        badgeSpan.classList.add(`${CONFIG.UI_PREFIX}-badge-actionable`);
-                        badgeSpan.title = `Filter by ${itemData.badge}`;
-                        badgeSpan.onclick = (e) => {
-                            e.stopPropagation();
-                            // Use the raw group (before toUpperCase) for the filter
-                            const rawGroup = CustomPresets.parse(itemData.preset).group;
-                            if (this.searchInput) this.searchInput.value = rawGroup;
-                            this.updateListData(rawGroup.toLowerCase());
-                        };
-                    }
-
                     rightWrapper.appendChild(badgeSpan);
                 }
 
@@ -3708,19 +3574,6 @@
                         delBtn.dataset.index = i;
                         rightWrapper.appendChild(delBtn);
                     }
-                }
-
-                // Preset rows always show a delete button (no crud mode needed)
-                if (itemData.type === 'preset' && this.deleteBtnTemplate) {
-                    const delBtn = this.deleteBtnTemplate.cloneNode(true);
-                    delBtn.dataset.index = i;
-                    // Override the delegated click so it removes from CustomPresets
-                    delBtn.addEventListener('click', (e) => {
-                        e.stopPropagation();
-                        CustomPresets.remove(itemData.preset);
-                        this.updateListData('');
-                    });
-                    rightWrapper.appendChild(delBtn);
                 }
 
                 btn.appendChild(rightWrapper);
@@ -3748,14 +3601,6 @@
         },
 
         handleItemClick(itemData) {
-            if (itemData.type === 'preset') {
-                // Pass CustomPresets.save as onSuccess to promote MRU only on confirmed download
-                Downloader.executeCustomSave(itemData.preset, this.isMultiSelectMode ? this.cart : null, () => CustomPresets.save(itemData.preset));
-                if (this.isMultiSelectMode) this.exitMultiSelectMode();
-                // Tear down custom-save view cleanly via shared helper
-                this._teardownCustomSaveView();
-                return;
-            }
             if (itemData.type === 'group') {
                 this.selectedGroup = itemData.group;
                 this.currentView = 'members';
@@ -4148,8 +3993,8 @@
         isSilentMode: false,
 
         init() {
-            if (window.__KpopDlInitialized) return;
-            window.__KpopDlInitialized = true;
+            if (window.__XivMediaDlInitialized) return;
+            window.__XivMediaDlInitialized = true;
 
             this.isSilentMode = !this.isDirectMediaPage();
 
@@ -4157,7 +4002,7 @@
             Storage.init(this.isSilentMode);
 
             if (this.isSilentMode) {
-                Logger.info('Initialized Silent Cloud Worker v15.8');
+                Logger.info('Initialized Silent Cloud Worker v19.1');
                 return;
             }
 
@@ -4168,12 +4013,7 @@
 
             // Initialize the database first — isLoaded must be set as early as
             // possible so showMenu() doesn't stall in waitForLoad().
-            // GM_addValueChangeListener forces TM to initialize its cross-tab
-            // messaging bridge, inserting a microtask delay. Calling
-            // bindCrossTabSync() after Database.init() ensures that delay never
-            // sits between script start and isLoaded being set.
             Database.init();
-            CustomPresets.bindCrossTabSync();
 
             setInterval(() => {
                 if (document.visibilityState === 'visible' && !UI.overlay) {
@@ -4181,7 +4021,7 @@
                 }
             }, CONFIG.CLOUD_HISTORY_THROTTLE_MS);
 
-            Logger.info('Initialized K-Pop Media Downloader v15.8');
+            Logger.info('Initialized Xiv Media Downloader v19.1');
         },
 
         isDirectMediaPage() {
