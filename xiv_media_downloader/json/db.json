@@ -1653,15 +1653,6 @@
     "Sojin",
     "Yura"
   ],
-  "Celeb": [
-    "Andrea Brillantes",
-    "Ivana Alawi",
-    "Jillian Ward",
-    "Kim Domingo",
-    "Olivia Rodrigo",
-    "Pia Wurtzbach",
-    "Xyriel Manabat"
-  ],
   "sns": [
     "Alexandria Dardo",
     "Amara Ui",
@@ -1692,5 +1683,14 @@
     "Yskaela",
     "Yuri Choi",
     "Zayne"
+  ],
+  "celeb": [
+    "Andrea Brillantes",
+    "Ivana Alawi",
+    "Jillian Ward",
+    "Kim Domingo",
+    "Olivia Rodrigo",
+    "Pia Wurtzbach",
+    "Xyriel Manabat"
   ]
 }
