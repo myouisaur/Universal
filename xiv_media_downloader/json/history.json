@@ -3173,6 +3173,9 @@
   {"g": "sns"          , "n": "Hosyu Akihiko"         , "t": 1783296059409},
   {"g": "sns"          , "n": "Hosyu Akihiko"         , "t": 1783296064046},
   {"g": "BABYMONSTER"  , "n": "Ahyeon"                , "t": 1783299565845},
+  {"g": "ILLIT"        , "n": "Minju"                 , "t": 1783302937682},
+  {"g": "TWICE"        , "n": "Mina"                  , "t": 1783303297968},
+  {"g": "ITZY"         , "n": "Lia"                   , "t": 1783304878266},
   {"g": "BABYMONSTER"  , "n": "Asa"                   , "t": 1783306857326},
   {"g": "Dreamcatcher" , "n": "JiU"                   , "t": 1783306904207},
   {"g": "Dreamcatcher" , "n": "JiU"                   , "t": 1783306909520},
@@ -3180,5 +3183,6 @@
   {"g": "Dreamcatcher" , "n": "JiU"                   , "t": 1783306920165},
   {"g": "Dreamcatcher" , "n": "JiU"                   , "t": 1783306925315},
   {"g": "BABYMONSTER"  , "n": "Ruka"                  , "t": 1783307052701},
-  {"g": "ITZY"         , "n": "Ryujin"                , "t": 1783307109390}
+  {"g": "ITZY"         , "n": "Ryujin"                , "t": 1783307109390},
+  {"g": "ILLIT"        , "n": "Moka"                  , "t": 1783308833027}
 ]
