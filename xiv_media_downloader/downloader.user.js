@@ -2,7 +2,7 @@
 // @name         [Universal] Xiv Media Downloader
 // @namespace    https://github.com/myouisaur/Universal
 // @icon         data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23FF4081'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 11h3l-4 4-4-4h3V8h2v5z'/%3E%3C/svg%3E
-// @version      19.1
+// @version      20.2
 // @description  Organizes, tracks, and saves categorized media files through a centralized overlay.
 // @author       Xiv
 // @match        *://*/*
@@ -90,16 +90,30 @@
         trash: "M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z",
         checklist: "M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z",
         history: "M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z",
-        recent: "M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"
+        recent: "M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z",
+        database: "M2 20h20v-4H2v4zm2-3h2v2H4v-2zM2 4v4h20V4H2zm4 3H4V5h2v2zm-4 7h20v-4H2v4zm4-3h2v2H4v-2z",
+        inbox: "M19 3H4.99c-1.11 0-1.98.9-1.98 2L3 19c0 1.1.88 2 1.99 2H19c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 12h-4c0 1.66-1.35 3-3 3s-3-1.34-3-3H4.99V5H19v10z",
+        flame: "M13.5.67s.74 2.65.74 4.8c0 2.06-1.35 3.73-3.41 3.73-2.07 0-3.63-1.67-3.63-3.73l.03-.36C5.21 7.51 4 10.62 4 14c0 4.42 3.58 8 8 8s8-3.58 8-8C20 8.61 17.41 3.8 13.5.67zM11.71 19c-1.78 0-3.22-1.4-3.22-3.14 0-1.62 1.05-2.76 2.81-3.12 1.77-.36 3.6-1.21 4.62-2.58.39 1.29.59 2.65.59 4.04 0 2.65-2.15 4.8-4.8 4.8z"
     };
 
     // =========================================================
     // UTILITIES
     // =========================================================
     const Logger = {
+        // Capped ring buffer of recent warnings/errors — feeds the
+        // diagnostics panel. Capped size per the "cap size and prune old
+        // entries" rule for lightweight history tracking.
+        _recentIssues: [],
+        _MAX_ISSUES: 20,
+
+        _recordIssue(level, msg) {
+            this._recentIssues.unshift({ level, msg, timestamp: Date.now() });
+            if (this._recentIssues.length > this._MAX_ISSUES) this._recentIssues.length = this._MAX_ISSUES;
+        },
+
         info(msg)  { if (DEBUG) console.log(`[Xiv Media DL] ${msg}`); },
-        warn(msg) { console.warn(`[Xiv Media DL] ${msg}`); },
-        error(msg, err) { console.error(`[Xiv Media DL] ${msg}`, err); }
+        warn(msg) { console.warn(`[Xiv Media DL] ${msg}`); this._recordIssue('warn', msg); },
+        error(msg, err) { console.error(`[Xiv Media DL] ${msg}`, err); this._recordIssue('error', msg); }
     };
 
     const Utils = {
@@ -184,6 +198,25 @@
             toggle();
 
             return wrapper;
+        },
+
+        /**
+         * Makes a non-native interactive element (a styled <div> used as a
+         * button) keyboard-accessible: tab-focusable, announced as a button
+         * to assistive tech, and activatable via Enter/Space. Triggers the
+         * element's own .click() rather than duplicating whatever onclick
+         * logic is already attached to it.
+         * @param {HTMLElement} el
+         */
+        makeFocusable(el) {
+            el.setAttribute('tabindex', '0');
+            el.setAttribute('role', 'button');
+            el.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    el.click();
+                }
+            });
         }
     };
 
@@ -616,6 +649,22 @@
             return this._cache;
         },
 
+        /**
+         * Manual "mirror GitHub" action for when history.json has been hand-edited
+         * directly on GitHub. Clears the local cache first so fetchCloudBackground's
+         * merge step has nothing local to merge against — the result is a clean
+         * copy of whatever's currently on GitHub, not a union of old + new.
+         * @returns {Promise<'synced'|'no-token'>} outcome for the caller to toast
+         */
+        async resyncFromCloud() {
+            if (!CloudAPI.isValid()) return 'no-token';
+
+            this._cache = [];
+            GM_setValue(CONFIG.STORAGE_KEY, '[]');
+            await this.fetchCloudBackground(true);
+            return 'synced';
+        },
+
         async fetchCloudBackground(force = false) {
             if (!CloudAPI.isValid() || CloudAPI.isRateLimited()) return;
             if (!force && Date.now() - this._lastCloudFetch < CONFIG.CLOUD_HISTORY_THROTTLE_MS) return;
@@ -818,16 +867,67 @@
             return [...this._cache].reverse();
         },
 
-        getFlavorStats() {
+        /**
+         * Trending Score formula (Save events only, last 30 days) — exact
+         * spec: exponential decay with a 7-day half-life.
+         *   weight = 2^(-(daysAgo - 1) / 7)
+         * where daysAgo = 1 means "saved today", daysAgo = 30 is the outer
+         * edge of scope. Every save event contributes independently; summing
+         * a member/group's weights across all its saves gives its score.
+         * Returns 0 for anything outside the 30-day window (explicit here
+         * rather than relying solely on HISTORY_MAX_DAYS pruning, in case of
+         * any timing drift right at the boundary).
+         * @param {number} timestampMs - when the save happened
+         * @param {number} nowMs - current time, passed in so a whole batch
+         * of items is scored against one consistent "now"
+         * @returns {number}
+         */
+        _trendingWeight(timestampMs, nowMs) {
+            const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+            const daysAgo = Math.floor((nowMs - timestampMs) / ONE_DAY_MS) + 1;
+            if (daysAgo < 1 || daysAgo > 30) return 0;
+            return Math.pow(2, -((daysAgo - 1) / 7));
+        },
+
+        /**
+         * Per-member trending stats. `score` (decayed, recency-weighted) sets
+         * the sort order; `count` (raw save total) is what's actually shown
+         * in the UI — a decayed score number isn't meaningful to read at a
+         * glance, but the ordering it produces is exactly what we want.
+         */
+        getTrendingStats() {
+            const now = Date.now();
             const frequencies = {};
             this._cache.forEach(item => {
+                const weight = this._trendingWeight(item.t, now);
+                if (weight === 0) return;
                 const identifier = `${item.g}|${item.n}`;
                 if (!frequencies[identifier]) {
-                    frequencies[identifier] = { g: item.g, n: item.n, count: 0 };
+                    frequencies[identifier] = { g: item.g, n: item.n, count: 0, score: 0 };
                 }
                 frequencies[identifier].count++;
+                frequencies[identifier].score += weight;
             });
-            return Object.values(frequencies).sort((a, b) => b.count - a.count);
+            return Object.values(frequencies).sort((a, b) => b.score - a.score);
+        },
+
+        /**
+         * Same aggregation as getTrendingStats(), summed per group instead of
+         * per member — feeds the Trending panel's "GROUP" view toggle.
+         */
+        getGroupTrendingStats() {
+            const now = Date.now();
+            const frequencies = {};
+            this._cache.forEach(item => {
+                const weight = this._trendingWeight(item.t, now);
+                if (weight === 0) return;
+                if (!frequencies[item.g]) {
+                    frequencies[item.g] = { g: item.g, count: 0, score: 0 };
+                }
+                frequencies[item.g].count++;
+                frequencies[item.g].score += weight;
+            });
+            return Object.values(frequencies).sort((a, b) => b.score - a.score);
         }
     };
 
@@ -1149,7 +1249,7 @@
 
         sidePanels: {
             recent: { data: [], wrapper: null, container: null, inner: null, cachedHeight: 400 },
-            flavor: { data: [], wrapper: null, container: null, inner: null, cachedHeight: 400 }
+            trending: { data: [], wrapper: null, container: null, inner: null, cachedHeight: 400, viewMode: 'member', scrollPositions: { member: 0, group: 0 } }
         },
 
         currentListData: [],
@@ -1189,7 +1289,7 @@
         _carousel: {
             isActive: false,         // Whether carousel mode is currently engaged
             currentId: 'main',       // ID of the currently-visible panel
-            panelEls: {},            // { queue, recent, main, flavor } → DOM refs
+            panelEls: {},            // { queue, recent, main, trending } → DOM refs
             layoutEl: null,
             track: null,
             arrowPrev: null,
@@ -1257,18 +1357,96 @@
                 }
 
                 /* ── Floating Action Button ───────────────────────────────── */
+                /* ── FAB: Liquid Glass ────────────────────────────────────── */
+                /* Layered glass effect adapted for this button's existing
+                   circular shape and drag-to-corner positioning. Structure:
+                   scatter (blur/saturation) → chroma (tint wash) → rim (inner
+                   highlight) → icon, plus ::before (gradient border ring) and
+                   ::after (top glare) pseudo-elements. Visual only — the
+                   element's position/click/drag logic lives in JS untouched. */
                 .${CONFIG.UI_PREFIX}-fab {
                     position: fixed;
                     top: calc(100vh - 6rem); left: calc(100vw - 6rem);
                     width: 3.5rem; height: 3.5rem;
-                    background: rgba(255,255,255,0.1);
-                    border: 1px solid rgba(255,255,255,0.2); border-radius: 50%;
+                    border-radius: 50%;
                     display: flex; align-items: center; justify-content: center;
-                    cursor: pointer; box-shadow: 0 0.5rem 1.5rem rgba(0,0,0,0.6);
+                    cursor: pointer;
                     z-index: ${CONFIG.FAB_Z_INDEX};
+                    overflow: hidden;
+                    background: rgba(255,255,255,0.06);
+                    backdrop-filter: blur(16px) saturate(180%) brightness(1.08);
+                    -webkit-backdrop-filter: blur(16px) saturate(180%) brightness(1.08);
+                    box-shadow:
+                        0 0.5rem 1.5rem rgba(0,0,0,0.6),
+                        inset 0 1px 1px rgba(255,255,255,0.3),
+                        inset 0 -1px 1px rgba(0,0,0,0.2);
+                    transition: transform 0.2s ease, box-shadow 0.2s ease;
+                    user-select: none; -webkit-user-select: none; -moz-user-select: none;
                 }
-                .${CONFIG.UI_PREFIX}-fab:hover { background: rgba(255,255,255,0.2); }
-                .${CONFIG.UI_PREFIX}-fab svg { width: 1.5rem; height: 1.5rem; fill: var(--tm-text-main); }
+                /* Gradient border ring — mask trick so only the ring itself
+                   (not the whole circle) picks up the gradient */
+                .${CONFIG.UI_PREFIX}-fab::before {
+                    content: ''; position: absolute; inset: 0; border-radius: 50%;
+                    padding: 1px;
+                    background: linear-gradient(135deg, rgba(255,255,255,0.6), rgba(255,255,255,0.05) 40%, rgba(255,255,255,0.25));
+                    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+                    -webkit-mask-composite: xor;
+                    mask-composite: exclude;
+                    pointer-events: none;
+                }
+                /* Top glare — soft highlight suggesting a curved glass surface */
+                .${CONFIG.UI_PREFIX}-fab::after {
+                    content: ''; position: absolute; top: 4%; left: 12%; right: 12%; height: 40%;
+                    border-radius: 50% 50% 60% 60% / 60% 60% 100% 100%;
+                    background: linear-gradient(to bottom, rgba(255,255,255,0.35), rgba(255,255,255,0));
+                    pointer-events: none;
+                }
+                .${CONFIG.UI_PREFIX}-fab-glass-scatter {
+                    position: absolute; inset: 0; border-radius: 50%;
+                    backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px);
+                    pointer-events: none;
+                }
+                .${CONFIG.UI_PREFIX}-fab-glass-chroma {
+                    position: absolute; inset: 0; border-radius: 50%;
+                    background: radial-gradient(circle at 30% 25%, rgba(255,255,255,0.18), transparent 60%);
+                    mix-blend-mode: overlay;
+                    pointer-events: none;
+                }
+                .${CONFIG.UI_PREFIX}-fab-glass-rim {
+                    position: absolute; inset: 0; border-radius: 50%;
+                    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.15);
+                    pointer-events: none;
+                }
+                .${CONFIG.UI_PREFIX}-fab-icon-wrapper {
+                    position: relative; z-index: 5;
+                    display: flex; align-items: center; justify-content: center;
+                    filter: drop-shadow(0 1px 2px rgba(0,0,0,0.4));
+                }
+                .${CONFIG.UI_PREFIX}-fab-icon-wrapper svg { width: 1.5rem; height: 1.5rem; fill: var(--tm-text-main); }
+                .${CONFIG.UI_PREFIX}-fab:hover {
+                    transform: scale(1.05);
+                    box-shadow:
+                        0 0.6rem 1.8rem rgba(0,0,0,0.65),
+                        inset 0 1px 1px rgba(255,255,255,0.4),
+                        inset 0 -1px 1px rgba(0,0,0,0.2),
+                        0 0 1.2rem rgba(255,255,255,0.15);
+                }
+                .${CONFIG.UI_PREFIX}-fab:active { transform: scale(0.96); }
+                .${CONFIG.UI_PREFIX}-fab:focus-visible {
+                    outline: 2px solid var(--tm-primary); outline-offset: 3px;
+                }
+                /* Ripple — expanding circle from pointer position, self-removes on animationend */
+                .${CONFIG.UI_PREFIX}-fab-ripple {
+                    position: absolute; z-index: 4;
+                    width: 0; height: 0; border-radius: 50%;
+                    background: rgba(255,255,255,0.35);
+                    transform: translate(-50%, -50%);
+                    pointer-events: none;
+                    animation: ${CONFIG.UI_PREFIX}-fab-ripple-anim 0.5s ease-out forwards;
+                }
+                @keyframes ${CONFIG.UI_PREFIX}-fab-ripple-anim {
+                    to { width: 4rem; height: 4rem; opacity: 0; }
+                }
 
                 /* ── Overlay ──────────────────────────────────────────────── */
                 #${CONFIG.UI_PREFIX}-overlay {
@@ -1279,6 +1457,26 @@
                     align-items: center !important;
                     justify-content: center !important;
                     font-family: 'Inter', -apple-system, sans-serif; backdrop-filter: blur(8px);
+                    /* App chrome shouldn't behave like selectable page text —
+                       matches the slider's no-highlight treatment, applied
+                       everywhere. Actual text inputs opt back in below,
+                       since selecting/copying typed text is real functionality. */
+                    user-select: none; -webkit-user-select: none; -moz-user-select: none;
+                }
+                #${CONFIG.UI_PREFIX}-overlay input,
+                #${CONFIG.UI_PREFIX}-overlay textarea {
+                    user-select: text; -webkit-user-select: text; -moz-user-select: text;
+                }
+                /* ── Global Focus-Visible ─────────────────────────────────── */
+                /* One centralized rule for every interactive element, rather
+                   than styling each button class individually — covers
+                   native <button>s, icon-btn divs (now keyboard-focusable
+                   via Utils.makeFocusable), and role="button" elements. */
+                #${CONFIG.UI_PREFIX}-overlay button:focus-visible,
+                #${CONFIG.UI_PREFIX}-overlay [role="button"]:focus-visible {
+                    outline: 2px solid var(--tm-primary);
+                    outline-offset: 2px;
+                    border-radius: 0.3rem;
                 }
 
                 /* ── Fluid Desktop Layout ─────────────────────────────────── */
@@ -1330,6 +1528,21 @@
                 .${CONFIG.UI_PREFIX}-side.left  { order: 1; }
                 .${CONFIG.UI_PREFIX}-side.right { order: 3; }
 
+                /* ── Panel Change Glow ────────────────────────────────────── */
+                /* Brief, self-cleaning pulse (see _openGroupInMainPanel) so
+                   drilling into a group from a side panel is noticeable even
+                   when the list content swap itself is easy to miss at a
+                   glance. Keeps the panel's existing shadow, adds a second
+                   fading glow shadow alongside it — subtle, not flashy. */
+                @keyframes ${CONFIG.UI_PREFIX}-panel-glow-pulse {
+                    0%   { box-shadow: 0 2rem 4rem rgba(0,0,0,0.8), 0 0 0 0 transparent; }
+                    25%  { box-shadow: 0 2rem 4rem rgba(0,0,0,0.8), 0 0 1rem 0.2rem var(--tm-primary); }
+                    100% { box-shadow: 0 2rem 4rem rgba(0,0,0,0.8), 0 0 0 0 transparent; }
+                }
+                .${CONFIG.UI_PREFIX}-panel-glow {
+                    animation: ${CONFIG.UI_PREFIX}-panel-glow-pulse 0.8s ease-out;
+                }
+
                 /* ── Queue / Cart panel — fluid width-reveal ─────────────── */
                 /* Intentional layout transition: panel opens/closes as part of
                    the core UX — not a hover/interaction animation.           */
@@ -1361,7 +1574,14 @@
                     height: 2.5rem; margin-bottom: 1rem; flex-shrink: 0; width: 100%;
                 }
                 .${CONFIG.UI_PREFIX}-header-left  { display: flex; align-items: center; gap: 0.8rem; overflow: hidden; flex-grow: 1; }
-                .${CONFIG.UI_PREFIX}-header-right { display: flex; align-items: center; justify-content: flex-end; flex-shrink: 0; }
+                .${CONFIG.UI_PREFIX}-header-right { display: flex; align-items: center; justify-content: flex-end; flex-shrink: 0; gap: 0.4rem; }
+
+                /* ── Panel Icon Titles ────────────────────────────────────── */
+                /* Monochrome SVG + text, replacing emoji for cross-platform
+                   rendering consistency. Every panel (Database, Queue, Recent,
+                   Trending) uses this exact pattern. */
+                .${CONFIG.UI_PREFIX}-icon-title { display: flex; align-items: center; gap: 0.45rem; }
+                .${CONFIG.UI_PREFIX}-icon-title-svg { width: 1.1rem; height: 1.1rem; fill: var(--tm-text-main); flex-shrink: 0; }
                 .${CONFIG.UI_PREFIX}-header h2 {
                     font-size: clamp(0.85rem, 1.1vw, 1.1rem);
                     margin: 0; font-weight: 600; color: var(--tm-text-heading); text-align: left;
@@ -1480,6 +1700,75 @@
                 .${CONFIG.UI_PREFIX}-badge-actionable:hover       { background: var(--tm-bg-hover-subtle); border-color: var(--tm-border-focus); color: var(--tm-text-main); cursor: pointer; }
                 .${CONFIG.UI_PREFIX}-badge-actionable.accent:hover { background: var(--tm-border-light); border-color: var(--tm-text-dark); color: var(--tm-text-main); }
 
+                /* ── Trending Panel Member/Group Sliding Toggle ────────────── */
+                /* Pure CSS state machine: a visually-hidden checkbox drives
+                   everything below via the :checked sibling selector — the
+                   thumb's position and each label's color. No JS animates
+                   any of this; the checkbox's change event only tells the
+                   app which data to render, mirroring the reference AM/PM
+                   slider's architecture exactly. */
+                .${CONFIG.UI_PREFIX}-trending-switch {
+                    position: relative;
+                    display: block;
+                    width: calc(100% - 2 * clamp(0.6rem, 2vw, 0.9rem));
+                    margin: 0 clamp(0.6rem, 2vw, 0.9rem) 0.7rem;
+                    height: 2.2rem;
+                    cursor: pointer;
+                }
+                .${CONFIG.UI_PREFIX}-trending-switch-checkbox {
+                    position: absolute; opacity: 0; width: 0; height: 0;
+                }
+                .${CONFIG.UI_PREFIX}-trending-switch-track {
+                    position: absolute; inset: 0;
+                    background: var(--tm-bg-elevated);
+                    border: 1px solid var(--tm-border-light);
+                    border-radius: 999px;
+                    display: flex; align-items: center;
+                    padding: 0.2rem;
+                    overflow: hidden;
+                    transition: border-color 0.2s ease;
+                }
+                /* Visible focus ring on the track since the real checkbox is hidden —
+                   keyboard users still get a clear focus indicator (Tab + Space toggles) */
+                .${CONFIG.UI_PREFIX}-trending-switch-checkbox:focus-visible ~ .${CONFIG.UI_PREFIX}-trending-switch-track {
+                    outline: 2px solid var(--tm-primary); outline-offset: 2px;
+                }
+                .${CONFIG.UI_PREFIX}-trending-switch-labels {
+                    position: relative; z-index: 1;
+                    display: flex; width: 100%;
+                }
+                .${CONFIG.UI_PREFIX}-trending-switch-member,
+                .${CONFIG.UI_PREFIX}-trending-switch-group {
+                    flex: 1; text-align: center;
+                    font-size: 0.75rem; font-weight: 700; letter-spacing: 0.03em;
+                    color: var(--tm-text-dim);
+                    transition: color 0.2s ease;
+                }
+                .${CONFIG.UI_PREFIX}-trending-switch-checkbox:not(:checked) ~ .${CONFIG.UI_PREFIX}-trending-switch-track .${CONFIG.UI_PREFIX}-trending-switch-member,
+                .${CONFIG.UI_PREFIX}-trending-switch-checkbox:checked ~ .${CONFIG.UI_PREFIX}-trending-switch-track .${CONFIG.UI_PREFIX}-trending-switch-group {
+                    color: var(--tm-text-main);
+                }
+                .${CONFIG.UI_PREFIX}-trending-switch-thumb {
+                    position: absolute;
+                    top: 0.2rem; bottom: 0.2rem; left: 0.2rem;
+                    width: calc(50% - 0.2rem);
+                    background: var(--tm-primary);
+                    border-radius: 999px;
+                    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+                    transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+                    /* translateZ(0) forces its own compositor layer alongside
+                       will-change, so the browser slides this via the GPU
+                       instead of repainting it as part of regular layout —
+                       this is what actually fixes the low-FPS feel, not the
+                       transition timing (which was already fine). */
+                    will-change: transform;
+                    transform: translateZ(0);
+                    z-index: 0;
+                }
+                .${CONFIG.UI_PREFIX}-trending-switch-checkbox:checked ~ .${CONFIG.UI_PREFIX}-trending-switch-track .${CONFIG.UI_PREFIX}-trending-switch-thumb {
+                    transform: translateX(100%) translateZ(0);
+                }
+
                 /* ── Footer & Action Buttons ──────────────────────────────── */
                 .${CONFIG.UI_PREFIX}-footer       { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--tm-border); flex-shrink: 0; display: flex; flex-direction: column; gap: 0.5rem; }
                 .${CONFIG.UI_PREFIX}-panel-footer { margin-top: auto; padding-top: 1rem; border-top: 1px solid var(--tm-border); display: none; }
@@ -1543,6 +1832,25 @@
                 .${CONFIG.UI_PREFIX}-settings-input { background: var(--tm-bg-input); border: 1px solid var(--tm-border-light); border-radius: 0.6rem; padding: 0.7rem 0.8rem; color: var(--tm-text-main); font-size: 0.9rem; outline: none; transition: border-color 0.2s, background 0.2s; }
                 .${CONFIG.UI_PREFIX}-settings-input:focus { border-color: var(--tm-primary); background: var(--tm-bg-elevated); }
                 .${CONFIG.UI_PREFIX}-settings-save-btn    { width: 100%; background: var(--tm-primary); color: var(--tm-text-main); border: none; border-radius: 0.6rem; padding: 0.8rem; font-size: 0.95rem; font-weight: 600; cursor: pointer; transition: background 0.2s; }
+                .${CONFIG.UI_PREFIX}-settings-utility-btn { width: 100%; background: transparent; color: var(--tm-text-main); border: 1px solid var(--tm-border-light); border-radius: 0.6rem; padding: 0.7rem; font-size: 0.9rem; font-weight: 500; cursor: pointer; transition: background 0.2s, border-color 0.2s; }
+                .${CONFIG.UI_PREFIX}-settings-utility-btn:hover { background: var(--tm-bg-hover-subtle); border-color: var(--tm-text-dark); }
+                .${CONFIG.UI_PREFIX}-settings-utility-btn--bottom { margin-top: auto; }
+                .${CONFIG.UI_PREFIX}-settings-hint { font-size: 0.78rem; color: var(--tm-text-dim); margin: 0.4rem 0 1.2rem; line-height: 1.4; }
+
+                /* ── Diagnostics Panel ────────────────────────────────────── */
+                .${CONFIG.UI_PREFIX}-diagnostics-section {
+                    font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em;
+                    color: var(--tm-text-dim); text-transform: uppercase;
+                    margin: 1rem 0 0.4rem; padding-bottom: 0.3rem;
+                    border-bottom: 1px solid var(--tm-border-light);
+                }
+                .${CONFIG.UI_PREFIX}-diagnostics-section:first-child { margin-top: 0; }
+                .${CONFIG.UI_PREFIX}-diagnostics-row {
+                    display: flex; justify-content: space-between; align-items: baseline;
+                    gap: 1rem; padding: 0.35rem 0; font-size: 0.85rem;
+                }
+                .${CONFIG.UI_PREFIX}-diagnostics-label { color: var(--tm-text-dim); flex-shrink: 0; }
+                .${CONFIG.UI_PREFIX}-diagnostics-value { color: var(--tm-text-main); text-align: right; word-break: break-word; }
                 .${CONFIG.UI_PREFIX}-settings-save-btn:hover:not(:disabled) { background: var(--tm-primary-hover); }
                 .${CONFIG.UI_PREFIX}-history-delete-btn   { width: 100%; background: rgba(229,115,115,0.15); color: var(--tm-danger); border: 1px solid var(--tm-danger); border-radius: 0.6rem; padding: 0.8rem; font-size: 0.95rem; font-weight: 600; cursor: pointer; transition: background 0.2s, color 0.2s; }
                 .${CONFIG.UI_PREFIX}-history-delete-btn:hover:not(:disabled) { background: var(--tm-danger); color: #fff; }
@@ -1760,7 +2068,7 @@
 
         /** Returns the ordered list of panel IDs currently in the deck. */
         _carouselGetActivePanels() {
-            const ids = ['recent', 'main', 'flavor'];
+            const ids = ['recent', 'main', 'trending'];
             if (this.isMultiSelectMode) ids.unshift('queue');
             return ids;
         },
@@ -1816,7 +2124,7 @@
 
             // Show panels that belong in the current deck; hide others.
             // Inline style is used so it can be cleanly reset on mode exit.
-            ['queue', 'recent', 'main', 'flavor'].forEach(id => {
+            ['queue', 'recent', 'main', 'trending'].forEach(id => {
                 const el = this._carousel.panelEls[id];
                 if (!el) return;
                 el.style.display = panels.includes(id) ? '' : 'none';
@@ -1854,7 +2162,7 @@
             if (!dotsEl) return;
             const panels     = this._carouselGetActivePanels();
             const currentIdx = this._carouselCurrentIndex();
-            const labels     = { queue: 'Queue', recent: 'Recent', main: 'Main', flavor: 'Flavor' };
+            const labels     = { queue: 'Queue', recent: 'Recent', main: 'Main', trending: 'Trending' };
 
             // Fast path: panel count is unchanged (normal navigation).
             // Toggle the active class on existing dot elements — no DOM creation at all.
@@ -2029,6 +2337,7 @@
 
             // Synchronous initial check so carousel state is set before first paint
             this._carouselUpdateMode();
+            this._updatePanelCloseButtonVisibility();
         },
 
         /**
@@ -2076,9 +2385,10 @@
                 // Perform structural mode switch while invisible
                 layoutEl.classList.toggle(`${P}-carousel`, shouldBeCarousel);
                 this._carousel.isActive = shouldBeCarousel;
+                this._updatePanelCloseButtonVisibility();
 
                 if (!shouldBeCarousel) {
-                    ['queue', 'recent', 'main', 'flavor'].forEach(id => {
+                    ['queue', 'recent', 'main', 'trending'].forEach(id => {
                         const el = this._carousel.panelEls[id];
                         if (el) el.style.display = '';
                     });
@@ -2160,6 +2470,7 @@
             this._carousel.arrowNext      = null;
             this._carousel.dotsEl         = null;
             this._carousel.pillEl         = null;
+            this._carousel.closeButtons   = null;
             this._carousel.cachedCardWidth = 0;
             this._carousel.isSwitching    = false;
         },
@@ -2170,8 +2481,29 @@
                 this.fab.id = `${CONFIG.UI_PREFIX}-fab`;
                 this.fab.className = `${CONFIG.UI_PREFIX}-fab`;
                 this.fab.title = "Open Download Manager (Ctrl+S)";
-                this.fab.appendChild(this._createSVG(ICONS.fab));
+
+                // Liquid-glass depth layers — purely visual, sit behind the icon.
+                // Styling only: does not touch existing click/drag behavior below.
+                const glassScatter = document.createElement('div');
+                glassScatter.className = `${CONFIG.UI_PREFIX}-fab-glass-scatter`;
+                const glassChroma = document.createElement('div');
+                glassChroma.className = `${CONFIG.UI_PREFIX}-fab-glass-chroma`;
+                const glassRim = document.createElement('div');
+                glassRim.className = `${CONFIG.UI_PREFIX}-fab-glass-rim`;
+                this.fab.appendChild(glassScatter);
+                this.fab.appendChild(glassChroma);
+                this.fab.appendChild(glassRim);
+
+                const iconWrapper = document.createElement('span');
+                iconWrapper.className = `${CONFIG.UI_PREFIX}-fab-icon-wrapper`;
+                iconWrapper.appendChild(this._createSVG(ICONS.fab));
+                this.fab.appendChild(iconWrapper);
+
                 this.fab.onclick = () => this.showMenu();
+                Utils.makeFocusable(this.fab);
+                // Visual-only ripple on press — does not interfere with the
+                // click handler above or the drag-to-corner logic below.
+                this.fab.addEventListener('pointerdown', (e) => this._spawnFabRipple(e));
 
                 // Set initial default placement explicitly to match initial state
                 this.fab.style.top = 'calc(100vh - 6rem)';
@@ -2184,6 +2516,23 @@
                 this.toastContainer.id = `${CONFIG.UI_PREFIX}-toast-wrapper`;
                 document.body.appendChild(this.toastContainer);
             }
+        },
+
+        /**
+         * Spawns a single expanding ripple circle at the pointer's position
+         * within the FAB, then removes itself after the animation completes.
+         * Purely decorative — no state, no behavior, self-cleaning.
+         * @param {PointerEvent} e
+         */
+        _spawnFabRipple(e) {
+            if (!this.fab) return;
+            const rect = this.fab.getBoundingClientRect();
+            const ripple = document.createElement('span');
+            ripple.className = `${CONFIG.UI_PREFIX}-fab-ripple`;
+            ripple.style.left = `${e.clientX - rect.left}px`;
+            ripple.style.top = `${e.clientY - rect.top}px`;
+            this.fab.appendChild(ripple);
+            ripple.addEventListener('animationend', () => ripple.remove());
         },
 
         updateFABPosition(cursorX, cursorY) {
@@ -2222,7 +2571,7 @@
             const isFinalLeg = nextQuad === this.fabTargetQuad;
             const easing = isFinalLeg ? 'cubic-bezier(0.25, 0.8, 0.25, 1)' : 'linear';
 
-            this.fab.style.transition = `top 0.2s ${easing}, left 0.2s ${easing}, background 0.2s ease`;
+            this.fab.style.transition = `top 0.2s ${easing}, left 0.2s ${easing}, background 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease`;
             this.fab.style.top = targetTop;
             this.fab.style.left = targetLeft;
 
@@ -2495,21 +2844,32 @@
                     btn.appendChild(histLeftDiv);
                     btn.appendChild(histBadge);
                 } else {
+                    const isTrendingGroupMode = type === 'trending' && this.sidePanels.trending.viewMode === 'group';
+
                     const nameSpan = document.createElement('span');
-                    nameSpan.textContent = itemData.n;
+                    nameSpan.textContent = isTrendingGroupMode ? itemData.g : itemData.n;
 
                     // Bugs 2+3 fix: show pink selection state in side panels too,
                     // synced with the cart exactly like the main list does.
-                    const isInCart = this.isMultiSelectMode &&
+                    // Group-mode rows have no single member to select — skip entirely.
+                    const isInCart = !isTrendingGroupMode && this.isMultiSelectMode &&
                         this.cart.some(c => c.g === itemData.g && c.n === itemData.n);
                     if (isInCart) btn.classList.add(`${CONFIG.UI_PREFIX}-item-selected`);
 
-                    const badgeText = type !== 'recent' ? `${itemData.count}x • ${itemData.g}` : itemData.g;
-                    const badgeClass = type !== 'recent' ? `${CONFIG.UI_PREFIX}-badge accent ${CONFIG.UI_PREFIX}-badge-actionable` : `${CONFIG.UI_PREFIX}-badge ${CONFIG.UI_PREFIX}-badge-actionable`;
+                    let badgeText, badgeClass;
+                    if (isTrendingGroupMode) {
+                        // Group name is already the row's label — badge is just the count.
+                        // Not marked actionable: the whole row already drills in on click.
+                        badgeText = `${itemData.count}x`;
+                        badgeClass = `${CONFIG.UI_PREFIX}-badge accent`;
+                    } else {
+                        badgeText = type !== 'recent' ? `${itemData.count}x • ${itemData.g}` : itemData.g;
+                        badgeClass = type !== 'recent' ? `${CONFIG.UI_PREFIX}-badge accent ${CONFIG.UI_PREFIX}-badge-actionable` : `${CONFIG.UI_PREFIX}-badge ${CONFIG.UI_PREFIX}-badge-actionable`;
+                    }
                     const badgeSpan = document.createElement('span');
                     badgeSpan.className = badgeClass;
                     badgeSpan.textContent = badgeText;
-                    badgeSpan.title = `View ${itemData.g}`;
+                    if (!isTrendingGroupMode) badgeSpan.title = `View ${itemData.g}`;
 
                     const rightWrapper = document.createElement('div');
                     rightWrapper.style.display = 'flex';
@@ -2548,7 +2908,21 @@
             leftGroup.style.gap = '0';
 
             const title = document.createElement('h2');
-            title.textContent = '🕒 Recent Saves';
+            title.className = `${CONFIG.UI_PREFIX}-icon-title`;
+
+            /**
+             * Rebuilds the title's icon+text in place — needed because this
+             * h2 toggles between two states (Recent/Raw History) rather than
+             * being built once like other panel titles.
+             */
+            const setTitle = (iconPathD, text) => {
+                title.replaceChildren();
+                const icon = this._createSVG(iconPathD);
+                icon.classList.add(`${CONFIG.UI_PREFIX}-icon-title-svg`);
+                title.appendChild(icon);
+                title.appendChild(document.createTextNode(text));
+            };
+            setTitle(ICONS.recent, 'Recent');
 
             const subtitle = document.createElement('div');
             subtitle.id = `${CONFIG.UI_PREFIX}-sync-time`;
@@ -2561,6 +2935,7 @@
 
             const toggleBtn = document.createElement('div');
             toggleBtn.className = `${CONFIG.UI_PREFIX}-icon-btn`;
+            Utils.makeFocusable(toggleBtn);
             toggleBtn.title = "View Raw History";
             toggleBtn.appendChild(this._createSVG(ICONS.history));
             toggleBtn.onclick = () => {
@@ -2568,14 +2943,14 @@
                 this.historySelected.clear();
 
                 if (this.recentPanelMode === 'history') {
-                    title.textContent = '📜 Raw History';
+                    setTitle(ICONS.history, 'Raw History');
                     subtitle.style.display = 'block';
                     toggleBtn.replaceChildren();
                     toggleBtn.appendChild(this._createSVG(ICONS.recent));
-                    toggleBtn.title = "View Recent Saves";
+                    toggleBtn.title = "View Recent";
                     footer.style.display = 'flex';
                 } else {
-                    title.textContent = '🕒 Recent Saves';
+                    setTitle(ICONS.recent, 'Recent');
                     subtitle.style.display = 'none';
                     toggleBtn.replaceChildren();
                     toggleBtn.appendChild(this._createSVG(ICONS.history));
@@ -2588,6 +2963,7 @@
             };
 
             rightGroup.appendChild(toggleBtn);
+            rightGroup.appendChild(this._createPanelCloseBtn('recent'));
             header.appendChild(leftGroup);
             header.appendChild(rightGroup);
             panel.appendChild(header);
@@ -2641,10 +3017,7 @@
                     e.stopPropagation();
                     const index = parseInt(badge.closest(`.${CONFIG.UI_PREFIX}-item`).dataset.index, 10);
                     const itemData = this.sidePanels['recent'].data[index];
-                    this.selectedGroup = itemData.g;
-                    this.currentView = 'members';
-                    if (this.searchInput) this.searchInput.value = '';
-                    this.updateListData('');
+                    this._openGroupInMainPanel(itemData.g);
                     return;
                 }
 
@@ -2691,16 +3064,94 @@
             return panel;
         },
 
-        createSidePanel(title, customClass, type) {
+        /**
+         * Shared close-button factory — every carousel panel (Main, Queue,
+         * Recent, Trending) uses this exact same button, always appended
+         * last in its header's right-side group, so the close action sits
+         * in an identical top-right position across every panel.
+         *
+         * On desktop (multiple panels visible side-by-side), only Main's
+         * close button should be visible — one close action, not four. On
+         * carousel/mobile (one panel visible at a time), each panel needs
+         * its own. Passing panelId registers the button so
+         * _updatePanelCloseButtonVisibility() can toggle it; Main's call
+         * omits panelId so it's never hidden.
+         * @param {string} [panelId] - 'queue' | 'recent' | 'trending'
+         * @returns {HTMLDivElement}
+         */
+        _createPanelCloseBtn(panelId) {
+            const closeBtn = document.createElement('div');
+            closeBtn.className = `${CONFIG.UI_PREFIX}-icon-btn`;
+            closeBtn.appendChild(this._createSVG(ICONS.close));
+            closeBtn.title = "Close";
+            closeBtn.setAttribute('tabindex', '0');
+            closeBtn.setAttribute('role', 'button');
+            closeBtn.setAttribute('aria-label', 'Close panel');
+            closeBtn.onclick = () => this.closeMenu();
+            closeBtn.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); this.closeMenu(); }
+            });
+            if (panelId) {
+                if (!this._carousel.closeButtons) this._carousel.closeButtons = {};
+                this._carousel.closeButtons[panelId] = closeBtn;
+            }
+            return closeBtn;
+        },
+
+        /**
+         * Shows/hides the Queue/Recent/Trending close buttons based on
+         * layout mode. Desktop (multiple panels visible at once): hidden —
+         * Main's single close button is enough. Carousel/mobile (one panel
+         * visible at a time): all shown, since whichever panel is currently
+         * on-screen needs its own way to close.
+         */
+        _updatePanelCloseButtonVisibility() {
+            if (!this._carousel.closeButtons) return;
+            const showAll = this._carousel.isActive;
+            Object.values(this._carousel.closeButtons).forEach(btn => {
+                btn.style.display = showAll ? '' : 'none';
+            });
+        },
+
+        /**
+         * Builds an icon+text title (monochrome SVG, not emoji) for panel
+         * headers — used by every panel so icon styling stays consistent.
+         * @param {string} iconPathD - an ICONS.* path
+         * @param {string} text
+         * @returns {HTMLHeadingElement}
+         */
+        _createIconTitle(iconPathD, text) {
+            const h2 = document.createElement('h2');
+            h2.className = `${CONFIG.UI_PREFIX}-icon-title`;
+            const icon = this._createSVG(iconPathD);
+            icon.classList.add(`${CONFIG.UI_PREFIX}-icon-title-svg`);
+            h2.appendChild(icon);
+            h2.appendChild(document.createTextNode(text));
+            return h2;
+        },
+
+        createSidePanel(title, customClass, type, iconPathD) {
             const panel = document.createElement('div');
             panel.className = `${CONFIG.UI_PREFIX}-panel ${CONFIG.UI_PREFIX}-side ${customClass}`;
 
             const header = document.createElement('div');
             header.className = `${CONFIG.UI_PREFIX}-header`;
-            const h2 = document.createElement('h2');
-            h2.textContent = title;
+            const h2 = iconPathD ? this._createIconTitle(iconPathD, title) : document.createElement('h2');
+            if (!iconPathD) h2.textContent = title;
             header.appendChild(h2);
+
+            const rightGroup = document.createElement('div');
+            rightGroup.className = `${CONFIG.UI_PREFIX}-header-right`;
+            rightGroup.appendChild(this._createPanelCloseBtn(type));
+            header.appendChild(rightGroup);
+
             panel.appendChild(header);
+
+            // Trending panel only: MEMBER/GROUP segmented toggle, sits between
+            // the header and the list. Defaults to member view.
+            if (type === 'trending') {
+                panel.appendChild(this._createTrendingViewToggle());
+            }
 
             const wrapper = document.createElement('div');
             wrapper.className = `${CONFIG.UI_PREFIX}-list-wrapper`;
@@ -2726,10 +3177,7 @@
                     e.stopPropagation();
                     const index = parseInt(badge.closest(`.${CONFIG.UI_PREFIX}-item`).dataset.index, 10);
                     const itemData = this.sidePanels[type].data[index];
-                    this.selectedGroup = itemData.g;
-                    this.currentView = 'members';
-                    if (this.searchInput) this.searchInput.value = '';
-                    this.updateListData('');
+                    this._openGroupInMainPanel(itemData.g);
                     return;
                 }
 
@@ -2737,6 +3185,14 @@
                 if (itemEl) {
                     const index = parseInt(itemEl.dataset.index, 10);
                     const itemData = this.sidePanels[type].data[index];
+
+                    // Trending panel in GROUP mode: rows aren't individual
+                    // downloadable members, so the whole row drills into that
+                    // group instead of toggling cart/triggering a download.
+                    if (type === 'trending' && this.sidePanels.trending.viewMode === 'group') {
+                        this._openGroupInMainPanel(itemData.g);
+                        return;
+                    }
 
                     if (this.isMultiSelectMode) {
                         const idx = this.cart.findIndex(c => c.g === itemData.g && c.n === itemData.n);
@@ -2755,6 +3211,128 @@
             return panel;
         },
 
+        /**
+         * Builds the MEMBER/GROUP segmented toggle for the Trending panel.
+         * @returns {HTMLDivElement}
+         */
+        /**
+         * Builds the MEMBER/GROUP sliding toggle for the Trending panel.
+         * Visual mechanism: a visually-hidden checkbox drives the slide via a
+         * pure CSS `:checked` sibling selector — no JS animates the thumb.
+         * Unchecked = Member (default), checked = Group.
+         * @returns {HTMLLabelElement}
+         */
+        _createTrendingViewToggle() {
+            const switchLabel = document.createElement('label');
+            switchLabel.className = `${CONFIG.UI_PREFIX}-trending-switch`;
+
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.className = `${CONFIG.UI_PREFIX}-trending-switch-checkbox`;
+            checkbox.setAttribute('role', 'switch');
+            checkbox.setAttribute('aria-label', 'Toggle between member and group view');
+            checkbox.checked = this.sidePanels.trending.viewMode === 'group';
+
+            const track = document.createElement('span');
+            track.className = `${CONFIG.UI_PREFIX}-trending-switch-track`;
+
+            const labels = document.createElement('span');
+            labels.className = `${CONFIG.UI_PREFIX}-trending-switch-labels`;
+            labels.setAttribute('aria-hidden', 'true');
+
+            const memberLabel = document.createElement('span');
+            memberLabel.className = `${CONFIG.UI_PREFIX}-trending-switch-member`;
+            memberLabel.textContent = 'MEMBER';
+
+            const groupLabel = document.createElement('span');
+            groupLabel.className = `${CONFIG.UI_PREFIX}-trending-switch-group`;
+            groupLabel.textContent = 'GROUP';
+
+            const thumb = document.createElement('span');
+            thumb.className = `${CONFIG.UI_PREFIX}-trending-switch-thumb`;
+
+            labels.append(memberLabel, groupLabel);
+            track.append(labels, thumb);
+            switchLabel.append(checkbox, track);
+
+            /**
+             * Switches view mode while preserving each mode's own scroll
+             * position — Member and Group render into the same physical
+             * scroll container, so without this, scrolling one mode would
+             * visibly carry over into the other.
+             * @param {'member'|'group'} nextMode
+             */
+            const switchMode = (nextMode) => {
+                const trendingState = this.sidePanels.trending;
+                if (trendingState.viewMode === nextMode) return;
+
+                if (trendingState.container) {
+                    trendingState.scrollPositions[trendingState.viewMode] = trendingState.container.scrollTop;
+                }
+
+                trendingState.viewMode = nextMode;
+
+                // Deferred one frame: refreshSidePanels() rebuilds list content
+                // and re-renders virtualized rows — real DOM work. Running it
+                // synchronously here competes with the CSS slide transition for
+                // the same frame, which is what actually caused the "low FPS"
+                // feel (the transition itself was already fine). Deferring lets
+                // the browser start compositing the slide immediately; the list
+                // rebuild happens a frame later instead of blocking its start.
+                requestAnimationFrame(() => {
+                    this.refreshSidePanels();
+                    if (trendingState.container) {
+                        trendingState.container.scrollTop = trendingState.scrollPositions[nextMode] || 0;
+                        this._renderSidePanelVirtual('trending');
+                    }
+                });
+            };
+
+            checkbox.addEventListener('change', () => {
+                switchMode(checkbox.checked ? 'group' : 'member');
+            });
+
+            return switchLabel;
+        },
+
+        /**
+         * Shared drill-in action: opens a group's members in the main panel.
+         * Used by both the badge-click delegation and Trending's group-mode row
+         * click — extracted to avoid duplicating the same five lines twice.
+         * @param {string} group
+         */
+        _openGroupInMainPanel(group) {
+            this.selectedGroup = group;
+            this.currentView = 'members';
+            if (this.searchInput) this.searchInput.value = '';
+
+            // Deferred one frame: updateListData() rebuilds and re-renders the
+            // virtualized list — real DOM work that would otherwise compete
+            // with the glow/carousel-slide animations starting this same
+            // frame (the same class of jank fixed for the Trending toggle).
+            requestAnimationFrame(() => this.updateListData(''));
+
+            // Brief, self-cleaning glow so the panel change is noticeable
+            // even when the content swap itself is easy to miss at a glance.
+            const mainContainer = this._carousel.panelEls ? this._carousel.panelEls.main : null;
+            const mainPanelBox = mainContainer ? mainContainer.querySelector(`.${CONFIG.UI_PREFIX}-panel`) : null;
+            if (mainPanelBox) {
+                const glowClass = `${CONFIG.UI_PREFIX}-panel-glow`;
+                mainPanelBox.classList.remove(glowClass); // restart cleanly if already mid-animation
+                void mainPanelBox.offsetWidth; // force reflow so re-adding the class actually restarts it
+                mainPanelBox.classList.add(glowClass);
+                mainPanelBox.addEventListener('animationend', () => {
+                    mainPanelBox.classList.remove(glowClass);
+                }, { once: true });
+            }
+
+            // Carousel: jump to Main so the drill-in is actually visible,
+            // matching the same guarded pattern used elsewhere.
+            if (this._carousel.isActive && this._carousel.currentId !== 'main') {
+                this._carouselGoTo('main');
+            }
+        },
+
         refreshSidePanels() {
             if (!this.overlay) return;
             if (this.recentPanelMode === 'history') {
@@ -2763,15 +3341,17 @@
                 this.sidePanels.recent.data = Storage.getRecentStats();
             }
 
-            this.sidePanels.flavor.data = Storage.getFlavorStats();
+            this.sidePanels.trending.data = this.sidePanels.trending.viewMode === 'group'
+                ? Storage.getGroupTrendingStats()
+                : Storage.getTrendingStats();
             this._renderSidePanelVirtual('recent');
-            this._renderSidePanelVirtual('flavor');
+            this._renderSidePanelVirtual('trending');
             this.updateSyncTimeUI();
         },
 
         // Re-renders all three visible list panels from already-loaded data.
         // Used by renderCart() so cart state changes (add/remove/cancel) are
-        // reflected instantly across Main, Recent, and Flavor without the
+        // reflected instantly across Main, Recent, and Trending without the
         // heavier Storage reload that refreshSidePanels() performs.
         //
         // Wrapped in a cancel-and-reschedule rAF so that rapid cart toggles
@@ -2785,7 +3365,7 @@
                 this._pendingRenderFrame = null;
                 this.renderVirtualList();
                 this._renderSidePanelVirtual('recent');
-                this._renderSidePanelVirtual('flavor');
+                this._renderSidePanelVirtual('trending');
             });
         },
 
@@ -2899,7 +3479,7 @@
         renderCart() {
             this._renderCartVirtual();
             // Sync cart highlight state across all panels instantly —
-            // main list, recent, and flavor all re-render from existing data.
+            // main list, recent, and trending all re-render from existing data.
             this._reRenderAllPanels();
         },
 
@@ -2918,11 +3498,15 @@
 
             this.headerBackBtn = document.createElement('div');
             this.headerBackBtn.className = `${CONFIG.UI_PREFIX}-icon-btn`;
+            Utils.makeFocusable(this.headerBackBtn);
             this.headerBackBtn.appendChild(this._createSVG(ICONS.back));
             this.headerBackBtn.title = "Back";
             this.headerBackBtn.onclick = (e) => {
                 e.stopPropagation();
-                if (this.currentView === 'config') {
+                if (this.currentView === 'diagnostics') {
+                    this.currentView = this._previousView || 'config';
+                    this._previousView = null;
+                } else if (this.currentView === 'config') {
                     if (this.hasUnsavedChanges() && !confirm("You have unsaved changes. Discard them?")) return;
                     this.currentView = this.selectedGroup ? 'members' : 'groups';
                 } else if (this.currentView === 'members') {
@@ -2936,17 +3520,12 @@
             leftGroup.appendChild(this.headerBackBtn);
 
             this.headerTitle = document.createElement('h2');
+            this.headerTitle.className = `${CONFIG.UI_PREFIX}-icon-title`;
             leftGroup.appendChild(this.headerTitle);
 
             const rightGroup = document.createElement('div');
             rightGroup.className = `${CONFIG.UI_PREFIX}-header-right`;
-
-            const closeBtn = document.createElement('div');
-            closeBtn.className = `${CONFIG.UI_PREFIX}-icon-btn`;
-            closeBtn.appendChild(this._createSVG(ICONS.close));
-            closeBtn.title = "Close";
-            closeBtn.onclick = () => this.closeMenu();
-            rightGroup.appendChild(closeBtn);
+            rightGroup.appendChild(this._createPanelCloseBtn());
 
             header.appendChild(leftGroup);
             header.appendChild(rightGroup);
@@ -3015,11 +3594,100 @@
             });
 
             configBody.appendChild(token.fieldWrapper);
+
+            // ── Local Backup (export/import) ─────────────────────────────
+            // Independent of the GitHub sync path — a local safety net in
+            // case the token or GitHub itself is ever unavailable mid-session.
+            const backupRow = document.createElement('div');
+            backupRow.style.display = 'flex';
+            backupRow.style.gap = '0.5rem';
+
+            const exportBtn = document.createElement('button');
+            exportBtn.className = `${CONFIG.UI_PREFIX}-settings-utility-btn`;
+            exportBtn.style.flex = '1';
+            exportBtn.textContent = 'Export Backup';
+            exportBtn.onclick = () => this._exportLocalBackup(exportBtn);
+
+            const importBtn = document.createElement('button');
+            importBtn.className = `${CONFIG.UI_PREFIX}-settings-utility-btn`;
+            importBtn.style.flex = '1';
+            importBtn.textContent = 'Import Backup';
+
+            const importFileInput = document.createElement('input');
+            importFileInput.type = 'file';
+            importFileInput.accept = 'application/json';
+            importFileInput.style.display = 'none';
+            importFileInput.addEventListener('change', (e) => {
+                const file = e.target.files && e.target.files[0];
+                if (file) this._importLocalBackup(file, importBtn);
+                importFileInput.value = ''; // allow re-selecting the same file later
+            });
+            importBtn.onclick = () => importFileInput.click();
+
+            backupRow.appendChild(exportBtn);
+            backupRow.appendChild(importBtn);
+            backupRow.appendChild(importFileInput);
+
+            const backupHint = document.createElement('div');
+            backupHint.className = `${CONFIG.UI_PREFIX}-settings-hint`;
+            backupHint.textContent = 'A local file backup of your database and history — independent of GitHub.';
+
+            configBody.appendChild(backupRow);
+            configBody.appendChild(backupHint);
+
+            const resyncBtn = document.createElement('button');
+            // margin-top: auto pushes this to the bottom of configBody's flex
+            // column, regardless of how much content sits above it.
+            resyncBtn.className = `${CONFIG.UI_PREFIX}-settings-utility-btn ${CONFIG.UI_PREFIX}-settings-utility-btn--bottom`;
+            resyncBtn.textContent = 'Resync History from Cloud';
+            resyncBtn.onclick = async () => {
+                if (!CloudAPI.isValid()) {
+                    this.showToast('Configure and save your GitHub token first.', 'error');
+                    return;
+                }
+                if (!confirm('This discards any unsynced local history and reloads the latest version from GitHub. Continue?')) {
+                    return;
+                }
+                try {
+                    resyncBtn.disabled = true;
+                    resyncBtn.textContent = 'Resyncing...';
+                    await Storage.resyncFromCloud();
+                    this.showToast('History resynced from GitHub.');
+                } catch (e) {
+                    Logger.warn('[UI] Resync from cloud failed.', e);
+                    this.showToast('Resync failed — check your connection and token.', 'error');
+                } finally {
+                    resyncBtn.disabled = false;
+                    resyncBtn.textContent = 'Resync History from Cloud';
+                }
+            };
+
+            configBody.appendChild(resyncBtn);
+
+            const diagnosticsBtn = document.createElement('button');
+            diagnosticsBtn.className = `${CONFIG.UI_PREFIX}-settings-utility-btn`;
+            diagnosticsBtn.textContent = 'View Diagnostics';
+            diagnosticsBtn.onclick = () => {
+                this._previousView = this.currentView;
+                this.currentView = 'diagnostics';
+                this._populateDiagnostics();
+                this.updateVisibility();
+            };
+            configBody.appendChild(diagnosticsBtn);
+
             configFooter.appendChild(saveConfigBtn);
 
             this.configContainer.appendChild(configBody);
             this.configContainer.appendChild(configFooter);
             panel.appendChild(this.configContainer);
+
+            // --- Diagnostics View (reuses config-wrapper/config-body styling) ---
+            this.diagnosticsContainer = document.createElement('div');
+            this.diagnosticsContainer.className = `${CONFIG.UI_PREFIX}-config-wrapper`;
+            this.diagnosticsBody = document.createElement('div');
+            this.diagnosticsBody.className = `${CONFIG.UI_PREFIX}-config-body ${CONFIG.UI_PREFIX}-diagnostics-body`;
+            this.diagnosticsContainer.appendChild(this.diagnosticsBody);
+            panel.appendChild(this.diagnosticsContainer);
 
             // --- Search & Contextual Toolbar ---
             this.searchContainer = document.createElement('div');
@@ -3031,6 +3699,7 @@
 
             this.multiSelectBtn = document.createElement('div');
             this.multiSelectBtn.className = `${CONFIG.UI_PREFIX}-icon-btn`;
+            Utils.makeFocusable(this.multiSelectBtn);
             this.multiSelectBtn.title = "Select Multiple Members";
             this.multiSelectBtn.appendChild(this._createSVG(ICONS.checklist));
             this.multiSelectBtn.onclick = () => {
@@ -3061,6 +3730,7 @@
 
             this.editBtn = document.createElement('div');
             this.editBtn.className = `${CONFIG.UI_PREFIX}-icon-btn`;
+            Utils.makeFocusable(this.editBtn);
             this.editBtn.appendChild(this._createSVG(ICONS.edit));
             this.editBtn.title = "Toggle CRUD Editing";
             this.editBtn.onclick = () => {
@@ -3249,6 +3919,7 @@
 
             this.syncBtn = document.createElement('div');
             this.syncBtn.className = `${CONFIG.UI_PREFIX}-icon-btn`;
+            Utils.makeFocusable(this.syncBtn);
             this.syncBtn.appendChild(this._createSVG(ICONS.sync));
             this.syncBtn.title = "Force Manual Sync";
             this.syncBtn.onclick = () => {
@@ -3273,6 +3944,7 @@
 
             this.configBtn = document.createElement('div');
             this.configBtn.className = `${CONFIG.UI_PREFIX}-icon-btn`;
+            Utils.makeFocusable(this.configBtn);
             this.configBtn.style.position = 'relative';
             this.configBtn.appendChild(this._createSVG(ICONS.config));
             this.configBtn.title = "Cloud Engine Config";
@@ -3389,7 +4061,20 @@
         },
 
         updateVisibility() {
-            if (this.currentView === 'config') {
+            if (this.diagnosticsContainer) this.diagnosticsContainer.style.display = 'none';
+
+            if (this.currentView === 'diagnostics') {
+                this.headerTitle.replaceChildren();
+                this.headerTitle.textContent = 'Diagnostics';
+                this.headerBackBtn.style.display = 'flex';
+                this.searchContainer.style.display = 'none';
+                this.mainListWrapper.style.display = 'none';
+                this.footer.style.display = 'none';
+                this.crudBarContainer.style.display = 'none';
+                this.configContainer.style.display = 'none';
+                this.diagnosticsContainer.style.display = 'flex';
+            } else if (this.currentView === 'config') {
+                this.headerTitle.replaceChildren();
                 this.headerTitle.textContent = 'Cloud Engine Config';
                 this.headerBackBtn.style.display = 'flex';
                 this.searchContainer.style.display = 'none';
@@ -3408,9 +4093,14 @@
                 this.footer.style.display = 'flex';
 
                 if (this.currentView === 'groups') {
-                    this.headerTitle.textContent = 'Database';
+                    this.headerTitle.replaceChildren();
+                    const dbIcon = this._createSVG(ICONS.database);
+                    dbIcon.classList.add(`${CONFIG.UI_PREFIX}-icon-title-svg`);
+                    this.headerTitle.appendChild(dbIcon);
+                    this.headerTitle.appendChild(document.createTextNode('Database'));
                     this.headerBackBtn.style.display = 'none';
                 } else {
+                    this.headerTitle.replaceChildren();
                     this.headerTitle.textContent = this.selectedGroup;
                     this.headerBackBtn.style.display = 'flex';
                 }
@@ -3623,6 +4313,157 @@
             }
         },
 
+        /**
+         * Builds the diagnostics view's content fresh each time it's opened,
+         * so the data (last sync time, storage sizes, recent issues) is
+         * always current rather than stale from whenever the panel was built.
+         */
+        _populateDiagnostics() {
+            if (!this.diagnosticsBody) return;
+            this.diagnosticsBody.replaceChildren();
+
+            const addRow = (label, value) => {
+                const row = document.createElement('div');
+                row.className = `${CONFIG.UI_PREFIX}-diagnostics-row`;
+                const labelEl = document.createElement('span');
+                labelEl.className = `${CONFIG.UI_PREFIX}-diagnostics-label`;
+                labelEl.textContent = label;
+                const valueEl = document.createElement('span');
+                valueEl.className = `${CONFIG.UI_PREFIX}-diagnostics-value`;
+                valueEl.textContent = value;
+                row.appendChild(labelEl);
+                row.appendChild(valueEl);
+                this.diagnosticsBody.appendChild(row);
+            };
+
+            const addSectionTitle = (text) => {
+                const title = document.createElement('div');
+                title.className = `${CONFIG.UI_PREFIX}-diagnostics-section`;
+                title.textContent = text;
+                this.diagnosticsBody.appendChild(title);
+            };
+
+            let version = 'unknown';
+            try {
+                if (typeof GM_info !== 'undefined' && GM_info.script) version = GM_info.script.version;
+            } catch (e) { /* GM_info not available in some managers — safe fallback above */ }
+
+            const lastSync = GM_getValue(`${CONFIG.UI_PREFIX}_last_sync_time`, 0);
+            const groupCount = Object.keys(Database.data || {}).length;
+            const memberCount = Object.values(Database.data || {}).reduce((sum, arr) => sum + (Array.isArray(arr) ? arr.length : 0), 0);
+            const historyCount = (Storage._cache || []).length;
+            const historySizeBytes = JSON.stringify(Storage._cache || []).length;
+
+            addSectionTitle('Script');
+            addRow('Version', version);
+            addRow('Cloud connected', CloudAPI.isValid() ? 'Yes' : 'No (token not configured)');
+            addRow('Last cloud sync', lastSync ? Utils.timeAgo(lastSync) : 'Never');
+
+            addSectionTitle('Storage Summary');
+            addRow('Database groups', String(groupCount));
+            addRow('Database members', String(memberCount));
+            addRow('History entries', String(historyCount));
+            addRow('History size (local)', Utils.formatBytes(historySizeBytes));
+
+            addSectionTitle('Recent Issues');
+            if (Logger._recentIssues.length === 0) {
+                addRow('Status', 'No warnings or errors logged this session.');
+            } else {
+                Logger._recentIssues.forEach(issue => {
+                    addRow(`[${issue.level}] ${Utils.timeAgo(issue.timestamp)}`, issue.msg);
+                });
+            }
+        },
+
+        /**
+         * Downloads a local JSON file containing the current Database and
+         * History state — independent of the GitHub sync path, so it stays
+         * usable even if GitHub or the token is ever unavailable.
+         * @param {HTMLButtonElement} btn - the triggering button, for inline feedback
+         */
+        _exportLocalBackup(btn) {
+            try {
+                const payload = {
+                    exportedAt: new Date().toISOString(),
+                    scriptVersion: GM_info && GM_info.script ? GM_info.script.version : 'unknown',
+                    database: Database.data,
+                    history: Storage._cache
+                };
+                const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const stamp = new Date().toISOString().slice(0, 10);
+
+                GM_download({
+                    url,
+                    name: `xiv-media-downloader-backup-${stamp}.json`,
+                    saveAs: true,
+                    onload: () => URL.revokeObjectURL(url),
+                    onerror: () => {
+                        URL.revokeObjectURL(url);
+                        this.showToast('Export failed — check download permissions.', 'error');
+                    }
+                });
+                this.showToast('Backup exported.');
+            } catch (e) {
+                Logger.warn('[UI] Export backup failed.', e);
+                this.showToast('Export failed — see console for details.', 'error');
+            }
+        },
+
+        /**
+         * Restores Database/History from a previously exported backup file.
+         * Validates shape defensively before touching any state — a malformed
+         * file must never partially corrupt what's already loaded.
+         * @param {File} file
+         * @param {HTMLButtonElement} btn
+         */
+        async _importLocalBackup(file, btn) {
+            let parsed;
+            try {
+                const text = await file.text();
+                parsed = JSON.parse(text);
+            } catch (e) {
+                this.showToast('That file isn\'t valid JSON.', 'error');
+                return;
+            }
+
+            if (!parsed || typeof parsed !== 'object' ||
+                typeof parsed.database !== 'object' || parsed.database === null ||
+                !Array.isArray(parsed.history)) {
+                this.showToast('That file doesn\'t look like a Xiv Media Downloader backup.', 'error');
+                return;
+            }
+
+            if (!confirm('This replaces your current database and history with the backup file\'s contents, then pushes the result to GitHub. Continue?')) {
+                return;
+            }
+
+            try {
+                btn.disabled = true;
+                btn.textContent = 'Importing...';
+
+                Database.data = parsed.database;
+                Storage._cache = parsed.history;
+                GM_setValue(CONFIG.STORAGE_KEY, JSON.stringify(Storage._cache));
+                Database.setCache(Database.data);
+
+                if (CloudAPI.isValid()) {
+                    await Database.saveCloud();
+                    await Storage.saveCloud();
+                }
+
+                this.updateListData(this.searchInput ? this.searchInput.value.toLowerCase().trim() : '');
+                this.refreshSidePanels();
+                this.showToast('Backup imported successfully.');
+            } catch (e) {
+                Logger.warn('[UI] Import backup failed.', e);
+                this.showToast('Import failed partway — check your connection and try again.', 'error');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Import Backup';
+            }
+        },
+
         async triggerCloudSync() {
             if (!CloudAPI.isValid() || CloudAPI.isRateLimited()) return;
             this.updateCloudStatus('syncing');
@@ -3681,7 +4522,7 @@
 
                     // Sync phase: update cached dimensions only — pure math, no DOM reads.
                     // Track which panels need re-rendering so the rAF knows what to do.
-                    let needsMain = false, needsRecent = false, needsFlavor = false, needsCart = false;
+                    let needsMain = false, needsRecent = false, needsTrending = false, needsCart = false;
 
                     for (let entry of entries) {
                         const h = entry.contentRect.height;
@@ -3696,10 +4537,10 @@
                             this.sidePanels.recent.container.style.height = `${finalHeight}px`;
                             this.sidePanels.recent.cachedHeight = finalHeight;
                             needsRecent = true;
-                        } else if (entry.target === this.sidePanels.flavor.wrapper) {
-                            this.sidePanels.flavor.container.style.height = `${finalHeight}px`;
-                            this.sidePanels.flavor.cachedHeight = finalHeight;
-                            needsFlavor = true;
+                        } else if (entry.target === this.sidePanels.trending.wrapper) {
+                            this.sidePanels.trending.container.style.height = `${finalHeight}px`;
+                            this.sidePanels.trending.cachedHeight = finalHeight;
+                            needsTrending = true;
                         } else if (entry.target === this.cartListWrapper) {
                             this.cartList.style.height = `${finalHeight}px`;
                             this.cachedCartHeight = finalHeight;
@@ -3713,7 +4554,7 @@
                         this._pendingResizeFrame = null;
                         if (needsMain)   this.renderVirtualList();
                         if (needsRecent) this._renderSidePanelVirtual('recent');
-                        if (needsFlavor) this._renderSidePanelVirtual('flavor');
+                        if (needsTrending) this._renderSidePanelVirtual('trending');
                         if (needsCart)   this._renderCartVirtual();
                     });
                 });
@@ -3731,10 +4572,14 @@
             cartHeader.style.marginBottom = '1rem';
 
             const cartTitle = document.createElement('h2');
+            cartTitle.className = `${CONFIG.UI_PREFIX}-icon-title`;
             cartTitle.style.margin = '0';
             cartTitle.style.fontSize = '1rem';
             cartTitle.style.whiteSpace = 'nowrap';
-            cartTitle.textContent = 'Queue (';
+            const cartTitleIcon = this._createSVG(ICONS.inbox);
+            cartTitleIcon.classList.add(`${CONFIG.UI_PREFIX}-icon-title-svg`);
+            cartTitle.appendChild(cartTitleIcon);
+            cartTitle.appendChild(document.createTextNode('Queue ('));
             const cartCountSpan = document.createElement('span');
             cartCountSpan.id = `${CONFIG.UI_PREFIX}-cart-count`;
             cartCountSpan.textContent = '0';
@@ -3743,6 +4588,7 @@
 
             const btnGroup = document.createElement('div');
             btnGroup.style.display = 'flex';
+            btnGroup.style.alignItems = 'center';
             btnGroup.style.gap = '0.5rem';
 
             const cartCancelBtn = document.createElement('button');
@@ -3763,6 +4609,8 @@
 
             btnGroup.appendChild(cartCancelBtn);
             btnGroup.appendChild(cartClearBtn);
+            // Close button always last — same top-right position as every other panel
+            btnGroup.appendChild(this._createPanelCloseBtn('queue'));
 
             cartHeader.appendChild(cartTitle);
             cartHeader.appendChild(btnGroup);
@@ -3790,7 +4638,7 @@
                     const idx = parseInt(removeBtn.dataset.index, 10);
                     this.cart.splice(idx, 1);
                     // Bug 4 fix: use renderCart() so all panels (main, recent,
-                    // flavor) immediately lose the pink border for the removed item.
+                    // trending) immediately lose the pink border for the removed item.
                     this.renderCart();
                 }
             });
@@ -3827,7 +4675,7 @@
             carouselTrack.className = `${CONFIG.UI_PREFIX}-carousel-track`;
 
             // Assemble panels into the track (DOM order = carousel order)
-            // Order: 0 Queue → 1 Recent → 2 Main → 3 Flavor
+            // Order: 0 Queue → 1 Recent → 2 Main → 3 Trending
             carouselTrack.appendChild(this.cartContainer);
 
             const recentPanelEl = this.createRecentHistoryPanel();
@@ -3860,8 +4708,8 @@
 
             carouselTrack.appendChild(mainPanelEl);
 
-            const flavorPanelEl = this.createSidePanel('❤️‍🔥 Flavor of the Month', 'right', 'flavor');
-            carouselTrack.appendChild(flavorPanelEl);
+            const trendingPanelEl = this.createSidePanel('Trending', 'right', 'trending', ICONS.flame);
+            carouselTrack.appendChild(trendingPanelEl);
 
             // Carousel chrome — hidden via CSS in desktop mode
             const arrowPrev = this._buildCarouselArrow('prev');
@@ -3892,13 +4740,13 @@
                 queue:  this.cartContainer,
                 recent: recentPanelEl,
                 main:   mainPanelEl,
-                flavor: flavorPanelEl,
+                trending: trendingPanelEl,
             };
 
             if (this.resizeObserver) {
                 if (this.mainListWrapper) this.resizeObserver.observe(this.mainListWrapper);
                 if (this.sidePanels.recent.wrapper) this.resizeObserver.observe(this.sidePanels.recent.wrapper);
-                if (this.sidePanels.flavor.wrapper) this.resizeObserver.observe(this.sidePanels.flavor.wrapper);
+                if (this.sidePanels.trending.wrapper) this.resizeObserver.observe(this.sidePanels.trending.wrapper);
                 if (this.cartListWrapper) this.resizeObserver.observe(this.cartListWrapper);
             }
 
@@ -4002,7 +4850,7 @@
             Storage.init(this.isSilentMode);
 
             if (this.isSilentMode) {
-                Logger.info('Initialized Silent Cloud Worker v19.1');
+                Logger.info('Initialized Silent Cloud Worker v20.2');
                 return;
             }
 
@@ -4021,7 +4869,7 @@
                 }
             }, CONFIG.CLOUD_HISTORY_THROTTLE_MS);
 
-            Logger.info('Initialized Xiv Media Downloader v19.1');
+            Logger.info('Initialized Xiv Media Downloader v20.2');
         },
 
         isDirectMediaPage() {
