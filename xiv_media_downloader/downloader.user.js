@@ -2,7 +2,7 @@
 // @name         [Universal] Xiv Media Downloader
 // @namespace    https://github.com/myouisaur/Universal
 // @icon         data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23FF4081'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 11h3l-4 4-4-4h3V8h2v5z'/%3E%3C/svg%3E
-// @version      20.2
+// @version      21.0
 // @description  Organizes, tracks, and saves categorized media files through a centralized overlay.
 // @author       Xiv
 // @match        *://*/*
@@ -193,7 +193,6 @@
                 inputEl.focus();
                 toggle();
             });
-
             inputEl.addEventListener('input', toggle);
             toggle();
 
@@ -514,11 +513,9 @@
             this._saveLocalDebounced = Utils.debounce(() => {
                 GM_setValue(CONFIG.STORAGE_KEY, JSON.stringify(this._cache));
             }, CONFIG.SAVE_DEBOUNCE_MS);
-
             this._saveCloudDebounced = Utils.debounce(() => {
                 this.saveCloud();
             }, CONFIG.CLOUD_HISTORY_DEBOUNCE_MS);
-
             this.clean();
             this.setupCrossTabSync();
             this.setupDirtyListener();
@@ -537,7 +534,6 @@
                 `${CONFIG.STORAGE_PREFIX}_history_path`,
                 `${CONFIG.STORAGE_PREFIX}_github_branch`
             ];
-
             deprecatedKeys.forEach(key => {
                 try {
                     if (GM_getValue(key) !== undefined) {
@@ -642,7 +638,6 @@
             const initialLength = this._cache.length;
 
             this._cache = this._cache.filter(item => item.t >= cutoffDate);
-
             if (this._cache.length !== initialLength) {
                 this._saveLocalDebounced();
             }
@@ -658,7 +653,6 @@
          */
         async resyncFromCloud() {
             if (!CloudAPI.isValid()) return 'no-token';
-
             this._cache = [];
             GM_setValue(CONFIG.STORAGE_KEY, '[]');
             await this.fetchCloudBackground(true);
@@ -669,10 +663,8 @@
             if (!CloudAPI.isValid() || CloudAPI.isRateLimited()) return;
             if (!force && Date.now() - this._lastCloudFetch < CONFIG.CLOUD_HISTORY_THROTTLE_MS) return;
             this._lastCloudFetch = Date.now();
-
             try {
                 const cloudData = await CloudAPI.fetch(CONFIG.GITHUB_HISTORY_PATH);
-
                 if (cloudData && Array.isArray(cloudData)) {
                     GM_setValue(`${CONFIG.UI_PREFIX}_last_sync_time`, Date.now());
                     if (UI.overlay) UI.updateSyncTimeUI();
@@ -715,7 +707,6 @@
                     shouldUpload = true;
                 }
             });
-
             if (!shouldUpload) return 'queued';
 
             try {
@@ -727,17 +718,14 @@
                     await this._queueTask(() => this._withLock(async () => {
                         this.syncFromStorage();
                     }));
-
                     await this._withLock(async () => {
                         GM_setValue(`${CONFIG.UI_PREFIX}_sync_dirty`, false);
                     });
-
                     await CloudAPI.put(CONFIG.GITHUB_HISTORY_PATH, this._cache);
                     Logger.info('History cache successfully pushed to remote branch.');
 
                     GM_setValue(`${CONFIG.UI_PREFIX}_last_sync_time`, Date.now());
                     if (UI.overlay) UI.updateSyncTimeUI();
-
                     await this._withLock(async () => {
                         if (!GM_getValue(`${CONFIG.UI_PREFIX}_sync_dirty`, false)) {
                             pushing = false;
@@ -869,10 +857,9 @@
 
         /**
          * Trending Score formula (Save events only, last 30 days) — exact
-         * spec: exponential decay with a 7-day half-life.
-         *   weight = 2^(-(daysAgo - 1) / 7)
-         * where daysAgo = 1 means "saved today", daysAgo = 30 is the outer
-         * edge of scope. Every save event contributes independently; summing
+         * spec: continuous exponential decay with a 6-day half-life.
+         * weight = 2^(-ageMs / HALF_LIFE_MS)
+         * Every save event contributes independently; summing
          * a member/group's weights across all its saves gives its score.
          * Returns 0 for anything outside the 30-day window (explicit here
          * rather than relying solely on HISTORY_MAX_DAYS pruning, in case of
@@ -883,10 +870,11 @@
          * @returns {number}
          */
         _trendingWeight(timestampMs, nowMs) {
-            const ONE_DAY_MS = 24 * 60 * 60 * 1000;
-            const daysAgo = Math.floor((nowMs - timestampMs) / ONE_DAY_MS) + 1;
-            if (daysAgo < 1 || daysAgo > 30) return 0;
-            return Math.pow(2, -((daysAgo - 1) / 7));
+            const ageMs = nowMs - timestampMs;
+            // Only score items within the 30-day window (avoids drift on bounds)
+            if (ageMs < 0 || ageMs > 30 * 24 * 60 * 60 * 1000) return 0;
+            const HALF_LIFE_MS = 6 * 24 * 60 * 60 * 1000;
+            return Math.pow(2, -ageMs / HALF_LIFE_MS);
         },
 
         /**
@@ -973,7 +961,6 @@
                 if (!groups[item.g]) groups[item.g] = [];
                 groups[item.g].push(item.n.toLowerCase());
             });
-
             const groupNames = Object.keys(groups);
             let baseName = "";
 
@@ -1009,12 +996,10 @@
                 .replace('{custom}', safeName)
                 .replace('{random}', this.generateRandomString(CONFIG.RANDOM_STRING_LENGTH))
                 .replace('{ext}', ext);
-
             UI.closeMenu();
 
             let skipCloudSync = true;
             if (cart && cart.length > 0) skipCloudSync = false;
-
             this.triggerDownload(window.location.href, fileName, null, null, true, skipCloudSync, cart, onSuccess);
         },
 
@@ -1130,7 +1115,6 @@
             a.click();
 
             setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
-
             if (cartContext && cartContext.length > 0) Storage.recordBatchSuccess(cartContext);
             else if (groupContext && nameContext) Storage.recordSuccess(groupContext, nameContext);
 
@@ -1386,7 +1370,8 @@
                 /* Gradient border ring — mask trick so only the ring itself
                    (not the whole circle) picks up the gradient */
                 .${CONFIG.UI_PREFIX}-fab::before {
-                    content: ''; position: absolute; inset: 0; border-radius: 50%;
+                    content: '';
+                    position: absolute; inset: 0; border-radius: 50%;
                     padding: 1px;
                     background: linear-gradient(135deg, rgba(255,255,255,0.6), rgba(255,255,255,0.05) 40%, rgba(255,255,255,0.25));
                     -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
@@ -1396,29 +1381,34 @@
                 }
                 /* Top glare — soft highlight suggesting a curved glass surface */
                 .${CONFIG.UI_PREFIX}-fab::after {
-                    content: ''; position: absolute; top: 4%; left: 12%; right: 12%; height: 40%;
+                    content: '';
+                    position: absolute; top: 4%; left: 12%; right: 12%; height: 40%;
                     border-radius: 50% 50% 60% 60% / 60% 60% 100% 100%;
                     background: linear-gradient(to bottom, rgba(255,255,255,0.35), rgba(255,255,255,0));
                     pointer-events: none;
                 }
                 .${CONFIG.UI_PREFIX}-fab-glass-scatter {
-                    position: absolute; inset: 0; border-radius: 50%;
+                    position: absolute;
+                    inset: 0; border-radius: 50%;
                     backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px);
                     pointer-events: none;
                 }
                 .${CONFIG.UI_PREFIX}-fab-glass-chroma {
-                    position: absolute; inset: 0; border-radius: 50%;
+                    position: absolute;
+                    inset: 0; border-radius: 50%;
                     background: radial-gradient(circle at 30% 25%, rgba(255,255,255,0.18), transparent 60%);
                     mix-blend-mode: overlay;
                     pointer-events: none;
                 }
                 .${CONFIG.UI_PREFIX}-fab-glass-rim {
-                    position: absolute; inset: 0; border-radius: 50%;
+                    position: absolute;
+                    inset: 0; border-radius: 50%;
                     box-shadow: inset 0 0 0 1px rgba(255,255,255,0.15);
                     pointer-events: none;
                 }
                 .${CONFIG.UI_PREFIX}-fab-icon-wrapper {
-                    position: relative; z-index: 5;
+                    position: relative;
+                    z-index: 5;
                     display: flex; align-items: center; justify-content: center;
                     filter: drop-shadow(0 1px 2px rgba(0,0,0,0.4));
                 }
@@ -1433,11 +1423,13 @@
                 }
                 .${CONFIG.UI_PREFIX}-fab:active { transform: scale(0.96); }
                 .${CONFIG.UI_PREFIX}-fab:focus-visible {
-                    outline: 2px solid var(--tm-primary); outline-offset: 3px;
+                    outline: 2px solid var(--tm-primary);
+                    outline-offset: 3px;
                 }
                 /* Ripple — expanding circle from pointer position, self-removes on animationend */
                 .${CONFIG.UI_PREFIX}-fab-ripple {
-                    position: absolute; z-index: 4;
+                    position: absolute;
+                    z-index: 4;
                     width: 0; height: 0; border-radius: 50%;
                     background: rgba(255,255,255,0.35);
                     transform: translate(-50%, -50%);
@@ -1450,7 +1442,8 @@
 
                 /* ── Overlay ──────────────────────────────────────────────── */
                 #${CONFIG.UI_PREFIX}-overlay {
-                    position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+                    position: fixed;
+                    top: 0; left: 0; width: 100vw; height: 100vh;
                     background: rgba(0,0,0,0.85); z-index: ${CONFIG.OVERLAY_Z_INDEX};
                     /* !important guards against page CSS overriding these alignment rules */
                     display: flex !important;
@@ -1460,18 +1453,22 @@
                     /* App chrome shouldn't behave like selectable page text —
                        matches the slider's no-highlight treatment, applied
                        everywhere. Actual text inputs opt back in below,
-                       since selecting/copying typed text is real functionality. */
-                    user-select: none; -webkit-user-select: none; -moz-user-select: none;
+                       since selecting/copying typed text is real functionality.
+                    */
+                    user-select: none;
+                    -webkit-user-select: none; -moz-user-select: none;
                 }
                 #${CONFIG.UI_PREFIX}-overlay input,
                 #${CONFIG.UI_PREFIX}-overlay textarea {
-                    user-select: text; -webkit-user-select: text; -moz-user-select: text;
+                    user-select: text;
+                    -webkit-user-select: text; -moz-user-select: text;
                 }
                 /* ── Global Focus-Visible ─────────────────────────────────── */
                 /* One centralized rule for every interactive element, rather
                    than styling each button class individually — covers
                    native <button>s, icon-btn divs (now keyboard-focusable
-                   via Utils.makeFocusable), and role="button" elements. */
+                   via Utils.makeFocusable), and role="button" elements.
+                */
                 #${CONFIG.UI_PREFIX}-overlay button:focus-visible,
                 #${CONFIG.UI_PREFIX}-overlay [role="button"]:focus-visible {
                     outline: 2px solid var(--tm-primary);
@@ -1495,7 +1492,8 @@
                 /* Carousel track — desktop mode: a flex container that mirrors
                    the parent gap/alignment so panels lay out identically to
                    direct children. Avoids display:contents browser quirks with
-                   flex re-centering when panel count changes dynamically.    */
+                   flex re-centering when panel count changes dynamically.
+                */
                 .${CONFIG.UI_PREFIX}-carousel-track {
                     display: flex;
                     flex-wrap: nowrap;
@@ -1533,7 +1531,8 @@
                    drilling into a group from a side panel is noticeable even
                    when the list content swap itself is easy to miss at a
                    glance. Keeps the panel's existing shadow, adds a second
-                   fading glow shadow alongside it — subtle, not flashy. */
+                   fading glow shadow alongside it — subtle, not flashy.
+                */
                 @keyframes ${CONFIG.UI_PREFIX}-panel-glow-pulse {
                     0%   { box-shadow: 0 2rem 4rem rgba(0,0,0,0.8), 0 0 0 0 transparent; }
                     25%  { box-shadow: 0 2rem 4rem rgba(0,0,0,0.8), 0 0 1rem 0.2rem var(--tm-primary); }
@@ -1545,9 +1544,11 @@
 
                 /* ── Queue / Cart panel — fluid width-reveal ─────────────── */
                 /* Intentional layout transition: panel opens/closes as part of
-                   the core UX — not a hover/interaction animation.           */
+                   the core UX — not a hover/interaction animation.
+                */
                 .${CONFIG.UI_PREFIX}-cart-panel {
-                    order: 0; flex-shrink: 0;
+                    order: 0;
+                    flex-shrink: 0;
                     width: 0; min-width: 0;
                     height: clamp(60vh, 78vh, 88vh);
                     padding-left: 0; padding-right: 0;
@@ -1570,7 +1571,8 @@
 
                 /* ── Header ───────────────────────────────────────────────── */
                 .${CONFIG.UI_PREFIX}-header {
-                    display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+                    display: flex;
+                    align-items: center; justify-content: space-between; gap: 1rem;
                     height: 2.5rem; margin-bottom: 1rem; flex-shrink: 0; width: 100%;
                 }
                 .${CONFIG.UI_PREFIX}-header-left  { display: flex; align-items: center; gap: 0.8rem; overflow: hidden; flex-grow: 1; }
@@ -1579,7 +1581,8 @@
                 /* ── Panel Icon Titles ────────────────────────────────────── */
                 /* Monochrome SVG + text, replacing emoji for cross-platform
                    rendering consistency. Every panel (Database, Queue, Recent,
-                   Trending) uses this exact pattern. */
+                   Trending) uses this exact pattern.
+                */
                 .${CONFIG.UI_PREFIX}-icon-title { display: flex; align-items: center; gap: 0.45rem; }
                 .${CONFIG.UI_PREFIX}-icon-title-svg { width: 1.1rem; height: 1.1rem; fill: var(--tm-text-main); flex-shrink: 0; }
                 .${CONFIG.UI_PREFIX}-header h2 {
@@ -1588,15 +1591,18 @@
                     overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex-grow: 1;
                 }
                 .${CONFIG.UI_PREFIX}-history-subtitle {
-                    font-size: 0.7rem; color: var(--tm-text-dark); margin-top: 0.2rem;
+                    font-size: 0.7rem;
+                    color: var(--tm-text-dark); margin-top: 0.2rem;
                     font-weight: 500; cursor: help; display: none;
                 }
 
                 .${CONFIG.UI_PREFIX}-icon-btn {
-                    background: var(--tm-bg-elevated); border: 1px solid var(--tm-border-light);
+                    background: var(--tm-bg-elevated);
+                    border: 1px solid var(--tm-border-light);
                     border-radius: 0.7rem; width: 2.5rem; height: 2.5rem;
                     display: flex; align-items: center; justify-content: center;
-                    cursor: pointer; transition: background 0.2s, border-color 0.2s; flex-shrink: 0;
+                    cursor: pointer;
+                    transition: background 0.2s, border-color 0.2s; flex-shrink: 0;
                 }
                 .${CONFIG.UI_PREFIX}-icon-btn:hover { background: var(--tm-border); border-color: var(--tm-border-focus); }
                 .${CONFIG.UI_PREFIX}-icon-btn svg { width: 1.1rem; height: 1.1rem; fill: var(--tm-text-main); transition: fill 0.2s; }
@@ -1606,22 +1612,26 @@
                 .${CONFIG.UI_PREFIX}-spin svg { animation: tmSpin 1s linear infinite; }
 
                 .${CONFIG.UI_PREFIX}-notification-dot {
-                    position: absolute; top: -2px; right: -2px; width: 10px; height: 10px;
+                    position: absolute;
+                    top: -2px; right: -2px; width: 10px; height: 10px;
                     background-color: var(--tm-danger); border-radius: 50%; border: 2px solid var(--tm-bg-elevated); box-sizing: content-box;
                 }
 
                 /* ── Toast Notifications ──────────────────────────────────── */
                 #${CONFIG.UI_PREFIX}-toast-wrapper {
-                    position: fixed; bottom: 2rem; left: 2rem;
+                    position: fixed;
+                    bottom: 2rem; left: 2rem;
                     display: flex; flex-direction: column; gap: 0.8rem; z-index: ${CONFIG.OVERLAY_Z_INDEX + 10};
                     pointer-events: none; align-items: flex-start;
                     font-family: 'Inter', -apple-system, sans-serif;
                 }
                 .${CONFIG.UI_PREFIX}-toast {
-                    background: rgba(20,20,20,0.95); backdrop-filter: blur(10px);
+                    background: rgba(20,20,20,0.95);
+                    backdrop-filter: blur(10px);
                     border: 1px solid var(--tm-border-light); border-left: 4px solid var(--tm-primary);
                     color: var(--tm-text-main); padding: 0.8rem 1.2rem; border-radius: 0.6rem;
-                    font-size: 0.85rem; font-weight: 500; box-shadow: 0 8px 16px rgba(0,0,0,0.5);
+                    font-size: 0.85rem;
+                    font-weight: 500; box-shadow: 0 8px 16px rgba(0,0,0,0.5);
                     display: flex; align-items: center; gap: 0.6rem; pointer-events: auto;
                     max-width: 320px; will-change: transform, opacity;
                 }
@@ -1643,24 +1653,29 @@
                 @keyframes tmCountdownFill   { 0% { background-color: var(--tm-success); } 50% { background-color: var(--tm-warning); } 100% { background-color: var(--tm-danger); } }
                 @keyframes tmCountdownWidth  { 0% { width: 100%; } 100% { width: 0%; } }
                 .${CONFIG.UI_PREFIX}-cancel-btn {
-                    background: #222; color: var(--tm-text-main); border: 1px solid #444;
+                    background: #222;
+                    color: var(--tm-text-main); border: 1px solid #444;
                     padding: 0.3rem 0.5rem; border-radius: 0.4rem; font-size: 0.75rem;
-                    cursor: pointer; transition: background 0.2s, border-color 0.2s; outline: none; flex-shrink: 0;
+                    cursor: pointer; transition: background 0.2s, border-color 0.2s;
+                    outline: none; flex-shrink: 0;
                 }
                 .${CONFIG.UI_PREFIX}-cancel-btn:hover { background: var(--tm-border-light); border-color: var(--tm-text-dark); }
 
                 /* ── Queue Panel Items ────────────────────────────────────── */
                 .${CONFIG.UI_PREFIX}-queue-item {
-                    position: absolute; top: 0; left: 0; width: 100%; height: 42px;
+                    position: absolute;
+                    top: 0; left: 0; width: 100%; height: 42px;
                     background: var(--tm-bg-input); border: 1px solid var(--tm-border-light);
-                    border-radius: 0.6rem; padding: 0 0.8rem; display: flex;
+                    border-radius: 0.6rem; padding: 0 0.8rem;
+                    display: flex;
                     justify-content: space-between; align-items: center; gap: 0.5rem;
                     transition: background 0.15s; box-sizing: border-box; will-change: transform;
                 }
                 .${CONFIG.UI_PREFIX}-queue-item:hover { background: var(--tm-bg-hover); border-color: var(--tm-border-focus); }
                 .${CONFIG.UI_PREFIX}-history-selected { border-color: var(--tm-danger) !important; background: rgba(229,115,115,0.1) !important; }
                 .${CONFIG.UI_PREFIX}-queue-remove {
-                    background: none; border: none; color: var(--tm-danger); cursor: pointer;
+                    background: none;
+                    border: none; color: var(--tm-danger); cursor: pointer;
                     padding: 0 0.5rem 0 0; font-size: 1rem; font-weight: bold; line-height: 1; transition: color 0.2s;
                 }
                 .${CONFIG.UI_PREFIX}-queue-remove:hover { color: var(--tm-text-main); }
@@ -1668,9 +1683,11 @@
                 /* ── Search & Toolbar ─────────────────────────────────────── */
                 .${CONFIG.UI_PREFIX}-search-container { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem; flex-shrink: 0; }
                 .${CONFIG.UI_PREFIX}-search-input {
-                    flex-grow: 1; min-width: 0; background: var(--tm-bg-input); border: 1px solid var(--tm-border-light);
+                    flex-grow: 1;
+                    min-width: 0; background: var(--tm-bg-input); border: 1px solid var(--tm-border-light);
                     border-radius: 0.8rem; padding: 0.8rem 1rem; color: var(--tm-text-main);
-                    font-size: 0.95rem; outline: none; box-sizing: border-box; transition: border-color 0.2s, background 0.2s;
+                    font-size: 0.95rem; outline: none;
+                    box-sizing: border-box; transition: border-color 0.2s, background 0.2s;
                 }
                 .${CONFIG.UI_PREFIX}-search-input:focus { border-color: var(--tm-text-dark); background: var(--tm-bg-elevated); }
 
@@ -1683,7 +1700,8 @@
                 .${CONFIG.UI_PREFIX}-empty-state { position: absolute; top: 2rem; width: 100%; text-align: center; color: var(--tm-text-dark); font-size: 0.9rem; font-style: italic; }
 
                 .${CONFIG.UI_PREFIX}-item {
-                    position: absolute; top: 0; left: 0; width: 100%; height: 42px;
+                    position: absolute;
+                    top: 0; left: 0; width: 100%; height: 42px;
                     background: #141414; border: 1px solid transparent; padding: 0 1rem; border-radius: 0.8rem;
                     cursor: pointer; transition: background 0.15s; font-size: 0.95rem;
                     display: flex; justify-content: space-between; align-items: center;
@@ -1693,8 +1711,10 @@
                 .${CONFIG.UI_PREFIX}-item.active-focus { background: var(--tm-bg-hover); border-color: var(--tm-border-focus); }
 
                 .${CONFIG.UI_PREFIX}-badge {
-                    font-size: 0.7rem; color: var(--tm-text-subtle); background: var(--tm-bg-elevated); padding: 0.2rem 0.5rem;
-                    border-radius: 0.4rem; border: 1px solid #252525; font-weight: 500; transition: background 0.2s, border-color 0.2s, color 0.2s;
+                    font-size: 0.7rem;
+                    color: var(--tm-text-subtle); background: var(--tm-bg-elevated); padding: 0.2rem 0.5rem;
+                    border-radius: 0.4rem; border: 1px solid #252525; font-weight: 500;
+                    transition: background 0.2s, border-color 0.2s, color 0.2s;
                 }
                 .${CONFIG.UI_PREFIX}-badge.accent { color: var(--tm-text-muted); border-color: var(--tm-border-focus); background: var(--tm-border); }
                 .${CONFIG.UI_PREFIX}-badge-actionable:hover       { background: var(--tm-bg-hover-subtle); border-color: var(--tm-border-focus); color: var(--tm-text-main); cursor: pointer; }
@@ -1706,7 +1726,8 @@
                    thumb's position and each label's color. No JS animates
                    any of this; the checkbox's change event only tells the
                    app which data to render, mirroring the reference AM/PM
-                   slider's architecture exactly. */
+                   slider's architecture exactly.
+                */
                 .${CONFIG.UI_PREFIX}-trending-switch {
                     position: relative;
                     display: block;
@@ -1716,10 +1737,12 @@
                     cursor: pointer;
                 }
                 .${CONFIG.UI_PREFIX}-trending-switch-checkbox {
-                    position: absolute; opacity: 0; width: 0; height: 0;
+                    position: absolute;
+                    opacity: 0; width: 0; height: 0;
                 }
                 .${CONFIG.UI_PREFIX}-trending-switch-track {
-                    position: absolute; inset: 0;
+                    position: absolute;
+                    inset: 0;
                     background: var(--tm-bg-elevated);
                     border: 1px solid var(--tm-border-light);
                     border-radius: 999px;
@@ -1734,12 +1757,14 @@
                     outline: 2px solid var(--tm-primary); outline-offset: 2px;
                 }
                 .${CONFIG.UI_PREFIX}-trending-switch-labels {
-                    position: relative; z-index: 1;
+                    position: relative;
+                    z-index: 1;
                     display: flex; width: 100%;
                 }
                 .${CONFIG.UI_PREFIX}-trending-switch-member,
                 .${CONFIG.UI_PREFIX}-trending-switch-group {
-                    flex: 1; text-align: center;
+                    flex: 1;
+                    text-align: center;
                     font-size: 0.75rem; font-weight: 700; letter-spacing: 0.03em;
                     color: var(--tm-text-dim);
                     transition: color 0.2s ease;
@@ -1760,7 +1785,8 @@
                        will-change, so the browser slides this via the GPU
                        instead of repainting it as part of regular layout —
                        this is what actually fixes the low-FPS feel, not the
-                       transition timing (which was already fine). */
+                       transition timing (which was already fine).
+                    */
                     will-change: transform;
                     transform: translateZ(0);
                     z-index: 0;
@@ -1774,9 +1800,11 @@
                 .${CONFIG.UI_PREFIX}-panel-footer { margin-top: auto; padding-top: 1rem; border-top: 1px solid var(--tm-border); display: none; }
                 .${CONFIG.UI_PREFIX}-btn-row      { display: flex; gap: 0.5rem; width: 100%; }
                 .${CONFIG.UI_PREFIX}-action-btn {
-                    flex: 1; display: flex; align-items: center; justify-content: center;
+                    flex: 1;
+                    display: flex; align-items: center; justify-content: center;
                     background: var(--tm-bg-elevated); color: var(--tm-text-dim); border: 1px dashed var(--tm-border-focus); padding: 0.8rem;
-                    border-radius: 0.8rem; cursor: pointer; font-size: 0.9rem; transition: background 0.2s, border-color 0.2s, color 0.2s; outline: none;
+                    border-radius: 0.8rem; cursor: pointer;
+                    font-size: 0.9rem; transition: background 0.2s, border-color 0.2s, color 0.2s; outline: none;
                 }
                 .${CONFIG.UI_PREFIX}-action-btn:hover:not(:disabled),
                 .${CONFIG.UI_PREFIX}-action-btn:focus:not(:disabled) { background: var(--tm-border); color: var(--tm-text-main); border-color: var(--tm-text-dark); }
@@ -1793,13 +1821,16 @@
 
                 /* ── Input Clear Button ───────────────────────────────────── */
                 /* Wraps search/CRUD/settings inputs — shows a "×" once the
-                   input has a value so users don't have to backspace repeatedly. */
+                   input has a value so users don't have to backspace repeatedly.
+                */
                 .${CONFIG.UI_PREFIX}-input-clear-wrapper { position: relative; display: flex; align-items: center; flex-grow: 1; min-width: 0; }
                 .${CONFIG.UI_PREFIX}-input-clear-wrapper input { width: 100%; padding-right: 2.2rem; box-sizing: border-box; }
                 .${CONFIG.UI_PREFIX}-input-clear-btn {
-                    position: absolute; right: 0.4rem; top: 50%; transform: translateY(-50%);
+                    position: absolute;
+                    right: 0.4rem; top: 50%; transform: translateY(-50%);
                     width: 1.5rem; height: 1.5rem; display: flex; align-items: center; justify-content: center;
-                    background: transparent; border: none; border-radius: 50%; color: var(--tm-text-dim);
+                    background: transparent; border: none;
+                    border-radius: 50%; color: var(--tm-text-dim);
                     font-size: 1.1rem; line-height: 1; cursor: pointer; opacity: 0; pointer-events: none;
                     transition: opacity 0.15s, background 0.15s, color 0.15s;
                 }
@@ -1839,14 +1870,16 @@
 
                 /* ── Diagnostics Panel ────────────────────────────────────── */
                 .${CONFIG.UI_PREFIX}-diagnostics-section {
-                    font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em;
+                    font-size: 0.72rem;
+                    font-weight: 700; letter-spacing: 0.04em;
                     color: var(--tm-text-dim); text-transform: uppercase;
                     margin: 1rem 0 0.4rem; padding-bottom: 0.3rem;
                     border-bottom: 1px solid var(--tm-border-light);
                 }
                 .${CONFIG.UI_PREFIX}-diagnostics-section:first-child { margin-top: 0; }
                 .${CONFIG.UI_PREFIX}-diagnostics-row {
-                    display: flex; justify-content: space-between; align-items: baseline;
+                    display: flex;
+                    justify-content: space-between; align-items: baseline;
                     gap: 1rem; padding: 0.35rem 0; font-size: 0.85rem;
                 }
                 .${CONFIG.UI_PREFIX}-diagnostics-label { color: var(--tm-text-dim); flex-shrink: 0; }
@@ -1862,11 +1895,12 @@
                    Applied by JS via .${CONFIG.UI_PREFIX}-carousel class on
                    layoutWrapper. Below 920 px wide the 4-panel side-by-side
                    layout becomes a full-width card carousel.
-                   ════════════════════════════════════════════════════════════ */
+                ════════════════════════════════════════════════════════════ */
 
                 /* Queue Pill — in-flow element between the list wrapper and
                    the footer. Never overlaps buttons. Visible only in carousel
-                   mode when multi-select is active and the queue has items.  */
+                   mode when multi-select is active and the queue has items.
+                */
                 .${CONFIG.UI_PREFIX}-queue-pill {
                     display: none; /* hidden by default; shown only in carousel mode */
                     width: 100%;
@@ -1892,8 +1926,7 @@
                     border-color: rgba(255, 64, 129, 0.6);
                 }
                 .${CONFIG.UI_PREFIX}-queue-pill.visible {
-                    display: flex;
-                    opacity: 1;
+                    display: flex; opacity: 1;
                     pointer-events: auto;
                 }
                 /* Desktop: queue panel is always visible — pill never needed */
@@ -1903,7 +1936,8 @@
 
                 /* Carousel Arrow Buttons */
                 .${CONFIG.UI_PREFIX}-carousel-arrow {
-                    position: absolute; top: 50%;
+                    position: absolute;
+                    top: 50%;
                     transform: translateY(-50%);
                     width: 2.4rem; height: 2.4rem;
                     background: rgba(15,15,15,0.92);
@@ -1923,7 +1957,8 @@
 
                 /* Carousel Dot Indicators */
                 .${CONFIG.UI_PREFIX}-carousel-dots {
-                    position: absolute; bottom: -1.7rem; left: 50%;
+                    position: absolute;
+                    bottom: -1.7rem; left: 50%;
                     transform: translateX(-50%);
                     display: none; /* shown only in carousel mode */
                     gap: 0.4rem; align-items: center;
@@ -1941,8 +1976,9 @@
                 /* ── Carousel Mode (JS toggles .${CONFIG.UI_PREFIX}-carousel) ── */
                 /* CENTERING STRATEGY: position:fixed + translate(-50%,-50%) is the
                    only approach that is fully immune to parent flex/grid layout and
-                   page-CSS interference.  The overlay stays as a dark backdrop only;
-                   the layoutWrapper is independently anchored to the viewport centre. */
+                   page-CSS interference. The overlay stays as a dark backdrop only;
+                   the layoutWrapper is independently anchored to the viewport centre.
+                */
                 .${CONFIG.UI_PREFIX}-layout.${CONFIG.UI_PREFIX}-carousel {
                     position: fixed !important;
                     top: 50% !important;
@@ -1950,8 +1986,7 @@
                     transform: translate(-50%, -50%) !important;
 
                     overflow: visible; /* arrows poke outside; track clips cards   */
-                    width: min(92vw, 26rem);
-                    max-width: min(92vw, 26rem);
+                    width: min(92vw, 26rem); max-width: min(92vw, 26rem);
                     min-width: 0;
                     height: clamp(60vh, 76vh, 86vh);
                     max-height: clamp(60vh, 76vh, 86vh);
@@ -1983,8 +2018,7 @@
 
                 /* Track slides freely inside the clip — no overflow on itself */
                 .${CONFIG.UI_PREFIX}-layout.${CONFIG.UI_PREFIX}-carousel .${CONFIG.UI_PREFIX}-carousel-track {
-                    display: flex;
-                    flex-wrap: nowrap;
+                    display: flex; flex-wrap: nowrap;
                     width: 100%; height: 100%;
                     will-change: transform;
                     transition: transform 0.28s cubic-bezier(0.25, 0.8, 0.25, 1);
@@ -2015,12 +2049,10 @@
 
                 /* ── FIX: Multi-select queue item indicator ──────────────── */
                 .${CONFIG.UI_PREFIX}-item-selected {
-                    border-color: var(--tm-primary) !important;
-                    background: rgba(255, 64, 129, 0.12) !important;
+                    border-color: var(--tm-primary) !important; background: rgba(255, 64, 129, 0.12) !important;
                 }
                 .${CONFIG.UI_PREFIX}-cart-check {
-                    color: var(--tm-primary);
-                    font-weight: 700;
+                    color: var(--tm-primary); font-weight: 700;
                     font-size: 0.95rem;
                     flex-shrink: 0;
                     line-height: 1;
@@ -2030,7 +2062,8 @@
                    The carousel > * rule adds padding: 1.5rem to it, then the
                    inner .panel adds ANOTHER 1.5rem — double padding shrinks
                    the usable content area. Zero the wrapper's padding so only
-                   the inner .panel's padding applies.                        */
+                   the inner .panel's padding applies.
+                */
                 .${CONFIG.UI_PREFIX}-layout.${CONFIG.UI_PREFIX}-carousel
                 .${CONFIG.UI_PREFIX}-carousel-track > .${CONFIG.UI_PREFIX}-main-container {
                     padding: 0 !important;
@@ -2038,8 +2071,7 @@
                 .${CONFIG.UI_PREFIX}-layout.${CONFIG.UI_PREFIX}-carousel
                 .${CONFIG.UI_PREFIX}-carousel-track > .${CONFIG.UI_PREFIX}-main-container
                 > .${CONFIG.UI_PREFIX}-panel {
-                    height: 100% !important;
-                    border-radius: 0 !important;
+                    height: 100% !important; border-radius: 0 !important;
                     box-shadow: none !important;
                     border: none !important;
                     box-sizing: border-box !important;
@@ -2055,8 +2087,7 @@
                     transition: opacity 0.18s ease;
                 }
                 .${CONFIG.UI_PREFIX}-layout.${CONFIG.UI_PREFIX}-mode-switching {
-                    opacity: 0;
-                    pointer-events: none;
+                    opacity: 0; pointer-events: none;
                 }
             `);
         },
@@ -2121,7 +2152,6 @@
             if (!track || !layoutEl || !this._carousel.isActive) return;
 
             const panels = this._carouselGetActivePanels();
-
             // Show panels that belong in the current deck; hide others.
             // Inline style is used so it can be cleanly reset on mode exit.
             ['queue', 'recent', 'main', 'trending'].forEach(id => {
@@ -2129,7 +2159,6 @@
                 if (!el) return;
                 el.style.display = panels.includes(id) ? '' : 'none';
             });
-
             const idx = this._carouselCurrentIndex();
 
             // Use cached card width — only measure the layout when the cache is stale.
@@ -2140,7 +2169,6 @@
                 this._carousel.cachedCardWidth = layoutEl.getBoundingClientRect().width;
             }
             const cardWidth = this._carousel.cachedCardWidth;
-
             if (!animated) {
                 // Instant snap — suppress the CSS transition, apply the new position,
                 // then restore the transition in the next rAF so subsequent swipes
@@ -2163,7 +2191,6 @@
             const panels     = this._carouselGetActivePanels();
             const currentIdx = this._carouselCurrentIndex();
             const labels     = { queue: 'Queue', recent: 'Recent', main: 'Main', trending: 'Trending' };
-
             // Fast path: panel count is unchanged (normal navigation).
             // Toggle the active class on existing dot elements — no DOM creation at all.
             // The slow rebuild path only runs when multi-select is toggled (Queue card
@@ -2261,7 +2288,6 @@
                 touchStartX = e.touches[0].clientX;
                 touchStartY = e.touches[0].clientY;
             }, { passive: true });
-
             trackEl.addEventListener('touchend', (e) => {
                 if (!this._carousel.isActive) return;
                 const dx = e.changedTouches[0].clientX - touchStartX;
@@ -2272,7 +2298,6 @@
                     else        this._carouselPrev();
                 }
             }, { passive: true });
-
             // ── Mouse: drag (desktop narrow mode) ───────────────────────────
             let mouseStartX = 0, mouseDragging = false;
             trackEl.addEventListener('mousedown', (e) => {
@@ -2280,12 +2305,10 @@
                 mouseStartX  = e.clientX;
                 mouseDragging = true;
             });
-
             // Prevent text-selection cursor during drag
             trackEl.addEventListener('mousemove', (e) => {
                 if (mouseDragging) e.preventDefault();
             });
-
             // mouseup must be on document to catch drags that end outside track
             this._carousel._mouseUpHandler = (e) => {
                 if (!mouseDragging) return;
@@ -2313,7 +2336,7 @@
                 // Debounce: trackpads fire dozens of events per gesture
                 this._carousel.wheelTimer = setTimeout(() => {
                     if (deltaX > 0) this._carouselNext();
-                    else            this._carouselPrev();
+                    else        this._carouselPrev();
                 }, 60);
             }, { passive: false });
         },
@@ -2328,7 +2351,6 @@
             if (!layoutEl || !trackEl) return;
 
             this._carouselSetupInputs(trackEl, layoutEl);
-
             // Debounced resize handler — switches carousel on/off at the breakpoint
             this._carousel._resizeHandler = Utils.debounce(() => {
                 this._carouselUpdateMode();
@@ -2354,7 +2376,6 @@
 
             const shouldBeCarousel = window.innerWidth <= this._carousel.breakpointPx;
             const wasActive = this._carousel.isActive;
-
             if (shouldBeCarousel === wasActive) {
                 // Same mode — re-apply layout in case a resize changed card width
                 if (shouldBeCarousel) {
@@ -2418,7 +2439,6 @@
             if (!this._carousel.isActive) return;
             // Stay on Main — queue is reachable via pill or swipe
             this._carouselRefreshNav();
-
             // One-time discoverable hint for first-time users
             if (!GM_getValue(`${CONFIG.STORAGE_PREFIX}_carousel_hint_shown`, false)) {
                 GM_setValue(`${CONFIG.STORAGE_PREFIX}_carousel_hint_shown`, true);
@@ -2458,7 +2478,6 @@
                 this._carousel._mouseUpHandler = null;
             }
             clearTimeout(this._carousel.wheelTimer);
-
             // Reset mutable state so the next render() starts clean
             this._carousel.isActive       = false;
             this._carousel.currentId      = 'main';
@@ -2481,7 +2500,6 @@
                 this.fab.id = `${CONFIG.UI_PREFIX}-fab`;
                 this.fab.className = `${CONFIG.UI_PREFIX}-fab`;
                 this.fab.title = "Open Download Manager (Ctrl+S)";
-
                 // Liquid-glass depth layers — purely visual, sit behind the icon.
                 // Styling only: does not touch existing click/drag behavior below.
                 const glassScatter = document.createElement('div');
@@ -2493,7 +2511,6 @@
                 this.fab.appendChild(glassScatter);
                 this.fab.appendChild(glassChroma);
                 this.fab.appendChild(glassRim);
-
                 const iconWrapper = document.createElement('span');
                 iconWrapper.className = `${CONFIG.UI_PREFIX}-fab-icon-wrapper`;
                 iconWrapper.appendChild(this._createSVG(ICONS.fab));
@@ -2539,9 +2556,7 @@
             if (!this.fab) return;
             const halfW = window.innerWidth / 2;
             const halfH = window.innerHeight / 2;
-
             let newQuad = (cursorY < halfH ? 'N' : 'S') + (cursorX < halfW ? 'W' : 'E');
-
             if (newQuad !== this.fabTargetQuad) {
                 this.fabTargetQuad = newQuad;
                 this.processFABMove();
@@ -2564,7 +2579,6 @@
             }
 
             this.fabIsAnimating = true;
-
             const targetTop = nextQuad[0] === 'N' ? '2.5rem' : 'calc(100vh - 6rem)';
             const targetLeft = nextQuad[1] === 'W' ? '2.5rem' : 'calc(100vw - 6rem)';
 
@@ -2785,8 +2799,7 @@
             if (!panelObj.container || !panelObj.inner) return;
 
             const totalItems = panelObj.data.length;
-            const emptyMsg = type === 'recent' ?
-                (this.recentPanelMode === 'history' ? 'No history found.' : 'No recent saves.') : 'No data for this month.';
+            const emptyMsg = type === 'recent' ? (this.recentPanelMode === 'history' ? 'No history found.' : 'No recent saves.') : 'No data for this month.';
             if (totalItems === 0) {
                 panelObj.inner.style.height = '100%';
                 panelObj.inner.textContent = '';
@@ -2828,7 +2841,6 @@
                     histRemoveBtn.className = `${CONFIG.UI_PREFIX}-queue-remove`;
                     histRemoveBtn.dataset.id = id;
                     histRemoveBtn.textContent = '✕';
-
                     const histNameSpan = document.createElement('span');
                     histNameSpan.style.cssText = 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
                     histNameSpan.textContent = itemData.n;
@@ -2845,10 +2857,8 @@
                     btn.appendChild(histBadge);
                 } else {
                     const isTrendingGroupMode = type === 'trending' && this.sidePanels.trending.viewMode === 'group';
-
                     const nameSpan = document.createElement('span');
                     nameSpan.textContent = isTrendingGroupMode ? itemData.g : itemData.n;
-
                     // Bugs 2+3 fix: show pink selection state in side panels too,
                     // synced with the cart exactly like the main list does.
                     // Group-mode rows have no single member to select — skip entirely.
@@ -2909,7 +2919,6 @@
 
             const title = document.createElement('h2');
             title.className = `${CONFIG.UI_PREFIX}-icon-title`;
-
             /**
              * Rebuilds the title's icon+text in place — needed because this
              * h2 toggles between two states (Recent/Raw History) rather than
@@ -2927,7 +2936,6 @@
             const subtitle = document.createElement('div');
             subtitle.id = `${CONFIG.UI_PREFIX}-sync-time`;
             subtitle.className = `${CONFIG.UI_PREFIX}-history-subtitle`;
-
             leftGroup.appendChild(title);
             leftGroup.appendChild(subtitle);
             const rightGroup = document.createElement('div');
@@ -3146,7 +3154,6 @@
             header.appendChild(rightGroup);
 
             panel.appendChild(header);
-
             // Trending panel only: MEMBER/GROUP segmented toggle, sits between
             // the header and the list. Defaults to member view.
             if (type === 'trending') {
@@ -3155,7 +3162,6 @@
 
             const wrapper = document.createElement('div');
             wrapper.className = `${CONFIG.UI_PREFIX}-list-wrapper`;
-
             const list = document.createElement('div');
             list.className = `${CONFIG.UI_PREFIX}-list`;
 
@@ -3235,7 +3241,6 @@
 
             const track = document.createElement('span');
             track.className = `${CONFIG.UI_PREFIX}-trending-switch-track`;
-
             const labels = document.createElement('span');
             labels.className = `${CONFIG.UI_PREFIX}-trending-switch-labels`;
             labels.setAttribute('aria-hidden', 'true');
@@ -3243,7 +3248,6 @@
             const memberLabel = document.createElement('span');
             memberLabel.className = `${CONFIG.UI_PREFIX}-trending-switch-member`;
             memberLabel.textContent = 'MEMBER';
-
             const groupLabel = document.createElement('span');
             groupLabel.className = `${CONFIG.UI_PREFIX}-trending-switch-group`;
             groupLabel.textContent = 'GROUP';
@@ -3271,7 +3275,6 @@
                 }
 
                 trendingState.viewMode = nextMode;
-
                 // Deferred one frame: refreshSidePanels() rebuilds list content
                 // and re-renders virtualized rows — real DOM work. Running it
                 // synchronously here competes with the CSS slide transition for
@@ -3291,7 +3294,6 @@
             checkbox.addEventListener('change', () => {
                 switchMode(checkbox.checked ? 'group' : 'member');
             });
-
             return switchLabel;
         },
 
@@ -3421,7 +3423,6 @@
             }
             // Keep the carousel pill count in sync with cart state
             this._carouselUpdatePill();
-
             if (totalItems === 0) {
                 this.cartListInner.style.height = '100%';
                 this.cartListInner.textContent = '';
@@ -3456,7 +3457,6 @@
                 cartRemoveBtn.className = `${CONFIG.UI_PREFIX}-queue-remove`;
                 cartRemoveBtn.dataset.index = i;
                 cartRemoveBtn.textContent = '✕';
-
                 const cartNameSpan = document.createElement('span');
                 cartNameSpan.style.cssText = 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
                 cartNameSpan.textContent = item.n;
@@ -3488,7 +3488,6 @@
             container.className = `${CONFIG.UI_PREFIX}-main-container`;
             const panel = document.createElement('div');
             panel.className = `${CONFIG.UI_PREFIX}-panel ${CONFIG.UI_PREFIX}-main`;
-
             // --- Header ---
             const header = document.createElement('div');
             header.className = `${CONFIG.UI_PREFIX}-header`;
@@ -3530,7 +3529,6 @@
             header.appendChild(leftGroup);
             header.appendChild(rightGroup);
             panel.appendChild(header);
-
             // --- Config View Architecture ---
             this.configContainer = document.createElement('div');
             this.configContainer.className = `${CONFIG.UI_PREFIX}-config-wrapper`;
@@ -3540,7 +3538,6 @@
 
             const configFooter = document.createElement('div');
             configFooter.className = `${CONFIG.UI_PREFIX}-config-footer`;
-
             const createSettingsField = (labelTxt, inputType, inputId, defaultVal, placeholder) => {
                 const field = document.createElement('div');
                 field.className = `${CONFIG.UI_PREFIX}-settings-field`;
@@ -3555,13 +3552,10 @@
                 field.appendChild(Utils.attachClearButton(input));
                 return { fieldWrapper: field, inputElement: input };
             };
-
             const token = createSettingsField('GitHub Fine-Grained Access Token', 'password', `${CONFIG.STORAGE_PREFIX}_github_token`, '', 'github_pat_...');
-
             this.configInputs = {
                 token: token.inputElement
             };
-
             const saveConfigBtn = document.createElement('button');
             saveConfigBtn.className = `${CONFIG.UI_PREFIX}-settings-save-btn`;
             saveConfigBtn.textContent = 'Save Configuration';
@@ -3572,7 +3566,6 @@
                 CloudAPI.loadConfig();
                 this.showToast('Configurations saved. Re-synchronizing environments...');
                 this.currentView = 'groups';
-
                 if (CloudAPI.isValid()) {
                     const dot = this.configBtn.querySelector(`.${CONFIG.UI_PREFIX}-notification-dot`);
                     if (dot) dot.remove();
@@ -3594,7 +3587,6 @@
             });
 
             configBody.appendChild(token.fieldWrapper);
-
             // ── Local Backup (export/import) ─────────────────────────────
             // Independent of the GitHub sync path — a local safety net in
             // case the token or GitHub itself is ever unavailable mid-session.
@@ -3634,7 +3626,6 @@
 
             configBody.appendChild(backupRow);
             configBody.appendChild(backupHint);
-
             const resyncBtn = document.createElement('button');
             // margin-top: auto pushes this to the bottom of configBody's flex
             // column, regardless of how much content sits above it.
@@ -3663,7 +3654,6 @@
             };
 
             configBody.appendChild(resyncBtn);
-
             const diagnosticsBtn = document.createElement('button');
             diagnosticsBtn.className = `${CONFIG.UI_PREFIX}-settings-utility-btn`;
             diagnosticsBtn.textContent = 'View Diagnostics';
@@ -3680,7 +3670,6 @@
             this.configContainer.appendChild(configBody);
             this.configContainer.appendChild(configFooter);
             panel.appendChild(this.configContainer);
-
             // --- Diagnostics View (reuses config-wrapper/config-body styling) ---
             this.diagnosticsContainer = document.createElement('div');
             this.diagnosticsContainer.className = `${CONFIG.UI_PREFIX}-config-wrapper`;
@@ -3688,7 +3677,6 @@
             this.diagnosticsBody.className = `${CONFIG.UI_PREFIX}-config-body ${CONFIG.UI_PREFIX}-diagnostics-body`;
             this.diagnosticsContainer.appendChild(this.diagnosticsBody);
             panel.appendChild(this.diagnosticsContainer);
-
             // --- Search & Contextual Toolbar ---
             this.searchContainer = document.createElement('div');
             this.searchContainer.className = `${CONFIG.UI_PREFIX}-search-container`;
@@ -3713,7 +3701,6 @@
 
                     this.cart = [];
                     this.renderCart();
-
                     if (this.cartContainer && !this.cartContainer.classList.contains('active')) {
                         // Force reflow and add active class for smooth expansion
                         void this.cartContainer.offsetWidth;
@@ -3784,7 +3771,6 @@
             this.crudBarContainer.appendChild(Utils.attachClearButton(this.crudInput));
             this.crudBarContainer.appendChild(this.crudBtn);
             panel.appendChild(this.crudBarContainer);
-
             // --- List View Wrapper Architecture ---
             this.mainListWrapper = document.createElement('div');
             this.mainListWrapper.className = `${CONFIG.UI_PREFIX}-list-wrapper`;
@@ -3800,12 +3786,12 @@
             this.listContainer.addEventListener('scroll', () => {
                 requestAnimationFrame(() => this.renderVirtualList());
             });
-
             // Event Delegation for List Items & Delete/Edit Buttons
             this.listInner.addEventListener('click', (e) => {
                 const badge = e.target.closest(`.${CONFIG.UI_PREFIX}-badge-actionable`);
                 if (badge) {
                     e.stopPropagation();
+
                     const index = parseInt(badge.closest(`.${CONFIG.UI_PREFIX}-item`).dataset.index, 10);
                     const itemData = this.currentListData[index];
                     this.selectedGroup = itemData.group;
@@ -3830,7 +3816,7 @@
                         }
                     } else if (itemData.type === 'member') {
                         if (confirm(`Confirm target detachment and deletion of profile structural reference: "${itemData.member}"?`)) {
-                            if (Database.deleteMember(itemData.group, itemData.member)) {
+                             if (Database.deleteMember(itemData.group, itemData.member)) {
                                 this.updateListData(this.searchInput.value.toLowerCase().trim());
                                 this.triggerCloudSync();
                             }
@@ -3878,7 +3864,6 @@
                     this.handleItemClick(this.currentListData[index]);
                 }
             });
-
             this.searchInput.addEventListener('keydown', (e) => {
                 if (this.currentView === 'config') return;
                 if (this.currentListData.length === 0) return;
@@ -3897,11 +3882,9 @@
                     if (activeItem) this.handleItemClick(activeItem);
                 }
             });
-
             this.searchInput.oninput = Utils.debounce((e) => {
                 this.updateListData(e.target.value.toLowerCase().trim());
             }, 150);
-
             // --- Footer ---
             this.footer = document.createElement('div');
             this.footer.className = `${CONFIG.UI_PREFIX}-footer`;
@@ -3911,7 +3894,6 @@
             this.footerMainRow.style.gap = '1rem';
             this.footerMainRow.style.width = '100%';
             this.footerMainRow.style.alignItems = 'center';
-
             const footerLeftControls = document.createElement('div');
             footerLeftControls.style.display = 'flex';
             footerLeftControls.style.gap = '0.5rem';
@@ -3967,7 +3949,6 @@
 
             footerLeftControls.appendChild(this.configBtn);
             footerLeftControls.appendChild(this.syncBtn);
-
             const btnRow = document.createElement('div');
             btnRow.className = `${CONFIG.UI_PREFIX}-btn-row`;
 
@@ -3987,7 +3968,6 @@
 
             btnRow.appendChild(this.stdSaveBtn);
             btnRow.appendChild(this.customBtn);
-
             this.footerMainRow.appendChild(footerLeftControls);
             this.footerMainRow.appendChild(btnRow);
 
@@ -4013,7 +3993,6 @@
 
             this.footer.appendChild(this.footerMainRow);
             this.footer.appendChild(customWrapper);
-
             const resetCustomInput = () => {
                 customWrapper.style.display = 'none';
                 this.footerMainRow.style.display = 'flex';
@@ -4029,7 +4008,6 @@
                     customNameInput.focus();
                 }
             };
-
             // "Custom" button: swaps the footer in place — the underlying
             // groups/members list stays exactly as it was, no view change.
             this.customBtn.onclick = () => {
@@ -4040,7 +4018,6 @@
 
             customCancelBtn.onclick = resetCustomInput;
             customConfirmBtn.onclick = submitCustomSave;
-
             customNameInput.addEventListener('keydown', (e) => {
                 if (e.key === 'Enter') {
                     e.preventDefault();
@@ -4052,7 +4029,6 @@
                     this.searchInput.focus();
                 }
             });
-
             panel.appendChild(this.mainListWrapper);
             panel.appendChild(this.footer);
             container.appendChild(panel);
@@ -4062,7 +4038,6 @@
 
         updateVisibility() {
             if (this.diagnosticsContainer) this.diagnosticsContainer.style.display = 'none';
-
             if (this.currentView === 'diagnostics') {
                 this.headerTitle.replaceChildren();
                 this.headerTitle.textContent = 'Diagnostics';
@@ -4168,7 +4143,6 @@
 
         renderVirtualList() {
             if (!this.listContainer || !this.listInner || this.currentView === 'config') return;
-
             if (Database.isLoading) {
                 this.listInner.style.height = '100%';
                 this.listInner.textContent = '';
@@ -4180,7 +4154,6 @@
             }
 
             const totalItems = this.currentListData.length;
-
             if (totalItems === 0) {
                 this.listInner.style.height = '100%';
                 this.listInner.textContent = '';
@@ -4196,10 +4169,8 @@
 
             const scrollTop = this.listContainer.scrollTop;
             const containerHeight = this.cachedContainerHeight || 400;
-
             const startIndex = Math.max(0, Math.floor(scrollTop / itemHeight) - 5);
             const endIndex = Math.min(totalItems, Math.floor((scrollTop + containerHeight) / itemHeight) + 5);
-
             this.listInner.textContent = '';
             const fragment = document.createDocumentFragment();
 
@@ -4210,7 +4181,6 @@
                 btn.className = `${CONFIG.UI_PREFIX}-item ${i === this.activeIndex ? 'active-focus' : ''}`;
                 btn.style.transform = `translate3d(0, ${i * itemHeight}px, 0)`;
                 btn.dataset.index = i;
-
                 // Visual indicator: item is already in the queue
                 const isInCart = this.isMultiSelectMode &&
                     itemData.type === 'member' &&
@@ -4446,7 +4416,6 @@
                 Storage._cache = parsed.history;
                 GM_setValue(CONFIG.STORAGE_KEY, JSON.stringify(Storage._cache));
                 Database.setCache(Database.data);
-
                 if (CloudAPI.isValid()) {
                     await Database.saveCloud();
                     await Storage.saveCloud();
@@ -4492,7 +4461,6 @@
             }
 
             if (text) this.showToast(text, type);
-
             if (this.crudInput && this.crudBtn) {
                 const isSyncing = (status === 'syncing');
                 this.crudInput.disabled = isSyncing;
@@ -4511,7 +4479,6 @@
             document.body.style.overflow = 'hidden';
             const layoutWrapper = document.createElement('div');
             layoutWrapper.className = `${CONFIG.UI_PREFIX}-layout`;
-
             if (typeof ResizeObserver !== 'undefined') {
                 this.resizeObserver = new ResizeObserver(entries => {
                     // Cancel any pending resize render so rapid resize events
@@ -4528,7 +4495,6 @@
                         const h = entry.contentRect.height;
                         const snappedHeight = Math.floor(h / CONFIG.VIRTUAL_ITEM_HEIGHT) * CONFIG.VIRTUAL_ITEM_HEIGHT;
                         const finalHeight = Math.max(CONFIG.VIRTUAL_ITEM_HEIGHT, snappedHeight);
-
                         if (entry.target === this.mainListWrapper) {
                             this.listContainer.style.height = `${finalHeight}px`;
                             this.cachedContainerHeight = finalHeight;
@@ -4585,7 +4551,6 @@
             cartCountSpan.textContent = '0';
             cartTitle.appendChild(cartCountSpan);
             cartTitle.appendChild(document.createTextNode(')'));
-
             const btnGroup = document.createElement('div');
             btnGroup.style.display = 'flex';
             btnGroup.style.alignItems = 'center';
@@ -4598,7 +4563,6 @@
             cartCancelBtn.style.background = 'rgba(229, 115, 115, 0.1)';
             cartCancelBtn.textContent = 'Cancel';
             cartCancelBtn.onclick = () => this.exitMultiSelectMode();
-
             const cartClearBtn = document.createElement('button');
             cartClearBtn.className = `${CONFIG.UI_PREFIX}-cancel-btn`;
             cartClearBtn.textContent = 'Clear';
@@ -4611,7 +4575,6 @@
             btnGroup.appendChild(cartClearBtn);
             // Close button always last — same top-right position as every other panel
             btnGroup.appendChild(this._createPanelCloseBtn('queue'));
-
             cartHeader.appendChild(cartTitle);
             cartHeader.appendChild(btnGroup);
 
@@ -4627,11 +4590,9 @@
             this.cartListInner.className = `${CONFIG.UI_PREFIX}-list-inner`;
 
             this.cartList.appendChild(this.cartListInner);
-
             this.cartList.addEventListener('scroll', () => {
                 requestAnimationFrame(() => this._renderCartVirtual());
             });
-
             this.cartListInner.addEventListener('click', (e) => {
                 const removeBtn = e.target.closest(`.${CONFIG.UI_PREFIX}-queue-remove`);
                 if (removeBtn) {
@@ -4642,7 +4603,6 @@
                     this.renderCart();
                 }
             });
-
             listWrapper.appendChild(this.cartList);
             this.cartContainer.appendChild(cartHeader);
             this.cartContainer.appendChild(listWrapper);
@@ -4652,12 +4612,10 @@
             cartFooter.className = `${CONFIG.UI_PREFIX}-footer`;
             cartFooter.style.marginTop = 'auto'; // push to bottom
             cartFooter.style.paddingTop = '1rem';
-
             this.cartSaveBtn = document.createElement('button');
             this.cartSaveBtn.className = `${CONFIG.UI_PREFIX}-settings-save-btn`;
             this.cartSaveBtn.textContent = 'Save Selection';
             this.cartSaveBtn.disabled = true;
-
             this.cartSaveBtn.onclick = () => {
                 if (this.cart.length > 0) {
                     Downloader.executeBatchSave(this.cart);
@@ -4667,17 +4625,14 @@
 
             cartFooter.appendChild(this.cartSaveBtn);
             this.cartContainer.appendChild(cartFooter);
-
             // ── Carousel track ─────────────────────────────────────────────
             // display:contents in desktop = transparent flex passthrough.
             // display:flex in carousel = the sliding container.
             const carouselTrack = document.createElement('div');
             carouselTrack.className = `${CONFIG.UI_PREFIX}-carousel-track`;
-
             // Assemble panels into the track (DOM order = carousel order)
             // Order: 0 Queue → 1 Recent → 2 Main → 3 Trending
             carouselTrack.appendChild(this.cartContainer);
-
             const recentPanelEl = this.createRecentHistoryPanel();
             carouselTrack.appendChild(recentPanelEl);
 
@@ -4707,7 +4662,6 @@
             this._carousel.pillEl = queuePill;
 
             carouselTrack.appendChild(mainPanelEl);
-
             const trendingPanelEl = this.createSidePanel('Trending', 'right', 'trending', ICONS.flame);
             carouselTrack.appendChild(trendingPanelEl);
 
@@ -4728,7 +4682,6 @@
             layoutWrapper.appendChild(arrowPrev);
             layoutWrapper.appendChild(arrowNext);
             layoutWrapper.appendChild(dotsEl);
-
             // Store references for use by carousel methods
             this._carousel.clip      = carouselClip;
             this._carousel.track     = carouselTrack;
@@ -4742,7 +4695,6 @@
                 main:   mainPanelEl,
                 trending: trendingPanelEl,
             };
-
             if (this.resizeObserver) {
                 if (this.mainListWrapper) this.resizeObserver.observe(this.mainListWrapper);
                 if (this.sidePanels.recent.wrapper) this.resizeObserver.observe(this.sidePanels.recent.wrapper);
@@ -4757,13 +4709,11 @@
 
             // Init carousel after the overlay is in the DOM (needs live dimensions)
             this._carouselInit();
-
             setTimeout(() => { if (this.searchInput) this.searchInput.focus(); }, 50);
         },
 
         async showMenu() {
             if (this.overlay) return;
-
             if (CloudAPI.isValid() && !CloudAPI.isRateLimited()) {
                 Storage.fetchCloudBackground(true);
             }
@@ -4783,13 +4733,11 @@
             this.recentPanelMode = 'recent';
 
             this.render();
-
             this.syncInterval = setInterval(() => {
                 if (CloudAPI.isValid() && !CloudAPI.isRateLimited()) {
                     Storage.fetchCloudBackground(true);
                 }
             }, CONFIG.CLOUD_MENU_POLL_MS);
-
             this.syncTimeInterval = setInterval(() => {
                 if (this.recentPanelMode === 'history') {
                     this.updateSyncTimeUI();
@@ -4833,7 +4781,6 @@
             }
         }
     };
-
     // =========================================================
     // CORE APPLICATION MODULE
     // =========================================================
@@ -4850,7 +4797,7 @@
             Storage.init(this.isSilentMode);
 
             if (this.isSilentMode) {
-                Logger.info('Initialized Silent Cloud Worker v20.2');
+                Logger.info('Initialized Silent Cloud Worker v20.3');
                 return;
             }
 
@@ -4858,7 +4805,6 @@
             UI.injectGlobals();
             UI.injectStyles();
             this.bindEvents();
-
             // Initialize the database first — isLoaded must be set as early as
             // possible so showMenu() doesn't stall in waitForLoad().
             Database.init();
@@ -4868,8 +4814,7 @@
                     Storage.fetchCloudBackground();
                 }
             }, CONFIG.CLOUD_HISTORY_THROTTLE_MS);
-
-            Logger.info('Initialized Xiv Media Downloader v20.2');
+            Logger.info('Initialized Xiv Media Downloader v20.3');
         },
 
         isDirectMediaPage() {
@@ -4883,7 +4828,6 @@
                     Storage.fetchCloudBackground();
                 }
             });
-
             // Handle Dynamic FAB Tracking
             document.addEventListener('mousemove', (e) => {
                 if (UI.overlay) return; // Disconnect tracking when overlay is open to save CPU
