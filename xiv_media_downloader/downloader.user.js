@@ -2,7 +2,7 @@
 // @name         [Universal] Xiv Media Downloader
 // @namespace    https://github.com/myouisaur/Universal
 // @icon         data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23FF4081'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 11h3l-4 4-4-4h3V8h2v5z'/%3E%3C/svg%3E
-// @version      21.1
+// @version      22.2
 // @description  Organizes, tracks, and saves categorized media files through a centralized overlay.
 // @author       Xiv
 // @match        *://*/*
@@ -57,7 +57,7 @@
         // during the v18 rebrand, not just a find-replace of the old prefix).
         STORAGE_PREFIX: 'xiv_media_dl',
         STORAGE_KEY: 'xiv_media_dl_history',
-        HISTORY_MAX_DAYS: 30,
+        HISTORY_MAX_DAYS: 120,
         FAB_Z_INDEX: 999990,
         OVERLAY_Z_INDEX: 999999,
         SAVE_DEBOUNCE_MS: 1000,
@@ -216,6 +216,34 @@
                     el.click();
                 }
             });
+        },
+
+        /**
+         * Builds a small "?" icon that reveals explanatory text on hover or
+         * keyboard focus — used in place of always-visible hint paragraphs,
+         * so settings panels stay visually clean until a user actually wants
+         * the explanation.
+         * @param {string} text
+         * @returns {HTMLSpanElement}
+         */
+        createInfoTooltip(text) {
+            const wrapper = document.createElement('span');
+            wrapper.className = `${CONFIG.UI_PREFIX}-tooltip-wrapper`;
+
+            const icon = document.createElement('button');
+            icon.type = 'button';
+            icon.className = `${CONFIG.UI_PREFIX}-tooltip-icon`;
+            icon.textContent = '?';
+            icon.setAttribute('aria-label', text);
+
+            const bubble = document.createElement('span');
+            bubble.className = `${CONFIG.UI_PREFIX}-tooltip-bubble`;
+            bubble.setAttribute('role', 'tooltip');
+            bubble.textContent = text;
+
+            wrapper.appendChild(icon);
+            wrapper.appendChild(bubble);
+            return wrapper;
         }
     };
 
@@ -645,18 +673,15 @@
         },
 
         /**
-         * Manual "mirror GitHub" action for when history.json has been hand-edited
-         * directly on GitHub. Clears the local cache first so fetchCloudBackground's
-         * merge step has nothing local to merge against — the result is a clean
-         * copy of whatever's currently on GitHub, not a union of old + new.
-         * @returns {Promise<'synced'|'no-token'>} outcome for the caller to toast
+         * Wipes local history storage (both the in-memory cache and the GM
+         * value) and stops there — deliberately does not refetch from GitHub
+         * afterward. The script's existing periodic/background sync already
+         * repopulates local history on its own schedule, so this button
+         * doesn't need to manage that; its only job is the clear itself.
          */
-        async resyncFromCloud() {
-            if (!CloudAPI.isValid()) return 'no-token';
+        clearLocalHistory() {
             this._cache = [];
             GM_setValue(CONFIG.STORAGE_KEY, '[]');
-            await this.fetchCloudBackground(true);
-            return 'synced';
         },
 
         async fetchCloudBackground(force = false) {
@@ -1865,8 +1890,47 @@
                 .${CONFIG.UI_PREFIX}-settings-save-btn    { width: 100%; background: var(--tm-primary); color: var(--tm-text-main); border: none; border-radius: 0.6rem; padding: 0.8rem; font-size: 0.95rem; font-weight: 600; cursor: pointer; transition: background 0.2s; }
                 .${CONFIG.UI_PREFIX}-settings-utility-btn { width: 100%; background: transparent; color: var(--tm-text-main); border: 1px solid var(--tm-border-light); border-radius: 0.6rem; padding: 0.7rem; font-size: 0.9rem; font-weight: 500; cursor: pointer; transition: background 0.2s, border-color 0.2s; }
                 .${CONFIG.UI_PREFIX}-settings-utility-btn:hover { background: var(--tm-bg-hover-subtle); border-color: var(--tm-text-dark); }
-                .${CONFIG.UI_PREFIX}-settings-utility-btn--bottom { margin-top: auto; }
-                .${CONFIG.UI_PREFIX}-settings-hint { font-size: 0.78rem; color: var(--tm-text-dim); margin: 0.4rem 0 1.2rem; line-height: 1.4; }
+                /* ── Config Section Labels ────────────────────────────────── */
+                .${CONFIG.UI_PREFIX}-settings-section {
+                    display: flex; align-items: center; gap: 0.4rem;
+                    font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em;
+                    color: var(--tm-text-dim); text-transform: uppercase;
+                    margin: 0.6rem 0 0.5rem;
+                }
+                .${CONFIG.UI_PREFIX}-settings-section--bottom { margin-top: auto; }
+
+                /* ── Info Tooltip ─────────────────────────────────────────── */
+                /* "?" icon revealing explanatory text on hover/focus, instead
+                   of always-visible hint paragraphs cluttering the panel. */
+                .${CONFIG.UI_PREFIX}-tooltip-wrapper { position: relative; display: inline-flex; }
+                .${CONFIG.UI_PREFIX}-tooltip-icon {
+                    width: 1rem; height: 1rem; border-radius: 50%;
+                    background: var(--tm-bg-elevated); border: 1px solid var(--tm-border-light);
+                    color: var(--tm-text-dim); font-size: 0.65rem; font-weight: 700;
+                    line-height: 1; cursor: help; display: flex; align-items: center;
+                    justify-content: center; padding: 0; text-transform: none;
+                    letter-spacing: normal; transition: background 0.15s, color 0.15s;
+                }
+                .${CONFIG.UI_PREFIX}-tooltip-icon:hover,
+                .${CONFIG.UI_PREFIX}-tooltip-icon:focus-visible {
+                    background: var(--tm-primary); color: var(--tm-text-main); border-color: var(--tm-primary);
+                }
+                .${CONFIG.UI_PREFIX}-tooltip-bubble {
+                    position: absolute; bottom: calc(100% + 0.5rem); left: 0;
+                    transform: translateY(0.3rem);
+                    width: max-content; max-width: 14rem;
+                    background: var(--tm-bg-elevated); border: 1px solid var(--tm-border-light);
+                    border-radius: 0.5rem; padding: 0.55rem 0.7rem;
+                    font-size: 0.78rem; font-weight: 400; color: var(--tm-text-main);
+                    text-transform: none; letter-spacing: normal; line-height: 1.4;
+                    box-shadow: 0 0.4rem 1rem rgba(0,0,0,0.4);
+                    opacity: 0; pointer-events: none; z-index: 20;
+                    transition: opacity 0.15s ease, transform 0.15s ease;
+                }
+                .${CONFIG.UI_PREFIX}-tooltip-icon:hover ~ .${CONFIG.UI_PREFIX}-tooltip-bubble,
+                .${CONFIG.UI_PREFIX}-tooltip-icon:focus-visible ~ .${CONFIG.UI_PREFIX}-tooltip-bubble {
+                    opacity: 1; transform: translateY(0);
+                }
 
                 /* ── Diagnostics Panel ────────────────────────────────────── */
                 .${CONFIG.UI_PREFIX}-diagnostics-section {
@@ -3552,7 +3616,8 @@
                 field.appendChild(Utils.attachClearButton(input));
                 return { fieldWrapper: field, inputElement: input };
             };
-            const token = createSettingsField('GitHub Fine-Grained Access Token', 'password', `${CONFIG.STORAGE_PREFIX}_github_token`, '', 'github_pat_...');
+            const token = createSettingsField('Token', 'password', `${CONFIG.STORAGE_PREFIX}_github_token`, '', 'github_pat_...');
+
             this.configInputs = {
                 token: token.inputElement
             };
@@ -3587,9 +3652,16 @@
             });
 
             configBody.appendChild(token.fieldWrapper);
-            // ── Local Backup (export/import) ─────────────────────────────
-            // Independent of the GitHub sync path — a local safety net in
-            // case the token or GitHub itself is ever unavailable mid-session.
+
+            // ── Backup Section ────────────────────────────────────────────
+            const backupSectionLabel = document.createElement('div');
+            backupSectionLabel.className = `${CONFIG.UI_PREFIX}-settings-section`;
+            backupSectionLabel.appendChild(document.createTextNode('Backup'));
+            backupSectionLabel.appendChild(
+                Utils.createInfoTooltip('A local file backup of your database and history — independent of GitHub.')
+            );
+            configBody.appendChild(backupSectionLabel);
+
             const backupRow = document.createElement('div');
             backupRow.style.display = 'flex';
             backupRow.style.gap = '0.5rem';
@@ -3619,41 +3691,28 @@
             backupRow.appendChild(exportBtn);
             backupRow.appendChild(importBtn);
             backupRow.appendChild(importFileInput);
-
-            const backupHint = document.createElement('div');
-            backupHint.className = `${CONFIG.UI_PREFIX}-settings-hint`;
-            backupHint.textContent = 'A local file backup of your database and history — independent of GitHub.';
-
             configBody.appendChild(backupRow);
-            configBody.appendChild(backupHint);
-            const resyncBtn = document.createElement('button');
-            // margin-top: auto pushes this to the bottom of configBody's flex
-            // column, regardless of how much content sits above it.
-            resyncBtn.className = `${CONFIG.UI_PREFIX}-settings-utility-btn ${CONFIG.UI_PREFIX}-settings-utility-btn--bottom`;
-            resyncBtn.textContent = 'Resync History from Cloud';
-            resyncBtn.onclick = async () => {
-                if (!CloudAPI.isValid()) {
-                    this.showToast('Configure and save your GitHub token first.', 'error');
-                    return;
-                }
-                if (!confirm('This discards any unsynced local history and reloads the latest version from GitHub. Continue?')) {
-                    return;
-                }
-                try {
-                    resyncBtn.disabled = true;
-                    resyncBtn.textContent = 'Resyncing...';
-                    await Storage.resyncFromCloud();
-                    this.showToast('History resynced from GitHub.');
-                } catch (e) {
-                    Logger.warn('[UI] Resync from cloud failed.', e);
-                    this.showToast('Resync failed — check your connection and token.', 'error');
-                } finally {
-                    resyncBtn.disabled = false;
-                    resyncBtn.textContent = 'Resync History from Cloud';
-                }
-            };
 
-            configBody.appendChild(resyncBtn);
+            // ── Maintenance Section ───────────────────────────────────────
+            const maintenanceSectionLabel = document.createElement('div');
+            maintenanceSectionLabel.className = `${CONFIG.UI_PREFIX}-settings-section ${CONFIG.UI_PREFIX}-settings-section--bottom`;
+            maintenanceSectionLabel.appendChild(document.createTextNode('Maintenance'));
+            maintenanceSectionLabel.appendChild(
+                Utils.createInfoTooltip('Clear Local History wipes only this device\'s local copy — GitHub is untouched, and the next automatic sync repopulates it.')
+            );
+            configBody.appendChild(maintenanceSectionLabel);
+
+            const clearHistoryBtn = document.createElement('button');
+            clearHistoryBtn.className = `${CONFIG.UI_PREFIX}-settings-utility-btn`;
+            clearHistoryBtn.textContent = 'Clear Local History';
+            clearHistoryBtn.onclick = () => {
+                if (!confirm('This clears the local history cache on this device only. Continue?')) return;
+                Storage.clearLocalHistory();
+                this.refreshSidePanels();
+                this.showToast('Local history cleared.');
+            };
+            configBody.appendChild(clearHistoryBtn);
+
             const diagnosticsBtn = document.createElement('button');
             diagnosticsBtn.className = `${CONFIG.UI_PREFIX}-settings-utility-btn`;
             diagnosticsBtn.textContent = 'View Diagnostics';
@@ -4797,7 +4856,7 @@
             Storage.init(this.isSilentMode);
 
             if (this.isSilentMode) {
-                Logger.info('Initialized Silent Cloud Worker v21.1');
+                Logger.info('Initialized Silent Cloud Worker v22.2');
                 return;
             }
 
@@ -4814,7 +4873,7 @@
                     Storage.fetchCloudBackground();
                 }
             }, CONFIG.CLOUD_HISTORY_THROTTLE_MS);
-            Logger.info('Initialized Xiv Media Downloader v21.1');
+            Logger.info('Initialized Xiv Media Downloader v22.2');
         },
 
         isDirectMediaPage() {
