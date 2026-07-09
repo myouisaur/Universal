@@ -2,7 +2,7 @@
 // @name         [Universal] Xiv Media Downloader
 // @namespace    https://github.com/myouisaur/Universal
 // @icon         data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23FF4081'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 11h3l-4 4-4-4h3V8h2v5z'/%3E%3C/svg%3E
-// @version      22.3
+// @version      22.5
 // @description  Organizes, tracks, and saves categorized media files through a centralized overlay.
 // @author       Xiv
 // @match        *://*/*
@@ -57,16 +57,25 @@
         // during the v18 rebrand, not just a find-replace of the old prefix).
         STORAGE_PREFIX: 'xiv_media_dl',
         STORAGE_KEY: 'xiv_media_dl_history',
-        HISTORY_MAX_DAYS: 120,
+        HISTORY_MAX_DAYS: 180,
         FAB_Z_INDEX: 999990,
         OVERLAY_Z_INDEX: 999999,
         SAVE_DEBOUNCE_MS: 1000,
-        CLOUD_HISTORY_DEBOUNCE_MS: 300,
+        // Cross-tab quiet-window: cloud push waits until no tab anywhere has
+        // recorded a save for this long, coalescing bursts (many tabs saving
+        // at once) into a single push instead of one overlapping attempt per
+        // tab. Replaces the old flat per-tab debounce (see recordSuccess()).
+        CLOUD_SAVE_QUIET_WINDOW_MS: 10000,
         CLOUD_HISTORY_THROTTLE_MS: 30000,
         CLOUD_MENU_POLL_MS: 10000,
         VIRTUAL_ITEM_HEIGHT: 50,
         MAX_ACTIVE_TOASTS: 3,
-        AUTO_CLOSE_COUNTDOWN_MS: 3000,
+        AUTO_CLOSE_COUNTDOWN_MS: 5000,
+        AUTO_CLOSE_MAX_WAIT_MS: 5000,
+        // Trending score (Storage.getTrendingStats/getGroupTrendingStats) —
+        // hand-editable here instead of buried inside _trendingWeight().
+        TRENDING_SCOPE_DAYS: 180,
+        TRENDING_HALF_LIFE_DAYS: 6,
 
         // Carousel
         CAROUSEL_BREAKPOINT_PX: 1450,         // px below which carousel activates
@@ -531,7 +540,7 @@
     const Storage = {
         _cache: null,
         _saveLocalDebounced: null,
-        _saveCloudDebounced: null,
+        _quietPushTimer: null,
         _lastCloudFetch: 0,
         _taskQueue: Promise.resolve(),
 
@@ -542,9 +551,6 @@
             this._saveLocalDebounced = Utils.debounce(() => {
                 GM_setValue(CONFIG.STORAGE_KEY, JSON.stringify(this._cache));
             }, CONFIG.SAVE_DEBOUNCE_MS);
-            this._saveCloudDebounced = Utils.debounce(() => {
-                this.saveCloud();
-            }, CONFIG.CLOUD_HISTORY_DEBOUNCE_MS);
             this.clean();
             this.setupCrossTabSync();
             this.setupDirtyListener();
@@ -671,6 +677,44 @@
                 this._saveLocalDebounced();
             }
             return this._cache;
+        },
+
+        /**
+         * Cross-tab quiet-window push scheduler — replaces the old flat
+         * per-tab debounce. Marks a shared "last save activity" timestamp
+         * (visible to every open tab, not just this one) and only attempts
+         * saveCloud() once CONFIG.CLOUD_SAVE_QUIET_WINDOW_MS has passed with
+         * no new save activity from ANY tab. This coalesces a burst of saves
+         * across many simultaneously-open tabs into a single push attempt
+         * instead of one overlapping attempt per tab, reducing contention on
+         * the cross-tab mutex in _withLock().
+         *
+         * Redundant timers across multiple open tabs are harmless: whichever
+         * one fires first still goes through the existing lock/dirty-flag
+         * machinery in saveCloud(), so nothing double-pushes. If the tab that
+         * scheduled the check closes before the window elapses, any other
+         * open tab's own timer (from its own saves) or the visibilitychange
+         * dirty-check picks up the slack.
+         */
+        _scheduleQuietPush() {
+            const activityKey = `${CONFIG.STORAGE_PREFIX}_last_save_activity`;
+            GM_setValue(activityKey, Date.now());
+
+            if (this._quietPushTimer) clearTimeout(this._quietPushTimer);
+
+            const checkQuiet = () => {
+                this._quietPushTimer = null;
+                const lastActivity = GM_getValue(activityKey, 0);
+                const elapsed = Date.now() - lastActivity;
+
+                if (elapsed >= CONFIG.CLOUD_SAVE_QUIET_WINDOW_MS) {
+                    this.saveCloud();
+                } else {
+                    this._quietPushTimer = setTimeout(checkQuiet, CONFIG.CLOUD_SAVE_QUIET_WINDOW_MS - elapsed);
+                }
+            };
+
+            this._quietPushTimer = setTimeout(checkQuiet, CONFIG.CLOUD_SAVE_QUIET_WINDOW_MS);
         },
 
         /**
@@ -819,7 +863,7 @@
 
                 if (changed) {
                     GM_setValue(CONFIG.STORAGE_KEY, JSON.stringify(this._cache));
-                    this._saveCloudDebounced();
+                    this._scheduleQuietPush();
                     if (UI.overlay) UI.refreshSidePanels();
                 }
             }));
@@ -838,7 +882,7 @@
 
                 if (changed) {
                     GM_setValue(CONFIG.STORAGE_KEY, JSON.stringify(this._cache));
-                    this._saveCloudDebounced();
+                    this._scheduleQuietPush();
                     if (UI.overlay) UI.refreshSidePanels();
                 }
             }));
@@ -854,7 +898,7 @@
 
                 if (this._cache.length !== originalLength) {
                     GM_setValue(CONFIG.STORAGE_KEY, JSON.stringify(this._cache));
-                    this._saveCloudDebounced();
+                    this._scheduleQuietPush();
                     if (UI.overlay) {
                         UI.refreshSidePanels();
                         UI.showToast(`Deleted ${idsClone.size} item(s) from history.`, 'success');
@@ -883,13 +927,14 @@
 
         /**
          * Trending Score formula (Save events only, last 30 days) — exact
-         * spec: continuous exponential decay with a 6-day half-life.
+         * spec: continuous exponential decay, half-life configurable via
+         * CONFIG.TRENDING_HALF_LIFE_DAYS.
          * weight = 2^(-ageMs / HALF_LIFE_MS)
          * Every save event contributes independently; summing
          * a member/group's weights across all its saves gives its score.
-         * Returns 0 for anything outside the 30-day window (explicit here
-         * rather than relying solely on HISTORY_MAX_DAYS pruning, in case of
-         * any timing drift right at the boundary).
+         * Returns 0 for anything outside CONFIG.TRENDING_SCOPE_DAYS (explicit
+         * here rather than relying solely on HISTORY_MAX_DAYS pruning, in
+         * case of any timing drift right at the boundary).
          * @param {number} timestampMs - when the save happened
          * @param {number} nowMs - current time, passed in so a whole batch
          * of items is scored against one consistent "now"
@@ -897,9 +942,9 @@
          */
         _trendingWeight(timestampMs, nowMs) {
             const ageMs = nowMs - timestampMs;
-            // Only score items within the 30-day window (avoids drift on bounds)
-            if (ageMs < 0 || ageMs > 30 * 24 * 60 * 60 * 1000) return 0;
-            const HALF_LIFE_MS = 6 * 24 * 60 * 60 * 1000;
+            const scopeMs = CONFIG.TRENDING_SCOPE_DAYS * 24 * 60 * 60 * 1000;
+            if (ageMs < 0 || ageMs > scopeMs) return 0;
+            const HALF_LIFE_MS = CONFIG.TRENDING_HALF_LIFE_DAYS * 24 * 60 * 60 * 1000;
             return Math.pow(2, -ageMs / HALF_LIFE_MS);
         },
 
@@ -2803,7 +2848,20 @@
             const closeTimeout = setTimeout(async () => {
                 clearInterval(interval);
                 if (!isCancelled) {
-                    await Storage._taskQueue;
+                    // Bounded wait — Storage._taskQueue can, under heavy
+                    // cross-tab mutex contention (many tabs saving at once),
+                    // take longer than the visual countdown to resolve. This
+                    // cap ensures the tab still closes on schedule; the local
+                    // history write already happened synchronously in
+                    // recordSuccess() regardless, and any still-open tab
+                    // picks up an interrupted cloud push via the shared
+                    // dirty-flag listener (setupDirtyListener), so nothing
+                    // is actually lost — just possibly finished by a
+                    // different tab a moment later.
+                    await Promise.race([
+                        Storage._taskQueue,
+                        new Promise(resolve => setTimeout(resolve, CONFIG.AUTO_CLOSE_MAX_WAIT_MS))
+                    ]);
                     try { window.close(); } catch (e) { Logger.warn("Window close blocked by browser."); }
                 }
             }, duration);
@@ -4857,7 +4915,7 @@
             Storage.init(this.isSilentMode);
 
             if (this.isSilentMode) {
-                Logger.info('Initialized Silent Cloud Worker v22.3');
+                Logger.info('Initialized Silent Cloud Worker v22.5');
                 return;
             }
 
@@ -4874,7 +4932,7 @@
                     Storage.fetchCloudBackground();
                 }
             }, CONFIG.CLOUD_HISTORY_THROTTLE_MS);
-            Logger.info('Initialized Xiv Media Downloader v22.3');
+            Logger.info('Initialized Xiv Media Downloader v22.5');
         },
 
         isDirectMediaPage() {
