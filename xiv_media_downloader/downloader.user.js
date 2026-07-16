@@ -2,7 +2,7 @@
 // @name         [Universal] Xiv Media Downloader
 // @namespace    https://github.com/myouisaur/Universal
 // @icon         data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23FF4081'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 11h3l-4 4-4-4h3V8h2v5z'/%3E%3C/svg%3E
-// @version      24.5
+// @version      24.6
 // @description  Organizes, tracks, and saves categorized media files through a centralized overlay.
 // @author       Xiv
 // @match        *://*/*
@@ -64,9 +64,12 @@
         MAX_ACTIVE_TOASTS: 3,
         AUTO_CLOSE_COUNTDOWN_MS: 5000,
         AUTO_CLOSE_MAX_WAIT_MS: 5000,
-        TRENDING_SCOPE_DAYS: 180,
+        //trending
+        TRENDING_SCOPE_DAYS: 99999,
         TRENDING_HALF_LIFE_DAYS: 6,
+        //carousel min width
         CAROUSEL_BREAKPOINT_PX: 1450,
+        //db
         DB_URL: 'https://raw.githubusercontent.com/myouisaur/Universal/refs/heads/main/xiv_media_downloader/json/db.json',
         DB_CACHE_KEY: 'xiv_media_dl_db_cache',
         DB_CACHE_TTL_MS: 12 * 60 * 60 * 1000
