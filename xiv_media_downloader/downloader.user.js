@@ -2,7 +2,7 @@
 // @name         [Universal] Xiv Media Downloader
 // @namespace    https://github.com/myouisaur/Universal
 // @icon         data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23FF4081'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 11h3l-4 4-4-4h3V8h2v5z'/%3E%3C/svg%3E
-// @version      24.3
+// @version      24.5
 // @description  Organizes, tracks, and saves categorized media files through a centralized overlay.
 // @author       Xiv
 // @match        *://*/*
@@ -64,8 +64,8 @@
         MAX_ACTIVE_TOASTS: 3,
         AUTO_CLOSE_COUNTDOWN_MS: 5000,
         AUTO_CLOSE_MAX_WAIT_MS: 5000,
-        TRENDING_SCOPE_DAYS: 365,
-        TRENDING_HALF_LIFE_DAYS: 4,
+        TRENDING_SCOPE_DAYS: 180,
+        TRENDING_HALF_LIFE_DAYS: 6,
         CAROUSEL_BREAKPOINT_PX: 1450,
         DB_URL: 'https://raw.githubusercontent.com/myouisaur/Universal/refs/heads/main/xiv_media_downloader/json/db.json',
         DB_CACHE_KEY: 'xiv_media_dl_db_cache',
@@ -1922,7 +1922,11 @@
                 .${CONFIG.UI_PREFIX}-link-text {
                     flex-grow: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
                     color: var(--tm-text-main) !important; text-decoration: none !important;
-                    font-size: 0.95rem; outline: none; display: block;
+                    font-size: 0.95rem; outline: none;
+                    /* Stretch to the full row height (not just the text's own
+                       line-height) so the entire pill is clickable, not just
+                       a thin strip around the visible text. */
+                    align-self: stretch; display: flex; align-items: center;
                 }
                 .${CONFIG.UI_PREFIX}-link-actions { display: flex; align-items: center; gap: 0.2rem; flex-shrink: 0; }
                 /* Full vertical + horizontal centering — not just a small
@@ -3488,6 +3492,21 @@
             this.linkFormContainer.appendChild(Utils.attachClearButton(this.linkUrlInput));
             this.linkFormContainer.appendChild(this.linkSaveBtn);
 
+            // Enter key mapping for quick save — matches the same pattern
+            // already used for the token/retention fields elsewhere.
+            this.linkTextInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    this.linkSaveBtn.click();
+                }
+            });
+            this.linkUrlInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    this.linkSaveBtn.click();
+                }
+            });
+
             panel.appendChild(this.linksWrapper);
             panel.appendChild(this.linkFormContainer);
 
@@ -4417,6 +4436,24 @@
             document.body.style.overflow = 'hidden';
             const layoutWrapper = document.createElement('div');
             layoutWrapper.className = `${CONFIG.UI_PREFIX}-layout`;
+
+            // Determine carousel vs default mode BEFORE this ever gets
+            // appended to the DOM (and therefore painted) — previously this
+            // was only decided by _carouselInit()/_carouselUpdateMode(),
+            // which ran AFTER the overlay was already visible in default
+            // mode, causing a brief flash of the wrong layout on narrow
+            // viewports before it snapped to carousel a moment later.
+            // Setting isActive here too means _carouselUpdateMode()'s later
+            // call sees shouldBeCarousel === wasActive and takes its fast
+            // no-transition path, instead of running its 180ms cross-fade
+            // (which is meant for genuine live resizes of an already-open
+            // panel, not the very first paint).
+            const shouldStartInCarousel = window.innerWidth <= CONFIG.CAROUSEL_BREAKPOINT_PX;
+            if (shouldStartInCarousel) {
+                layoutWrapper.classList.add(`${CONFIG.UI_PREFIX}-carousel`);
+            }
+            this._carousel.isActive = shouldStartInCarousel;
+
             if (typeof ResizeObserver !== 'undefined') {
                 this.resizeObserver = new ResizeObserver(entries => {
                     if (this._pendingResizeFrame !== null) {
@@ -4713,7 +4750,7 @@
             Storage.init(this.isSilentMode);
 
             if (this.isSilentMode) {
-                Logger.info('Initialized Silent Cloud Worker v24.3');
+                Logger.info('Initialized Silent Cloud Worker v24.5');
                 return;
             }
 
@@ -4728,7 +4765,7 @@
                     Storage.fetchCloudBackground();
                 }
             }, CONFIG.CLOUD_HISTORY_THROTTLE_MS);
-            Logger.info('Initialized Xiv Media Downloader v24.3');
+            Logger.info('Initialized Xiv Media Downloader v24.5');
         },
 
         isDirectMediaPage() {
