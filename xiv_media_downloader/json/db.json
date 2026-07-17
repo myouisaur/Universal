@@ -1751,7 +1751,9 @@
     "Yeseul",
     "Yuna"
   ],
-  "OURBIRTHDAY": [],
+  "OURBIRTHDAY": [
+    "Baby"
+  ],
   "_xiv_links": {
     "member::aespa::Karina": [
       {
