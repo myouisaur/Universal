@@ -2,7 +2,7 @@
 // @name         [Universal] Xiv Media Downloader
 // @namespace    https://github.com/myouisaur/Universal
 // @icon         data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23FF4081'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 11h3l-4 4-4-4h3V8h2v5z'/%3E%3C/svg%3E
-// @version      24.6
+// @version      24.7
 // @description  Organizes, tracks, and saves categorized media files through a centralized overlay.
 // @author       Xiv
 // @match        *://*/*
@@ -49,27 +49,38 @@
         GITHUB_HISTORY_PATH: 'xiv_media_downloader/json/history.json',
         GITHUB_BRANCH: 'main',
 
-        // UI & Storage Core
+        // UI Identity & Namespacing
         UI_PREFIX: 'xiv-media-dl',
         STORAGE_PREFIX: 'xiv_media_dl',
         STORAGE_KEY: 'xiv_media_dl_history',
-        HISTORY_MAX_DAYS: 180,
+
+        // Z-Index Layering
         FAB_Z_INDEX: 999990,
         OVERLAY_Z_INDEX: 999999,
+
+        // History Retention & Cloud Sync Timing
         SAVE_DEBOUNCE_MS: 1000,
         CLOUD_SAVE_QUIET_WINDOW_MS: 10000,
         CLOUD_HISTORY_THROTTLE_MS: 30000,
         CLOUD_MENU_POLL_MS: 10000,
+        HISTORY_MAX_DAYS: 99999,
+
+        // Trending Score (Storage.getTrendingStats/getGroupTrendingStats)
+        TRENDING_SCOPE_DAYS: 99999,
+        TRENDING_HALF_LIFE_DAYS: 6,
+        
+        // List Rendering / Virtualization
         VIRTUAL_ITEM_HEIGHT: 50,
+
+        // Toasts & Auto-Close
         MAX_ACTIVE_TOASTS: 3,
         AUTO_CLOSE_COUNTDOWN_MS: 5000,
         AUTO_CLOSE_MAX_WAIT_MS: 5000,
-        //trending
-        TRENDING_SCOPE_DAYS: 99999,
-        TRENDING_HALF_LIFE_DAYS: 6,
-        //carousel min width
+
+        // Responsive Layout
         CAROUSEL_BREAKPOINT_PX: 1450,
-        //db
+
+        // Database Local Cache
         DB_URL: 'https://raw.githubusercontent.com/myouisaur/Universal/refs/heads/main/xiv_media_downloader/json/db.json',
         DB_CACHE_KEY: 'xiv_media_dl_db_cache',
         DB_CACHE_TTL_MS: 12 * 60 * 60 * 1000
@@ -1599,6 +1610,13 @@
                     display: flex; flex-direction: column; gap: 0.8rem; z-index: ${CONFIG.OVERLAY_Z_INDEX + 10};
                     pointer-events: none; align-items: flex-start;
                     font-family: 'Inter', -apple-system, sans-serif;
+                    /* Smooth reposition when the FAB docks bottom-left and
+                       would otherwise cover incoming toasts — see
+                       processFABMove()'s toggle of --fab-clearance below. */
+                    transition: bottom 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+                }
+                #${CONFIG.UI_PREFIX}-toast-wrapper.${CONFIG.UI_PREFIX}-toast-fab-clearance {
+                    bottom: calc(2rem + 4.5rem);
                 }
                 .${CONFIG.UI_PREFIX}-toast {
                     background: rgba(20,20,20,0.95);
@@ -2419,6 +2437,18 @@
             this.fabIsAnimating = true;
             const targetTop = nextQuad[0] === 'N' ? '2.5rem' : 'calc(100vh - 6rem)';
             const targetLeft = nextQuad[1] === 'W' ? '2.5rem' : 'calc(100vw - 6rem)';
+
+            // Toasts default to bottom-left too, so they'd sit right under a
+            // FAB docked there. Shift them up smoothly only while the FAB is
+            // actually in (or moving into) that corner — anywhere else,
+            // toasts behave exactly as before. Toggled per-leg so it stays
+            // in sync with the FAB's own two-hop diagonal movement.
+            if (this.toastContainer) {
+                this.toastContainer.classList.toggle(
+                    `${CONFIG.UI_PREFIX}-toast-fab-clearance`,
+                    nextQuad === 'SW'
+                );
+            }
 
             const isFinalLeg = nextQuad === this.fabTargetQuad;
             const easing = isFinalLeg ? 'cubic-bezier(0.25, 0.8, 0.25, 1)' : 'linear';
@@ -4753,7 +4783,7 @@
             Storage.init(this.isSilentMode);
 
             if (this.isSilentMode) {
-                Logger.info('Initialized Silent Cloud Worker v24.5');
+                Logger.info('Initialized Silent Cloud Worker v24.6');
                 return;
             }
 
@@ -4768,7 +4798,7 @@
                     Storage.fetchCloudBackground();
                 }
             }, CONFIG.CLOUD_HISTORY_THROTTLE_MS);
-            Logger.info('Initialized Xiv Media Downloader v24.5');
+            Logger.info('Initialized Xiv Media Downloader v24.6');
         },
 
         isDirectMediaPage() {
