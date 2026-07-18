@@ -4737,5 +4737,10 @@
   {"g": "ILLIT"         , "n": "Minju"                 , "t": 1784386830411},
   {"g": "LE SSERAFIM"   , "n": "Chaewon"               , "t": 1784391398232},
   {"g": "LE SSERAFIM"   , "n": "Kazuha"                , "t": 1784391497615},
-  {"g": "NewJeans"      , "n": "Hyein"                 , "t": 1784399328918}
+  {"g": "NewJeans"      , "n": "Hyein"                 , "t": 1784399328918},
+  {"g": "ITZY"          , "n": "Chaeryeong"            , "t": 1784399907045},
+  {"g": "ITZY"          , "n": "Ryujin"                , "t": 1784399907045},
+  {"g": "ITZY"          , "n": "Yeji"                  , "t": 1784399907045},
+  {"g": "ITZY"          , "n": "Lia"                   , "t": 1784399907045},
+  {"g": "ITZY"          , "n": "Yuna"                  , "t": 1784399907045}
 ]
