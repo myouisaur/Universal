@@ -2,7 +2,7 @@
 // @name         [Universal] Xiv Media Downloader
 // @namespace    https://github.com/myouisaur/Universal
 // @icon         data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23FF4081'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 11h3l-4 4-4-4h3V8h2v5z'/%3E%3C/svg%3E
-// @version      24.7
+// @version      25.1
 // @description  Organizes, tracks, and saves categorized media files through a centralized overlay.
 // @author       Xiv
 // @match        *://*/*
@@ -57,6 +57,7 @@
         // Z-Index Layering
         FAB_Z_INDEX: 999990,
         OVERLAY_Z_INDEX: 999999,
+        MOTD_POPOVER_Z_INDEX: 1000000,
 
         // History Retention & Cloud Sync Timing
         SAVE_DEBOUNCE_MS: 1000,
@@ -68,7 +69,7 @@
         // Trending Score (Storage.getTrendingStats/getGroupTrendingStats)
         TRENDING_SCOPE_DAYS: 99999,
         TRENDING_HALF_LIFE_DAYS: 6,
-        
+
         // List Rendering / Virtualization
         VIRTUAL_ITEM_HEIGHT: 50,
 
@@ -83,7 +84,14 @@
         // Database Local Cache
         DB_URL: 'https://raw.githubusercontent.com/myouisaur/Universal/refs/heads/main/xiv_media_downloader/json/db.json',
         DB_CACHE_KEY: 'xiv_media_dl_db_cache',
-        DB_CACHE_TTL_MS: 12 * 60 * 60 * 1000
+        DB_CACHE_TTL_MS: 12 * 60 * 60 * 1000,
+
+        // Random Member of the Day (MOTD)
+        MOTD_STORAGE_KEY: 'xiv_media_dl_motd',
+        MOTD_HISTORY_KEY: 'xiv_media_dl_motd_history',
+        MOTD_COOLDOWN_HOURS: 24,
+        MOTD_NO_REPEAT_ROLLS: 20,
+        MOTD_COUNTDOWN_TICK_MS: 1000
     };
 
     // =========================================================
@@ -105,7 +113,8 @@
         flame: "M13.5.67s.74 2.65.74 4.8c0 2.06-1.35 3.73-3.41 3.73-2.07 0-3.63-1.67-3.63-3.73l.03-.36C5.21 7.51 4 10.62 4 14c0 4.42 3.58 8 8 8s8-3.58 8-8C20 8.61 17.41 3.8 13.5.67zM11.71 19c-1.78 0-3.22-1.4-3.22-3.14 0-1.62 1.05-2.76 2.81-3.12 1.77-.36 3.6-1.21 4.62-2.58.39 1.29.59 2.65.59 4.04 0 2.65-2.15 4.8-4.8 4.8z",
         globe: "M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zm6.93 6h-2.95c-.32-1.25-.78-2.45-1.38-3.56 1.84.63 3.37 1.91 4.33 3.56zM12 4.04c.83 1.2 1.48 2.53 1.91 3.96h-3.82c.43-1.43 1.08-2.76 1.91-3.96zM4.26 14C4.09 13.36 4 12.69 4 12s.09-1.36.26-2h3.38c-.08.66-.14 1.32-.14 2s.06 1.34.14 2H4.26zm.82 2h2.95c.32 1.25.78 2.45 1.38 3.56-1.84-.63-3.37-1.9-4.33-3.56zm2.95-8H5.08c.96-1.66 2.49-2.93 4.33-3.56C8.81 5.55 8.35 6.75 8.03 8zM12 19.96c-.83-1.2-1.48-2.53-1.91-3.96h3.82c-.43 1.43-1.08 2.76-1.91 3.96zM14.34 14H9.66c-.09-.66-.16-1.32-.16-2s.07-1.34.16-2h4.68c.09.66.16 1.32.16 2s-.07 1.34-.16 2zm1.8 4h-2.95c.32-1.25.78-2.45 1.38-3.56 1.84.63 3.37 1.9 4.33 3.56zm1.6-6h-3.38c.08-.66.14-1.32.14-2s-.06-1.34-.14-2h3.38c.17.64.26 1.31.26 2s-.09 1.36-.26 2z",
         link: "M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z",
-        plus: "M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"
+        plus: "M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z",
+        dice: "M7,3 H17 A4,4 0 0 1 21,7 V17 A4,4 0 0 1 17,21 H7 A4,4 0 0 1 3,17 V7 A4,4 0 0 1 7,3 Z M6.4,8 A1.6,1.6 0 1,0 9.6,8 A1.6,1.6 0 1,0 6.4,8 Z M10.4,12 A1.6,1.6 0 1,0 13.6,12 A1.6,1.6 0 1,0 10.4,12 Z M14.4,16 A1.6,1.6 0 1,0 17.6,16 A1.6,1.6 0 1,0 14.4,16 Z"
     };
 
     // =========================================================
@@ -531,6 +540,149 @@
             this.data[groupName][index] = normalized;
             this.data[groupName].sort((a, b) => a.localeCompare(b));
             return true;
+        }
+    };
+
+    // =========================================================
+    // RANDOM MEMBER OF THE DAY MODULE
+    // =========================================================
+    const MOTD = {
+        current: null,   // { g, n, generatedAt } | null
+        history: [],      // most-recently-rolled identifiers ("group|name"), capped at MOTD_NO_REPEAT_ROLLS
+
+        init() {
+            this._loadCurrent();
+            this._loadHistory();
+            this._setupCrossTabSync();
+        },
+
+        _loadCurrent() {
+            try {
+                const raw = GM_getValue(CONFIG.MOTD_STORAGE_KEY, null);
+                this.current = raw ? JSON.parse(raw) : null;
+            } catch (e) {
+                Logger.warn('Corrupted MOTD data, resetting.');
+                this.current = null;
+            }
+        },
+
+        _loadHistory() {
+            try {
+                const parsed = JSON.parse(GM_getValue(CONFIG.MOTD_HISTORY_KEY, '[]'));
+                this.history = Array.isArray(parsed) ? parsed : [];
+            } catch (e) {
+                Logger.warn('Corrupted MOTD roll history, resetting.');
+                this.history = [];
+            }
+        },
+
+        // Keeps every open tab's copy of the pick + roll history in sync the
+        // moment another tab generates or regenerates, without polling.
+        _setupCrossTabSync() {
+            if (typeof GM_addValueChangeListener !== 'function') return;
+            GM_addValueChangeListener(CONFIG.MOTD_STORAGE_KEY, (key, oldValue, newValue, remote) => {
+                if (!remote) return;
+                try {
+                    this.current = newValue ? JSON.parse(newValue) : null;
+                    if (UI.overlay) UI.onMotdRemoteUpdate();
+                } catch (e) {
+                    Logger.warn('Failed to sync MOTD cross-tab change.', e);
+                }
+            });
+            GM_addValueChangeListener(CONFIG.MOTD_HISTORY_KEY, (key, oldValue, newValue, remote) => {
+                if (!remote) return;
+                try {
+                    const parsed = JSON.parse(newValue || '[]');
+                    this.history = Array.isArray(parsed) ? parsed : [];
+                } catch (e) {
+                    Logger.warn('Failed to sync MOTD roll history cross-tab change.', e);
+                }
+            });
+        },
+
+        _flattenMembers() {
+            const flat = [];
+            const groups = (Database.sortedGroups && Database.sortedGroups.length)
+                ? Database.sortedGroups
+                : Object.keys(Database.data || {});
+            groups.forEach(g => {
+                const members = Database.data[g];
+                if (!Array.isArray(members)) return;
+                members.forEach(n => flat.push({ g, n }));
+            });
+            return flat;
+        },
+
+        _isStillValid(entry) {
+            if (!entry || !entry.g || !entry.n) return false;
+            const members = Database.data[entry.g];
+            return Array.isArray(members) && members.includes(entry.n);
+        },
+
+        _isExpired(entry) {
+            if (!entry || !entry.generatedAt) return true;
+            return this.getMsRemaining(entry) <= 0;
+        },
+
+        hasMembers() {
+            return this._flattenMembers().length > 0;
+        },
+
+        /** Returns the current pick, generating a fresh one if missing, expired, or stale (deleted from the database since). */
+        getCurrent() {
+            if (this.current && this._isStillValid(this.current) && !this._isExpired(this.current)) {
+                return this.current;
+            }
+            return this._generate();
+        },
+
+        /** Forces a new pick regardless of cooldown state — used by the manual "Regenerate" action. */
+        regenerate() {
+            return this._generate();
+        },
+
+        _generate() {
+            const pool = this._flattenMembers();
+            if (pool.length === 0) return null;
+
+            const excluded = new Set(this.history);
+            if (this.current && this.current.g && this.current.n) {
+                excluded.add(`${this.current.g}|${this.current.n}`);
+            }
+
+            let candidates = pool.filter(m => !excluded.has(`${m.g}|${m.n}`));
+            // Small database fallback: if the no-repeat window excludes everyone,
+            // only avoid the exact current pick so the feature never dead-ends.
+            if (candidates.length === 0) {
+                candidates = pool.filter(m => !(this.current && m.g === this.current.g && m.n === this.current.n));
+            }
+            if (candidates.length === 0) candidates = pool;
+
+            const pick = candidates[Math.floor(Math.random() * candidates.length)];
+            const entry = { g: pick.g, n: pick.n, generatedAt: Date.now() };
+
+            this.current = entry;
+            this.history.push(`${pick.g}|${pick.n}`);
+            if (this.history.length > CONFIG.MOTD_NO_REPEAT_ROLLS) {
+                this.history = this.history.slice(-CONFIG.MOTD_NO_REPEAT_ROLLS);
+            }
+            this._persist();
+            return entry;
+        },
+
+        _persist() {
+            try {
+                GM_setValue(CONFIG.MOTD_STORAGE_KEY, JSON.stringify(this.current));
+                GM_setValue(CONFIG.MOTD_HISTORY_KEY, JSON.stringify(this.history));
+            } catch (e) {
+                Logger.warn('Failed to persist MOTD data.');
+            }
+        },
+
+        getMsRemaining(entry) {
+            if (!entry || !entry.generatedAt) return 0;
+            const cooldownMs = CONFIG.MOTD_COOLDOWN_HOURS * 60 * 60 * 1000;
+            return Math.max(0, cooldownMs - (Date.now() - entry.generatedAt));
         }
     };
 
@@ -1340,11 +1492,12 @@
             this.editItemBtnTemplate.appendChild(this._createSVG(ICONS.edit));
         },
 
-        _createSVG(pathD, viewBox = '0 0 24 24') {
+        _createSVG(pathD, viewBox = '0 0 24 24', fillRule = 'nonzero') {
             const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
             svg.setAttribute('viewBox', viewBox);
             const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
             path.setAttribute('d', pathD);
+            path.setAttribute('fill-rule', fillRule);
             svg.appendChild(path);
             return svg;
         },
@@ -1387,66 +1540,120 @@
                     cursor: pointer;
                     z-index: ${CONFIG.FAB_Z_INDEX};
                     overflow: hidden;
-                    background: rgba(255,255,255,0.06);
-                    backdrop-filter: blur(16px) saturate(180%) brightness(1.08);
-                    -webkit-backdrop-filter: blur(16px) saturate(180%) brightness(1.08);
+                    border: none;
+                    outline: none;
+
+                    /* Frosted glass base */
+                    background: rgba(255, 255, 255, 0.14);
+                    backdrop-filter: blur(0.5em) saturate(180%) brightness(1.1);
+                    -webkit-backdrop-filter: blur(0.5em) saturate(180%) brightness(1.1);
+
+                    /* Layered inset highlights + ambient drop shadow — all in em, all relative */
                     box-shadow:
-                        0 0.5rem 1.5rem rgba(0,0,0,0.6),
-                        inset 0 1px 1px rgba(255,255,255,0.3),
-                        inset 0 -1px 1px rgba(0,0,0,0.2);
-                    transition: transform 0.2s ease, box-shadow 0.2s ease;
+                        inset 0     0.09em 0    rgba(255,255,255,0.75),
+                        inset 0    -0.09em 0    rgba(255,255,255,0.06),
+                        inset  0.06em 0    0    rgba(255,255,255,0.30),
+                        inset -0.06em 0    0    rgba(255,255,255,0.10),
+                        0 0 0       0.03em      rgba(255,255,255,0.20),
+                        0 0.4em     1.25em      rgba(0,0,0,0.32),
+                        0 0.15em    0.4em       rgba(0,0,0,0.20);
+
+                    transition:
+                        transform  0.2s  ease,
+                        opacity    0.3s  cubic-bezier(0.4, 0, 0.2, 1),
+                        box-shadow 0.35s ease,
+                        background 0.35s ease;
+
                     user-select: none; -webkit-user-select: none; -moz-user-select: none;
                 }
+                /* Gradient border ring (mask-composite trick) */
                 .${CONFIG.UI_PREFIX}-fab::before {
                     content: '';
-                    position: absolute; inset: 0; border-radius: 50%;
-                    padding: 1px;
-                    background: linear-gradient(135deg, rgba(255,255,255,0.6), rgba(255,255,255,0.05) 40%, rgba(255,255,255,0.25));
-                    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+                    position: absolute;
+                    inset: 0;
+                    border-radius: inherit;
+                    padding: 0.06em;
+                    background: linear-gradient(155deg,
+                        rgba(255,255,255,0.72) 0%,
+                        rgba(255,255,255,0.35) 25%,
+                        rgba(255,255,255,0.08) 55%,
+                        rgba(255,255,255,0.22) 100%);
+                    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+                    mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
                     -webkit-mask-composite: xor;
                     mask-composite: exclude;
                     pointer-events: none;
+                    z-index: 5;
                 }
+                /* Top glare / specular highlight */
                 .${CONFIG.UI_PREFIX}-fab::after {
                     content: '';
-                    position: absolute; top: 4%; left: 12%; right: 12%; height: 40%;
-                    border-radius: 50% 50% 60% 60% / 60% 60% 100% 100%;
-                    background: linear-gradient(to bottom, rgba(255,255,255,0.35), rgba(255,255,255,0));
+                    position: absolute;
+                    top: 0; left: 0; right: 0;
+                    height: 58%;
+                    background: radial-gradient(ellipse 75% 70% at 50% -8%,
+                        rgba(255,255,255,0.58) 0%,
+                        rgba(255,255,255,0.20) 40%,
+                        rgba(255,255,255,0.05) 70%,
+                        transparent 90%);
+                    border-radius: inherit;
                     pointer-events: none;
+                    z-index: 5;
+                }
+                /* Inner glass depth layers — stack low to high z-index */
+                .${CONFIG.UI_PREFIX}-fab-glass-lens {
+                    position: absolute; inset: 0; border-radius: inherit;
+                    background: radial-gradient(ellipse at 72% 56%,
+                        rgba(255,255,255,0.22) 0%,
+                        rgba(255,255,255,0.06) 45%,
+                        rgba(180,200,255,0.04) 80%,
+                        rgba(0,0,0,0) 100%);
+                    pointer-events: none; z-index: 1;
                 }
                 .${CONFIG.UI_PREFIX}-fab-glass-scatter {
-                    position: absolute;
-                    inset: 0; border-radius: 50%;
-                    backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px);
-                    pointer-events: none;
+                    position: absolute; inset: 0.12em; border-radius: inherit;
+                    background: radial-gradient(ellipse 60% 50% at 38% 40%,
+                        rgba(255,255,255,0.09) 0%, transparent 65%);
+                    pointer-events: none; z-index: 2;
                 }
                 .${CONFIG.UI_PREFIX}-fab-glass-chroma {
-                    position: absolute;
-                    inset: 0; border-radius: 50%;
-                    background: radial-gradient(circle at 30% 25%, rgba(255,255,255,0.18), transparent 60%);
-                    mix-blend-mode: overlay;
-                    pointer-events: none;
+                    position: absolute; inset: 0; border-radius: inherit;
+                    background: radial-gradient(ellipse 100% 100% at 50% 50%,
+                        transparent 62%,
+                        rgba(80,200,255,0.09) 74%,
+                        rgba(255,80,100,0.07) 84%,
+                        transparent 92%);
+                    pointer-events: none; z-index: 3;
                 }
                 .${CONFIG.UI_PREFIX}-fab-glass-rim {
-                    position: absolute;
-                    inset: 0; border-radius: 50%;
-                    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.15);
-                    pointer-events: none;
+                    position: absolute; bottom: 0; left: 10%; right: 10%; height: 40%;
+                    border-radius: 0 0 inherit inherit;
+                    background: radial-gradient(ellipse 80% 100% at 50% 115%,
+                        rgba(255,255,255,0.26) 0%,
+                        rgba(255,255,255,0.08) 45%,
+                        transparent 70%);
+                    pointer-events: none; z-index: 4;
                 }
                 .${CONFIG.UI_PREFIX}-fab-icon-wrapper {
                     position: relative;
-                    z-index: 5;
+                    z-index: 6;
                     display: flex; align-items: center; justify-content: center;
-                    filter: drop-shadow(0 1px 2px rgba(0,0,0,0.4));
+                    color: rgba(255, 255, 255, 0.96);
+                    filter:
+                        drop-shadow(0 0    0.25em rgba(0,0,0,0.65))
+                        drop-shadow(0 0.06em 0.19em rgba(0,0,0,0.50));
                 }
                 .${CONFIG.UI_PREFIX}-fab-icon-wrapper svg { width: 1.5rem; height: 1.5rem; fill: var(--tm-text-main); }
                 .${CONFIG.UI_PREFIX}-fab:hover {
                     transform: scale(1.05);
                     box-shadow:
-                        0 0.6rem 1.8rem rgba(0,0,0,0.65),
-                        inset 0 1px 1px rgba(255,255,255,0.4),
-                        inset 0 -1px 1px rgba(0,0,0,0.2),
-                        0 0 1.2rem rgba(255,255,255,0.15);
+                        inset 0     0.09em 0    rgba(255,255,255,0.8),
+                        inset 0    -0.09em 0    rgba(255,255,255,0.08),
+                        inset  0.06em 0    0    rgba(255,255,255,0.32),
+                        inset -0.06em 0    0    rgba(255,255,255,0.12),
+                        0 0 0       0.03em      rgba(255,255,255,0.25),
+                        0 0.5em     1.5em       rgba(0,0,0,0.35),
+                        0 0.18em    0.45em      rgba(0,0,0,0.22);
                 }
                 .${CONFIG.UI_PREFIX}-fab:active { transform: scale(0.96); }
                 .${CONFIG.UI_PREFIX}-fab:focus-visible {
@@ -1455,7 +1662,7 @@
                 }
                 .${CONFIG.UI_PREFIX}-fab-ripple {
                     position: absolute;
-                    z-index: 4;
+                    z-index: 5;
                     width: 0; height: 0; border-radius: 50%;
                     background: rgba(255,255,255,0.35);
                     transform: translate(-50%, -50%);
@@ -1772,6 +1979,46 @@
                 .${CONFIG.UI_PREFIX}-trending-switch-checkbox:checked ~ .${CONFIG.UI_PREFIX}-trending-switch-track .${CONFIG.UI_PREFIX}-trending-switch-thumb {
                     transform: translateX(100%) translateZ(0);
                 }
+
+                /* ── Random Member of the Day Popover ─────────────────────── */
+                .${CONFIG.UI_PREFIX}-motd-popover {
+                    position: fixed;
+                    z-index: ${CONFIG.MOTD_POPOVER_Z_INDEX};
+                    width: clamp(12rem, 60vw, 16rem);
+                    background: var(--tm-bg-elevated);
+                    border: 1px solid var(--tm-border-light);
+                    border-radius: 1rem;
+                    padding: 1rem;
+                    box-shadow: 0 1rem 2.5rem rgba(0,0,0,0.6);
+                    display: flex; flex-direction: column; gap: 0.6rem;
+                    box-sizing: border-box;
+                    font-family: 'Inter', -apple-system, sans-serif;
+                    user-select: none; -webkit-user-select: none; -moz-user-select: none;
+                    opacity: 0; transform: translateY(-0.4rem);
+                    transition: opacity 0.18s ease, transform 0.18s ease;
+                }
+                .${CONFIG.UI_PREFIX}-motd-popover-visible { opacity: 1; transform: translateY(0); }
+                .${CONFIG.UI_PREFIX}-motd-label {
+                    font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em;
+                    color: var(--tm-text-subtle); font-weight: 600;
+                }
+                .${CONFIG.UI_PREFIX}-motd-name-row { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; }
+                .${CONFIG.UI_PREFIX}-motd-name {
+                    font-size: clamp(0.95rem, 1.1vw, 1.05rem); font-weight: 700; color: var(--tm-text-heading);
+                    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+                }
+                .${CONFIG.UI_PREFIX}-motd-countdown { font-size: 0.75rem; color: var(--tm-text-dim); }
+                .${CONFIG.UI_PREFIX}-motd-empty { font-size: 0.85rem; color: var(--tm-text-dim); text-align: center; padding: 0.4rem 0; }
+                .${CONFIG.UI_PREFIX}-motd-regen-btn {
+                    display: flex; align-items: center; justify-content: center; gap: 0.4rem;
+                    background: var(--tm-border); border: 1px solid var(--tm-border-light);
+                    color: var(--tm-text-main); border-radius: 0.6rem;
+                    padding: 0.5rem 0.8rem; font-size: 0.8rem; font-weight: 600; cursor: pointer;
+                    transition: background 0.2s, border-color 0.2s;
+                }
+                .${CONFIG.UI_PREFIX}-motd-regen-btn:hover { background: var(--tm-bg-hover-subtle); border-color: var(--tm-border-focus); }
+                .${CONFIG.UI_PREFIX}-motd-regen-btn:focus-visible { outline: 2px solid var(--tm-primary); outline-offset: 2px; }
+                .${CONFIG.UI_PREFIX}-motd-regen-btn svg { width: 1rem; height: 1rem; fill: var(--tm-text-main); flex-shrink: 0; }
 
                 /* ── Footer & Action Buttons ──────────────────────────────── */
                 .${CONFIG.UI_PREFIX}-footer       { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--tm-border); flex-shrink: 0; display: flex; flex-direction: column; gap: 0.5rem; }
@@ -2372,12 +2619,15 @@
                 this.fab.id = `${CONFIG.UI_PREFIX}-fab`;
                 this.fab.className = `${CONFIG.UI_PREFIX}-fab`;
                 this.fab.title = "Open Download Manager (Ctrl+S)";
+                const glassLens = document.createElement('div');
+                glassLens.className = `${CONFIG.UI_PREFIX}-fab-glass-lens`;
                 const glassScatter = document.createElement('div');
                 glassScatter.className = `${CONFIG.UI_PREFIX}-fab-glass-scatter`;
                 const glassChroma = document.createElement('div');
                 glassChroma.className = `${CONFIG.UI_PREFIX}-fab-glass-chroma`;
                 const glassRim = document.createElement('div');
                 glassRim.className = `${CONFIG.UI_PREFIX}-fab-glass-rim`;
+                this.fab.appendChild(glassLens);
                 this.fab.appendChild(glassScatter);
                 this.fab.appendChild(glassChroma);
                 this.fab.appendChild(glassRim);
@@ -2950,6 +3200,218 @@
             return closeBtn;
         },
 
+        _createMotdTriggerBtn() {
+            const btn = document.createElement('div');
+            btn.className = `${CONFIG.UI_PREFIX}-icon-btn`;
+            btn.appendChild(this._createSVG(ICONS.dice, '0 0 24 24', 'evenodd'));
+            btn.title = "Random Member of the Day";
+            btn.setAttribute('tabindex', '0');
+            btn.setAttribute('role', 'button');
+            btn.setAttribute('aria-label', 'Show random member of the day');
+            const trigger = (e) => {
+                e.stopPropagation();
+                this._toggleMotdPopover(btn);
+            };
+            btn.onclick = trigger;
+            btn.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); trigger(e); }
+            });
+            return btn;
+        },
+
+        _toggleMotdPopover(anchorEl) {
+            if (this._motdPopoverEl) {
+                this._closeMotdPopover();
+                return;
+            }
+            this._openMotdPopover(anchorEl);
+        },
+
+        _openMotdPopover(anchorEl) {
+            if (!Database.isLoaded) {
+                this.showToast('Database is still loading — try again in a moment.', 'info');
+                return;
+            }
+
+            const popover = document.createElement('div');
+            popover.className = `${CONFIG.UI_PREFIX}-motd-popover`;
+            popover.setAttribute('role', 'dialog');
+            popover.setAttribute('aria-label', 'Random member of the day');
+            popover.style.visibility = 'hidden';
+
+            document.body.appendChild(popover);
+            this._motdPopoverEl = popover;
+            this._motdAnchorEl = anchorEl;
+
+            this._renderMotdPopoverContent();
+
+            requestAnimationFrame(() => {
+                if (!this._motdPopoverEl) return;
+                this._positionMotdPopover();
+                popover.style.visibility = '';
+                popover.classList.add(`${CONFIG.UI_PREFIX}-motd-popover-visible`);
+            });
+
+            this._motdOutsideClickHandler = (e) => {
+                if (popover.contains(e.target) || anchorEl.contains(e.target)) return;
+                this._closeMotdPopover();
+            };
+            this._motdKeydownHandler = (e) => {
+                if (e.key === 'Escape') this._closeMotdPopover();
+            };
+            this._motdResizeHandler = () => this._positionMotdPopover();
+
+            document.addEventListener('pointerdown', this._motdOutsideClickHandler, true);
+            document.addEventListener('keydown', this._motdKeydownHandler);
+            window.addEventListener('resize', this._motdResizeHandler);
+        },
+
+        _closeMotdPopover() {
+            if (!this._motdPopoverEl) return;
+            this._stopMotdCountdown();
+
+            if (this._motdOutsideClickHandler) document.removeEventListener('pointerdown', this._motdOutsideClickHandler, true);
+            if (this._motdKeydownHandler) document.removeEventListener('keydown', this._motdKeydownHandler);
+            if (this._motdResizeHandler) window.removeEventListener('resize', this._motdResizeHandler);
+            this._motdOutsideClickHandler = null;
+            this._motdKeydownHandler = null;
+            this._motdResizeHandler = null;
+
+            this._motdPopoverEl.remove();
+            this._motdPopoverEl = null;
+            this._motdAnchorEl = null;
+        },
+
+        _positionMotdPopover() {
+            const popover = this._motdPopoverEl;
+            const anchor = this._motdAnchorEl;
+            if (!popover || !anchor) return;
+
+            const anchorRect = anchor.getBoundingClientRect();
+            const popRect = popover.getBoundingClientRect();
+            const margin = 8;
+
+            let top = anchorRect.bottom + margin;
+            if (top + popRect.height + margin > window.innerHeight) {
+                top = Math.max(margin, anchorRect.top - popRect.height - margin);
+            }
+
+            let left = anchorRect.right - popRect.width;
+            const maxLeft = window.innerWidth - popRect.width - margin;
+            left = Math.min(Math.max(margin, left), Math.max(margin, maxLeft));
+
+            popover.style.top = `${top}px`;
+            popover.style.left = `${left}px`;
+        },
+
+        // Called by MOTD._setupCrossTabSync() when another tab regenerates
+        // the pick, so an already-open popover reflects it immediately.
+        onMotdRemoteUpdate() {
+            if (this._motdPopoverEl) this._renderMotdPopoverContent();
+        },
+
+        _renderMotdPopoverContent() {
+            const popover = this._motdPopoverEl;
+            if (!popover) return;
+            this._stopMotdCountdown();
+            popover.replaceChildren();
+
+            if (!MOTD.hasMembers()) {
+                const empty = document.createElement('div');
+                empty.className = `${CONFIG.UI_PREFIX}-motd-empty`;
+                empty.textContent = 'Add idols to your database first.';
+                popover.appendChild(empty);
+                requestAnimationFrame(() => this._positionMotdPopover());
+                return;
+            }
+
+            const entry = MOTD.getCurrent();
+            if (!entry) {
+                const empty = document.createElement('div');
+                empty.className = `${CONFIG.UI_PREFIX}-motd-empty`;
+                empty.textContent = 'Could not pick a member. Please try again.';
+                popover.appendChild(empty);
+                requestAnimationFrame(() => this._positionMotdPopover());
+                return;
+            }
+
+            const label = document.createElement('div');
+            label.className = `${CONFIG.UI_PREFIX}-motd-label`;
+            label.textContent = 'Member of the Day';
+
+            const nameRow = document.createElement('div');
+            nameRow.className = `${CONFIG.UI_PREFIX}-motd-name-row`;
+
+            const name = document.createElement('span');
+            name.className = `${CONFIG.UI_PREFIX}-motd-name`;
+            name.textContent = entry.n;
+            name.title = entry.n;
+
+            const groupBadge = document.createElement('span');
+            groupBadge.className = `${CONFIG.UI_PREFIX}-badge accent ${CONFIG.UI_PREFIX}-badge-actionable`;
+            groupBadge.textContent = entry.g;
+            groupBadge.title = `View ${entry.g}`;
+            groupBadge.setAttribute('tabindex', '0');
+            groupBadge.setAttribute('role', 'button');
+            const goToGroup = () => {
+                this._closeMotdPopover();
+                this._openGroupInMainPanel(entry.g);
+            };
+            groupBadge.onclick = goToGroup;
+            groupBadge.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goToGroup(); }
+            });
+
+            nameRow.appendChild(name);
+            nameRow.appendChild(groupBadge);
+
+            const countdown = document.createElement('div');
+            countdown.className = `${CONFIG.UI_PREFIX}-motd-countdown`;
+
+            const regenBtn = document.createElement('button');
+            regenBtn.type = 'button';
+            regenBtn.className = `${CONFIG.UI_PREFIX}-motd-regen-btn`;
+            regenBtn.appendChild(this._createSVG(ICONS.sync));
+            regenBtn.appendChild(document.createTextNode('Regenerate'));
+            regenBtn.onclick = () => {
+                MOTD.regenerate();
+                this._renderMotdPopoverContent();
+            };
+
+            popover.appendChild(label);
+            popover.appendChild(nameRow);
+            popover.appendChild(countdown);
+            popover.appendChild(regenBtn);
+
+            this._updateMotdCountdownText(countdown, entry);
+            this._motdCountdownInterval = setInterval(() => {
+                const stillCurrent = MOTD.current && MOTD.current.generatedAt === entry.generatedAt
+                    && MOTD.current.g === entry.g && MOTD.current.n === entry.n;
+                if (!stillCurrent || MOTD.getMsRemaining(entry) <= 0) {
+                    this._renderMotdPopoverContent();
+                    return;
+                }
+                this._updateMotdCountdownText(countdown, entry);
+            }, CONFIG.MOTD_COUNTDOWN_TICK_MS);
+
+            requestAnimationFrame(() => this._positionMotdPopover());
+        },
+
+        _updateMotdCountdownText(el, entry) {
+            const totalSeconds = Math.ceil(MOTD.getMsRemaining(entry) / 1000);
+            const h = Math.floor(totalSeconds / 3600);
+            const m = Math.floor((totalSeconds % 3600) / 60);
+            const s = totalSeconds % 60;
+            el.textContent = `New member in ${h}h ${m}m ${s}s`;
+        },
+
+        _stopMotdCountdown() {
+            if (this._motdCountdownInterval) {
+                clearInterval(this._motdCountdownInterval);
+                this._motdCountdownInterval = null;
+            }
+        },
+
         _updatePanelCloseButtonVisibility() {
             if (!this._carousel.closeButtons) return;
             const showAll = this._carousel.isActive;
@@ -2980,6 +3442,9 @@
 
             const rightGroup = document.createElement('div');
             rightGroup.className = `${CONFIG.UI_PREFIX}-header-right`;
+            if (type === 'trending') {
+                rightGroup.appendChild(this._createMotdTriggerBtn());
+            }
             rightGroup.appendChild(this._createPanelCloseBtn(type));
             header.appendChild(rightGroup);
 
@@ -4739,6 +5204,7 @@
             }
             if (this.overlay) {
                 this.exitMultiSelectMode();
+                this._closeMotdPopover();
                 this.overlay.remove();
                 this.overlay = null;
                 document.body.style.overflow = '';
@@ -4792,6 +5258,7 @@
             UI.injectStyles();
             this.bindEvents();
             Database.init();
+            MOTD.init();
 
             setInterval(() => {
                 if (document.visibilityState === 'visible' && !UI.overlay) {
@@ -4826,6 +5293,7 @@
             window.addEventListener('keydown', (e) => {
                 if (UI.overlay) {
                     if (e.key === 'Escape') {
+                        if (UI._motdPopoverEl) { UI._closeMotdPopover(); return; }
                         UI.closeMenu();
                         return;
                     }
