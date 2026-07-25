@@ -2107,6 +2107,12 @@
         "t": "Phoning on Reddit",
         "u": "https://www.reddit.com/r/NewJeans/search?q=flair%3APhoning&restrict_sr=on&include_over_18=on&sort=top&t=all"
       }
+    ],
+    "member::sns::Faith Adanza": [
+      {
+        "t": "Facebook",
+        "u": "https://www.facebook.com/61578563823321"
+      }
     ]
   }
 }
