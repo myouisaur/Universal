@@ -2,7 +2,7 @@
 // @name         [Universal] Xiv Media Downloader
 // @namespace    https://github.com/myouisaur/Universal
 // @icon         data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23FF4081'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 11h3l-4 4-4-4h3V8h2v5z'/%3E%3C/svg%3E
-// @version      25.1
+// @version      26.0
 // @description  Organizes, tracks, and saves categorized media files through a centralized overlay.
 // @author       Xiv
 // @match        *://*/*
@@ -57,7 +57,6 @@
         // Z-Index Layering
         FAB_Z_INDEX: 999990,
         OVERLAY_Z_INDEX: 999999,
-        MOTD_POPOVER_Z_INDEX: 1000000,
 
         // History Retention & Cloud Sync Timing
         SAVE_DEBOUNCE_MS: 1000,
@@ -87,12 +86,16 @@
         DB_CACHE_TTL_MS: 12 * 60 * 60 * 1000,
 
         // Random Member of the Day (MOTD)
+        MOTD_ENABLED: true,
         MOTD_STORAGE_KEY: 'xiv_media_dl_motd',
         MOTD_HISTORY_KEY: 'xiv_media_dl_motd_history',
         MOTD_COOLDOWN_HOURS: 24,
         MOTD_NO_REPEAT_ROLLS: 20,
-        MOTD_COUNTDOWN_TICK_MS: 1000
+        MOTD_COUNTDOWN_TICK_MS: 1000,
+        MOTD_REGEN_COOLDOWN_MS: 1000
     };
+    // Derived from MOTD_COOLDOWN_HOURS so the hour value stays the single source of truth.
+    CONFIG.MOTD_COOLDOWN_MS = CONFIG.MOTD_COOLDOWN_HOURS * 60 * 60 * 1000;
 
     // =========================================================
     // ICONS DICTIONARY
@@ -556,10 +559,18 @@
             this._setupCrossTabSync();
         },
 
+        _isValidEntryShape(entry) {
+            return !!entry && typeof entry === 'object'
+                && typeof entry.g === 'string' && entry.g.length > 0
+                && typeof entry.n === 'string' && entry.n.length > 0
+                && typeof entry.generatedAt === 'number' && Number.isFinite(entry.generatedAt);
+        },
+
         _loadCurrent() {
             try {
                 const raw = GM_getValue(CONFIG.MOTD_STORAGE_KEY, null);
-                this.current = raw ? JSON.parse(raw) : null;
+                const parsed = raw ? JSON.parse(raw) : null;
+                this.current = this._isValidEntryShape(parsed) ? parsed : null;
             } catch (e) {
                 Logger.warn('Corrupted MOTD data, resetting.');
                 this.current = null;
@@ -569,7 +580,7 @@
         _loadHistory() {
             try {
                 const parsed = JSON.parse(GM_getValue(CONFIG.MOTD_HISTORY_KEY, '[]'));
-                this.history = Array.isArray(parsed) ? parsed : [];
+                this.history = Array.isArray(parsed) ? parsed.filter(item => typeof item === 'string') : [];
             } catch (e) {
                 Logger.warn('Corrupted MOTD roll history, resetting.');
                 this.history = [];
@@ -624,39 +635,50 @@
             return this.getMsRemaining(entry) <= 0;
         },
 
-        hasMembers() {
-            return this._flattenMembers().length > 0;
-        },
+        /**
+         * Single entry point for the popover: flattens the database only once,
+         * then either reuses a valid current pick or generates a fresh one.
+         * Returns { entry, reason } where reason is null on success, or
+         * 'empty' (no members exist at all) / 'error' (pick failed unexpectedly).
+         */
+        resolveForDisplay() {
+            const pool = this._flattenMembers();
+            if (pool.length === 0) return { entry: null, reason: 'empty' };
 
-        /** Returns the current pick, generating a fresh one if missing, expired, or stale (deleted from the database since). */
-        getCurrent() {
-            if (this.current && this._isStillValid(this.current) && !this._isExpired(this.current)) {
-                return this.current;
+            let entry = this.current;
+            if (!entry || !this._isStillValid(entry) || this._isExpired(entry)) {
+                entry = this._generate(pool);
             }
-            return this._generate();
+            return { entry, reason: entry ? null : 'error' };
         },
 
         /** Forces a new pick regardless of cooldown state — used by the manual "Regenerate" action. */
         regenerate() {
-            return this._generate();
+            return this._generate(this._flattenMembers());
         },
 
-        _generate() {
-            const pool = this._flattenMembers();
-            if (pool.length === 0) return null;
+        _generate(pool) {
+            const list = pool || this._flattenMembers();
+            if (list.length === 0) return null;
 
-            const excluded = new Set(this.history);
-            if (this.current && this.current.g && this.current.n) {
-                excluded.add(`${this.current.g}|${this.current.n}`);
-            }
+            const currentId = (this.current && this.current.g && this.current.n)
+                ? `${this.current.g}|${this.current.n}`
+                : null;
 
-            let candidates = pool.filter(m => !excluded.has(`${m.g}|${m.n}`));
-            // Small database fallback: if the no-repeat window excludes everyone,
-            // only avoid the exact current pick so the feature never dead-ends.
+            // Exclusion sets are tried from strictest to most relaxed so the
+            // feature degrades gracefully on small databases instead of dead-ending:
+            //   1. everyone in the last MOTD_NO_REPEAT_ROLLS rolls
+            //   2. just the exact current pick
+            //   3. no exclusion at all (only possible if the database has 1 member)
+            const rollHistorySet = new Set(this.history);
+            if (currentId) rollHistorySet.add(currentId);
+            const currentOnlySet = currentId ? new Set([currentId]) : new Set();
+
+            let candidates = list.filter(m => !rollHistorySet.has(`${m.g}|${m.n}`));
             if (candidates.length === 0) {
-                candidates = pool.filter(m => !(this.current && m.g === this.current.g && m.n === this.current.n));
+                candidates = list.filter(m => !currentOnlySet.has(`${m.g}|${m.n}`));
             }
-            if (candidates.length === 0) candidates = pool;
+            if (candidates.length === 0) candidates = list;
 
             const pick = candidates[Math.floor(Math.random() * candidates.length)];
             const entry = { g: pick.g, n: pick.n, generatedAt: Date.now() };
@@ -667,6 +689,7 @@
                 this.history = this.history.slice(-CONFIG.MOTD_NO_REPEAT_ROLLS);
             }
             this._persist();
+            if (DEBUG) Logger.info(`[MOTD] Picked "${entry.n}" (${entry.g}).`);
             return entry;
         },
 
@@ -681,8 +704,7 @@
 
         getMsRemaining(entry) {
             if (!entry || !entry.generatedAt) return 0;
-            const cooldownMs = CONFIG.MOTD_COOLDOWN_HOURS * 60 * 60 * 1000;
-            return Math.max(0, cooldownMs - (Date.now() - entry.generatedAt));
+            return Math.max(0, CONFIG.MOTD_COOLDOWN_MS - (Date.now() - entry.generatedAt));
         }
     };
 
@@ -1660,18 +1682,6 @@
                     outline: 2px solid var(--tm-primary);
                     outline-offset: 3px;
                 }
-                .${CONFIG.UI_PREFIX}-fab-ripple {
-                    position: absolute;
-                    z-index: 5;
-                    width: 0; height: 0; border-radius: 50%;
-                    background: rgba(255,255,255,0.35);
-                    transform: translate(-50%, -50%);
-                    pointer-events: none;
-                    animation: ${CONFIG.UI_PREFIX}-fab-ripple-anim 0.5s ease-out forwards;
-                }
-                @keyframes ${CONFIG.UI_PREFIX}-fab-ripple-anim {
-                    to { width: 4rem; height: 4rem; opacity: 0; }
-                }
 
                 #${CONFIG.UI_PREFIX}-overlay {
                     position: fixed;
@@ -1980,45 +1990,68 @@
                     transform: translateX(100%) translateZ(0);
                 }
 
-                /* ── Random Member of the Day Popover ─────────────────────── */
-                .${CONFIG.UI_PREFIX}-motd-popover {
-                    position: fixed;
-                    z-index: ${CONFIG.MOTD_POPOVER_Z_INDEX};
-                    width: clamp(12rem, 60vw, 16rem);
+                /* ── Random Member of the Day (inline panel accordion) ───── */
+                .${CONFIG.UI_PREFIX}-motd-section {
+                    display: grid;
+                    grid-template-rows: 0fr;
+                    transition: grid-template-rows 0.25s ease;
+                    flex-shrink: 0;
+                    width: calc(100% - 2 * clamp(0.6rem, 2vw, 0.9rem));
+                    margin: 0 clamp(0.6rem, 2vw, 0.9rem);
+                    box-sizing: border-box;
+                }
+                .${CONFIG.UI_PREFIX}-motd-section-open {
+                    grid-template-rows: 1fr;
+                    margin-bottom: 0.75rem;
+                }
+                .${CONFIG.UI_PREFIX}-motd-section-inner { overflow: hidden; min-height: 0; }
+                .${CONFIG.UI_PREFIX}-motd-card {
                     background: var(--tm-bg-elevated);
                     border: 1px solid var(--tm-border-light);
                     border-radius: 1rem;
-                    padding: 1rem;
-                    box-shadow: 0 1rem 2.5rem rgba(0,0,0,0.6);
-                    display: flex; flex-direction: column; gap: 0.6rem;
+                    padding: 0.65rem 0.9rem;
+                    display: flex; flex-direction: column; gap: 0.35rem;
                     box-sizing: border-box;
-                    font-family: 'Inter', -apple-system, sans-serif;
-                    user-select: none; -webkit-user-select: none; -moz-user-select: none;
-                    opacity: 0; transform: translateY(-0.4rem);
-                    transition: opacity 0.18s ease, transform 0.18s ease;
+                    position: relative;
                 }
-                .${CONFIG.UI_PREFIX}-motd-popover-visible { opacity: 1; transform: translateY(0); }
+                .${CONFIG.UI_PREFIX}-motd-card-header { display: flex; align-items: center; }
                 .${CONFIG.UI_PREFIX}-motd-label {
-                    font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em;
+                    font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em;
                     color: var(--tm-text-subtle); font-weight: 600;
+                    padding-right: 2.6rem;
                 }
-                .${CONFIG.UI_PREFIX}-motd-name-row { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; }
+                .${CONFIG.UI_PREFIX}-motd-regen-btn {
+                    position: absolute;
+                    top: 0.65rem; right: 0.9rem;
+                }
+                .${CONFIG.UI_PREFIX}-motd-regen-btn.regen-cooldown { opacity: 0.4; pointer-events: none; }
                 .${CONFIG.UI_PREFIX}-motd-name {
-                    font-size: clamp(0.95rem, 1.1vw, 1.05rem); font-weight: 700; color: var(--tm-text-heading);
+                    display: block; width: 100%; margin-top: 0.2rem;
+                    padding-right: 2.6rem; box-sizing: border-box;
+                    font-size: clamp(0.7rem, 1.4vw, 0.9rem); font-weight: 700; color: var(--tm-accent, #ff4d82);
                     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
                 }
-                .${CONFIG.UI_PREFIX}-motd-countdown { font-size: 0.75rem; color: var(--tm-text-dim); }
-                .${CONFIG.UI_PREFIX}-motd-empty { font-size: 0.85rem; color: var(--tm-text-dim); text-align: center; padding: 0.4rem 0; }
-                .${CONFIG.UI_PREFIX}-motd-regen-btn {
-                    display: flex; align-items: center; justify-content: center; gap: 0.4rem;
-                    background: var(--tm-border); border: 1px solid var(--tm-border-light);
-                    color: var(--tm-text-main); border-radius: 0.6rem;
-                    padding: 0.5rem 0.8rem; font-size: 0.8rem; font-weight: 600; cursor: pointer;
-                    transition: background 0.2s, border-color 0.2s;
+                .${CONFIG.UI_PREFIX}-motd-meta-row {
+                    display: flex; align-items: center; justify-content: space-between; gap: 0.6rem;
+                    margin-top: 0.4rem;
                 }
-                .${CONFIG.UI_PREFIX}-motd-regen-btn:hover { background: var(--tm-bg-hover-subtle); border-color: var(--tm-border-focus); }
-                .${CONFIG.UI_PREFIX}-motd-regen-btn:focus-visible { outline: 2px solid var(--tm-primary); outline-offset: 2px; }
-                .${CONFIG.UI_PREFIX}-motd-regen-btn svg { width: 1rem; height: 1rem; fill: var(--tm-text-main); flex-shrink: 0; }
+                .${CONFIG.UI_PREFIX}-motd-group-badge {
+                    min-width: 0; flex-shrink: 1;
+                    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+                }
+                .${CONFIG.UI_PREFIX}-motd-countdown {
+                    font-size: 0.78rem; color: var(--tm-text-dim);
+                    flex-shrink: 0; white-space: nowrap;
+                }
+                .${CONFIG.UI_PREFIX}-motd-progress-track {
+                    height: 0.35rem; border-radius: 0.2rem; overflow: hidden;
+                    background: var(--tm-border-light); margin-top: 0.55rem;
+                }
+                .${CONFIG.UI_PREFIX}-motd-progress-fill {
+                    height: 100%; border-radius: 0.2rem; background: var(--tm-accent, #ff4d82);
+                    transition: width 1s linear;
+                }
+                .${CONFIG.UI_PREFIX}-motd-empty { font-size: 0.85rem; color: var(--tm-text-dim); text-align: center; padding: 0.4rem 0; }
 
                 /* ── Footer & Action Buttons ──────────────────────────────── */
                 .${CONFIG.UI_PREFIX}-footer       { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--tm-border); flex-shrink: 0; display: flex; flex-direction: column; gap: 0.5rem; }
@@ -2638,7 +2671,6 @@
 
                 this.fab.onclick = () => this.showMenu();
                 Utils.makeFocusable(this.fab);
-                this.fab.addEventListener('pointerdown', (e) => this._spawnFabRipple(e));
 
                 this.fab.style.top = 'calc(100vh - 6rem)';
                 this.fab.style.left = 'calc(100vw - 6rem)';
@@ -2650,17 +2682,6 @@
                 this.toastContainer.id = `${CONFIG.UI_PREFIX}-toast-wrapper`;
                 document.body.appendChild(this.toastContainer);
             }
-        },
-
-        _spawnFabRipple(e) {
-            if (!this.fab) return;
-            const rect = this.fab.getBoundingClientRect();
-            const ripple = document.createElement('span');
-            ripple.className = `${CONFIG.UI_PREFIX}-fab-ripple`;
-            ripple.style.left = `${e.clientX - rect.left}px`;
-            ripple.style.top = `${e.clientY - rect.top}px`;
-            this.fab.appendChild(ripple);
-            ripple.addEventListener('animationend', () => ripple.remove());
         },
 
         updateFABPosition(cursorX, cursorY) {
@@ -3207,154 +3228,135 @@
             btn.title = "Random Member of the Day";
             btn.setAttribute('tabindex', '0');
             btn.setAttribute('role', 'button');
+            btn.setAttribute('aria-expanded', 'false');
             btn.setAttribute('aria-label', 'Show random member of the day');
             const trigger = (e) => {
                 e.stopPropagation();
-                this._toggleMotdPopover(btn);
+                this._toggleMotdSection(btn);
             };
             btn.onclick = trigger;
             btn.addEventListener('keydown', (e) => {
                 if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); trigger(e); }
             });
+            this._motdTriggerBtnEl = btn;
             return btn;
         },
 
-        _toggleMotdPopover(anchorEl) {
-            if (this._motdPopoverEl) {
-                this._closeMotdPopover();
-                return;
-            }
-            this._openMotdPopover(anchorEl);
+        // Builds the collapsed accordion shell that sits inline inside the
+        // Trending panel itself (between the header and the list), so it can
+        // only ever push that panel's own content — never overlap anything else.
+        _createMotdSection() {
+            const section = document.createElement('div');
+            section.className = `${CONFIG.UI_PREFIX}-motd-section`;
+
+            const inner = document.createElement('div');
+            inner.className = `${CONFIG.UI_PREFIX}-motd-section-inner`;
+
+            const card = document.createElement('div');
+            card.className = `${CONFIG.UI_PREFIX}-motd-card`;
+
+            inner.appendChild(card);
+            section.appendChild(inner);
+
+            this._motdSectionEl = section;
+            this._motdCardEl = card;
+            return section;
         },
 
-        _openMotdPopover(anchorEl) {
-            if (!Database.isLoaded) {
-                this.showToast('Database is still loading — try again in a moment.', 'info');
+        _toggleMotdSection(triggerBtn) {
+            const section = this._motdSectionEl;
+            if (!section) return;
+            const openClass = `${CONFIG.UI_PREFIX}-motd-section-open`;
+            if (section.classList.contains(openClass)) {
+                this._collapseMotdSection();
                 return;
             }
-
-            const popover = document.createElement('div');
-            popover.className = `${CONFIG.UI_PREFIX}-motd-popover`;
-            popover.setAttribute('role', 'dialog');
-            popover.setAttribute('aria-label', 'Random member of the day');
-            popover.style.visibility = 'hidden';
-
-            document.body.appendChild(popover);
-            this._motdPopoverEl = popover;
-            this._motdAnchorEl = anchorEl;
-
-            this._renderMotdPopoverContent();
-
-            requestAnimationFrame(() => {
-                if (!this._motdPopoverEl) return;
-                this._positionMotdPopover();
-                popover.style.visibility = '';
-                popover.classList.add(`${CONFIG.UI_PREFIX}-motd-popover-visible`);
-            });
-
-            this._motdOutsideClickHandler = (e) => {
-                if (popover.contains(e.target) || anchorEl.contains(e.target)) return;
-                this._closeMotdPopover();
-            };
-            this._motdKeydownHandler = (e) => {
-                if (e.key === 'Escape') this._closeMotdPopover();
-            };
-            this._motdResizeHandler = () => this._positionMotdPopover();
-
-            document.addEventListener('pointerdown', this._motdOutsideClickHandler, true);
-            document.addEventListener('keydown', this._motdKeydownHandler);
-            window.addEventListener('resize', this._motdResizeHandler);
+            section.classList.add(openClass);
+            triggerBtn.setAttribute('aria-expanded', 'true');
+            this._renderMotdCardContent();
         },
 
-        _closeMotdPopover() {
-            if (!this._motdPopoverEl) return;
+        _collapseMotdSection() {
+            if (!this._motdSectionEl) return;
+            this._motdSectionEl.classList.remove(`${CONFIG.UI_PREFIX}-motd-section-open`);
+            if (this._motdTriggerBtnEl) this._motdTriggerBtnEl.setAttribute('aria-expanded', 'false');
             this._stopMotdCountdown();
-
-            if (this._motdOutsideClickHandler) document.removeEventListener('pointerdown', this._motdOutsideClickHandler, true);
-            if (this._motdKeydownHandler) document.removeEventListener('keydown', this._motdKeydownHandler);
-            if (this._motdResizeHandler) window.removeEventListener('resize', this._motdResizeHandler);
-            this._motdOutsideClickHandler = null;
-            this._motdKeydownHandler = null;
-            this._motdResizeHandler = null;
-
-            this._motdPopoverEl.remove();
-            this._motdPopoverEl = null;
-            this._motdAnchorEl = null;
-        },
-
-        _positionMotdPopover() {
-            const popover = this._motdPopoverEl;
-            const anchor = this._motdAnchorEl;
-            if (!popover || !anchor) return;
-
-            const anchorRect = anchor.getBoundingClientRect();
-            const popRect = popover.getBoundingClientRect();
-            const margin = 8;
-
-            let top = anchorRect.bottom + margin;
-            if (top + popRect.height + margin > window.innerHeight) {
-                top = Math.max(margin, anchorRect.top - popRect.height - margin);
-            }
-
-            let left = anchorRect.right - popRect.width;
-            const maxLeft = window.innerWidth - popRect.width - margin;
-            left = Math.min(Math.max(margin, left), Math.max(margin, maxLeft));
-
-            popover.style.top = `${top}px`;
-            popover.style.left = `${left}px`;
         },
 
         // Called by MOTD._setupCrossTabSync() when another tab regenerates
-        // the pick, so an already-open popover reflects it immediately.
+        // the pick, so an already-open section reflects it immediately.
         onMotdRemoteUpdate() {
-            if (this._motdPopoverEl) this._renderMotdPopoverContent();
+            if (this._motdSectionEl && this._motdSectionEl.classList.contains(`${CONFIG.UI_PREFIX}-motd-section-open`)) {
+                this._renderMotdCardContent();
+            }
         },
 
-        _renderMotdPopoverContent() {
-            const popover = this._motdPopoverEl;
-            if (!popover) return;
+        _renderMotdEmptyState(card, message) {
+            const empty = document.createElement('div');
+            empty.className = `${CONFIG.UI_PREFIX}-motd-empty`;
+            empty.textContent = message;
+            card.appendChild(empty);
+        },
+
+        _renderMotdCardContent() {
+            const card = this._motdCardEl;
+            if (!card) return;
             this._stopMotdCountdown();
-            popover.replaceChildren();
+            card.replaceChildren();
 
-            if (!MOTD.hasMembers()) {
-                const empty = document.createElement('div');
-                empty.className = `${CONFIG.UI_PREFIX}-motd-empty`;
-                empty.textContent = 'Add idols to your database first.';
-                popover.appendChild(empty);
-                requestAnimationFrame(() => this._positionMotdPopover());
+            const { entry, reason } = MOTD.resolveForDisplay();
+            if (reason === 'empty') {
+                this._renderMotdEmptyState(card, 'Add idols to your database first.');
+                return;
+            }
+            if (reason === 'error' || !entry) {
+                this._renderMotdEmptyState(card, 'Could not pick a member. Please try again.');
                 return;
             }
 
-            const entry = MOTD.getCurrent();
-            if (!entry) {
-                const empty = document.createElement('div');
-                empty.className = `${CONFIG.UI_PREFIX}-motd-empty`;
-                empty.textContent = 'Could not pick a member. Please try again.';
-                popover.appendChild(empty);
-                requestAnimationFrame(() => this._positionMotdPopover());
-                return;
-            }
+            const header = document.createElement('div');
+            header.className = `${CONFIG.UI_PREFIX}-motd-card-header`;
 
             const label = document.createElement('div');
             label.className = `${CONFIG.UI_PREFIX}-motd-label`;
             label.textContent = 'Member of the Day';
 
-            const nameRow = document.createElement('div');
-            nameRow.className = `${CONFIG.UI_PREFIX}-motd-name-row`;
+            const regenBtn = document.createElement('div');
+            regenBtn.className = `${CONFIG.UI_PREFIX}-icon-btn ${CONFIG.UI_PREFIX}-motd-regen-btn`;
+            regenBtn.appendChild(this._createSVG(ICONS.sync));
+            regenBtn.title = "Regenerate";
+            regenBtn.setAttribute('tabindex', '0');
+            regenBtn.setAttribute('role', 'button');
+            regenBtn.setAttribute('aria-label', 'Regenerate random member');
+            const doRegenerate = () => {
+                if (Date.now() < (this._motdRegenCooldownUntil || 0)) return;
+                this._motdRegenCooldownUntil = Date.now() + CONFIG.MOTD_REGEN_COOLDOWN_MS;
+                MOTD.regenerate();
+                this._renderMotdCardContent();
+            };
+            regenBtn.onclick = doRegenerate;
+            regenBtn.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); doRegenerate(); }
+            });
+            this._applyMotdRegenCooldownState(regenBtn);
+
+            header.appendChild(label);
 
             const name = document.createElement('span');
             name.className = `${CONFIG.UI_PREFIX}-motd-name`;
             name.textContent = entry.n;
-            name.title = entry.n;
+
+            const metaRow = document.createElement('div');
+            metaRow.className = `${CONFIG.UI_PREFIX}-motd-meta-row`;
 
             const groupBadge = document.createElement('span');
-            groupBadge.className = `${CONFIG.UI_PREFIX}-badge accent ${CONFIG.UI_PREFIX}-badge-actionable`;
+            groupBadge.className = `${CONFIG.UI_PREFIX}-badge accent ${CONFIG.UI_PREFIX}-badge-actionable ${CONFIG.UI_PREFIX}-motd-group-badge`;
             groupBadge.textContent = entry.g;
             groupBadge.title = `View ${entry.g}`;
             groupBadge.setAttribute('tabindex', '0');
             groupBadge.setAttribute('role', 'button');
             const goToGroup = () => {
-                this._closeMotdPopover();
+                this._collapseMotdSection();
                 this._openGroupInMainPanel(entry.g);
             };
             groupBadge.onclick = goToGroup;
@@ -3362,39 +3364,76 @@
                 if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goToGroup(); }
             });
 
-            nameRow.appendChild(name);
-            nameRow.appendChild(groupBadge);
-
             const countdown = document.createElement('div');
             countdown.className = `${CONFIG.UI_PREFIX}-motd-countdown`;
 
-            const regenBtn = document.createElement('button');
-            regenBtn.type = 'button';
-            regenBtn.className = `${CONFIG.UI_PREFIX}-motd-regen-btn`;
-            regenBtn.appendChild(this._createSVG(ICONS.sync));
-            regenBtn.appendChild(document.createTextNode('Regenerate'));
-            regenBtn.onclick = () => {
-                MOTD.regenerate();
-                this._renderMotdPopoverContent();
-            };
+            metaRow.appendChild(groupBadge);
+            metaRow.appendChild(countdown);
 
-            popover.appendChild(label);
-            popover.appendChild(nameRow);
-            popover.appendChild(countdown);
-            popover.appendChild(regenBtn);
+            const progressTrack = document.createElement('div');
+            progressTrack.className = `${CONFIG.UI_PREFIX}-motd-progress-track`;
+            const progressFill = document.createElement('div');
+            progressFill.className = `${CONFIG.UI_PREFIX}-motd-progress-fill`;
+            progressTrack.appendChild(progressFill);
+
+            card.appendChild(header);
+            card.appendChild(name);
+            card.appendChild(metaRow);
+            card.appendChild(progressTrack);
+            card.appendChild(regenBtn);
 
             this._updateMotdCountdownText(countdown, entry);
+            this._updateMotdProgress(progressFill, entry);
+            this._motdCountdownEntry = entry;
+            this._motdCountdownEl = countdown;
+            this._motdProgressFillEl = progressFill;
+            this._syncMotdCountdownToVisibility();
+        },
+
+        // Visually disables the regen button for whatever cooldown time remains
+        // (covers both the freshly-clicked button and the freshly re-rendered
+        // one after regenerate), then re-enables it automatically on expiry.
+        _applyMotdRegenCooldownState(btn) {
+            const remaining = (this._motdRegenCooldownUntil || 0) - Date.now();
+            if (remaining <= 0) return;
+
+            btn.classList.add('regen-cooldown');
+            btn.setAttribute('aria-disabled', 'true');
+            setTimeout(() => {
+                if (!btn.isConnected) return;
+                btn.classList.remove('regen-cooldown');
+                btn.removeAttribute('aria-disabled');
+            }, remaining);
+        },
+
+        // Ticks the countdown once per second while the tab is visible, and
+        // pauses entirely while it's hidden instead of running unattended.
+        _syncMotdCountdownToVisibility() {
+            if (document.visibilityState === 'hidden') {
+                this._stopMotdCountdownTimer();
+                return;
+            }
+            if (!this._motdVisibilityHandler) {
+                this._motdVisibilityHandler = () => this._syncMotdCountdownToVisibility();
+                document.addEventListener('visibilitychange', this._motdVisibilityHandler);
+            }
+            if (this._motdCountdownInterval || !this._motdCountdownEntry) return;
+
+            const entry = this._motdCountdownEntry;
+            const countdown = this._motdCountdownEl;
+            const progressFill = this._motdProgressFillEl;
+            this._updateMotdCountdownText(countdown, entry);
+            this._updateMotdProgress(progressFill, entry);
             this._motdCountdownInterval = setInterval(() => {
                 const stillCurrent = MOTD.current && MOTD.current.generatedAt === entry.generatedAt
                     && MOTD.current.g === entry.g && MOTD.current.n === entry.n;
                 if (!stillCurrent || MOTD.getMsRemaining(entry) <= 0) {
-                    this._renderMotdPopoverContent();
+                    this._renderMotdCardContent();
                     return;
                 }
                 this._updateMotdCountdownText(countdown, entry);
+                this._updateMotdProgress(progressFill, entry);
             }, CONFIG.MOTD_COUNTDOWN_TICK_MS);
-
-            requestAnimationFrame(() => this._positionMotdPopover());
         },
 
         _updateMotdCountdownText(el, entry) {
@@ -3402,14 +3441,37 @@
             const h = Math.floor(totalSeconds / 3600);
             const m = Math.floor((totalSeconds % 3600) / 60);
             const s = totalSeconds % 60;
-            el.textContent = `New member in ${h}h ${m}m ${s}s`;
+            const pad = (n) => String(n).padStart(2, '0');
+
+            const duration = `${pad(h)}:${pad(m)}:${pad(s)}`;
+            el.textContent = duration;
+            el.setAttribute('aria-label', `New member in ${h}h ${m}m ${s}s`);
         },
 
-        _stopMotdCountdown() {
+        // Fraction of the cooldown window still remaining, expressed as a
+        // 0-100 width percentage for the progress bar fill. The bar starts
+        // full and drains down to 0 as the countdown proceeds.
+        _updateMotdProgress(el, entry) {
+            if (!el || !entry) return;
+            const remaining = MOTD.getMsRemaining(entry);
+            const remainingPct = CONFIG.MOTD_COOLDOWN_MS > 0
+                ? (remaining / CONFIG.MOTD_COOLDOWN_MS) * 100
+                : 0;
+            el.style.width = `${Math.min(100, Math.max(0, remainingPct))}%`;
+        },
+
+        _stopMotdCountdownTimer() {
             if (this._motdCountdownInterval) {
                 clearInterval(this._motdCountdownInterval);
                 this._motdCountdownInterval = null;
             }
+        },
+
+        _stopMotdCountdown() {
+            this._stopMotdCountdownTimer();
+            this._motdCountdownEntry = null;
+            this._motdCountdownEl = null;
+            this._motdProgressFillEl = null;
         },
 
         _updatePanelCloseButtonVisibility() {
@@ -3442,7 +3504,7 @@
 
             const rightGroup = document.createElement('div');
             rightGroup.className = `${CONFIG.UI_PREFIX}-header-right`;
-            if (type === 'trending') {
+            if (type === 'trending' && CONFIG.MOTD_ENABLED) {
                 rightGroup.appendChild(this._createMotdTriggerBtn());
             }
             rightGroup.appendChild(this._createPanelCloseBtn(type));
@@ -3451,6 +3513,9 @@
             panel.appendChild(header);
             if (type === 'trending') {
                 panel.appendChild(this._createTrendingViewToggle());
+            }
+            if (type === 'trending' && CONFIG.MOTD_ENABLED) {
+                panel.appendChild(this._createMotdSection());
             }
 
             const wrapper = document.createElement('div');
@@ -5204,7 +5269,11 @@
             }
             if (this.overlay) {
                 this.exitMultiSelectMode();
-                this._closeMotdPopover();
+                this._stopMotdCountdown();
+                if (this._motdVisibilityHandler) {
+                    document.removeEventListener('visibilitychange', this._motdVisibilityHandler);
+                    this._motdVisibilityHandler = null;
+                }
                 this.overlay.remove();
                 this.overlay = null;
                 document.body.style.overflow = '';
@@ -5258,7 +5327,7 @@
             UI.injectStyles();
             this.bindEvents();
             Database.init();
-            MOTD.init();
+            if (CONFIG.MOTD_ENABLED) MOTD.init();
 
             setInterval(() => {
                 if (document.visibilityState === 'visible' && !UI.overlay) {
@@ -5293,7 +5362,6 @@
             window.addEventListener('keydown', (e) => {
                 if (UI.overlay) {
                     if (e.key === 'Escape') {
-                        if (UI._motdPopoverEl) { UI._closeMotdPopover(); return; }
                         UI.closeMenu();
                         return;
                     }
