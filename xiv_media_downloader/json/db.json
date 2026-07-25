@@ -2100,6 +2100,12 @@
         "t": "Bunkr Albums",
         "u": "https://balbums.st/?search=liabear&mode=broad&per=100&sort=latest"
       }
+    ],
+    "group::NewJeans": [
+      {
+        "t": "Phoning on Reddit",
+        "u": "https://www.reddit.com/r/NewJeans/search?q=flair%3APhoning&restrict_sr=on&include_over_18=on&sort=top&t=all"
+      }
     ]
   }
 }
