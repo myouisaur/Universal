@@ -1899,8 +1899,9 @@
     ],
     "member::LOONA::Jinsoul": [
       {
-        "t": "Twitter: bbl",
-        "u": "https://x.com/jjsbbl"
+        "u": "https://x.com/jjsbbl",
+        "t": "Twitter",
+        "n": "bbl"
       }
     ],
     "member::ITZY::Yeji": [
