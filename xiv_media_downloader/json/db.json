@@ -2035,8 +2035,9 @@
         "u": "https://www.threads.com/@yoonseo"
       },
       {
-        "t": "Linkbio",
-        "u": "https://linkbio.co/imyoonseo"
+        "u": "https://linkbio.co/imyoonseo",
+        "t": "Links",
+        "n": "linkbio.co"
       }
     ],
     "member::sns::Kenny Berco": [
