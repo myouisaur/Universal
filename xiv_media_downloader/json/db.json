@@ -2137,8 +2137,9 @@
     ],
     "group::NewJeans": [
       {
-        "t": "Phoning on Reddit",
-        "u": "https://www.reddit.com/r/NewJeans/search?q=flair%3APhoning&restrict_sr=on&include_over_18=on&sort=top&t=all"
+        "u": "https://www.reddit.com/r/NewJeans/search?q=flair%3APhoning&restrict_sr=on&include_over_18=on&sort=top&t=all",
+        "t": "Reddit",
+        "n": "Phoning"
       }
     ],
     "member::sns::Faith Adanza": [
