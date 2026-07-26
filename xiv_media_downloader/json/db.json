@@ -2060,8 +2060,9 @@
     ],
     "group::KATSEYE": [
       {
-        "t": "/r/katseye_hot",
-        "u": "https://www.reddit.com/r/katseye_hot/"
+        "u": "https://www.reddit.com/r/katseye_hot/",
+        "t": "Reddit",
+        "n": "/r/katseye_hot"
       }
     ],
     "member::celeb::Shamel Leask": [
