@@ -2,7 +2,7 @@
 // @name         [Universal] Xiv Media Downloader
 // @namespace    https://github.com/myouisaur/Universal
 // @icon         data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23FF4081'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 11h3l-4 4-4-4h3V8h2v5z'/%3E%3C/svg%3E
-// @version      26.0
+// @version      26.5
 // @description  Organizes, tracks, and saves categorized media files through a centralized overlay.
 // @author       Xiv
 // @match        *://*/*
@@ -117,7 +117,8 @@
         globe: "M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zm6.93 6h-2.95c-.32-1.25-.78-2.45-1.38-3.56 1.84.63 3.37 1.91 4.33 3.56zM12 4.04c.83 1.2 1.48 2.53 1.91 3.96h-3.82c.43-1.43 1.08-2.76 1.91-3.96zM4.26 14C4.09 13.36 4 12.69 4 12s.09-1.36.26-2h3.38c-.08.66-.14 1.32-.14 2s.06 1.34.14 2H4.26zm.82 2h2.95c.32 1.25.78 2.45 1.38 3.56-1.84-.63-3.37-1.9-4.33-3.56zm2.95-8H5.08c.96-1.66 2.49-2.93 4.33-3.56C8.81 5.55 8.35 6.75 8.03 8zM12 19.96c-.83-1.2-1.48-2.53-1.91-3.96h3.82c-.43 1.43-1.08 2.76-1.91 3.96zM14.34 14H9.66c-.09-.66-.16-1.32-.16-2s.07-1.34.16-2h4.68c.09.66.16 1.32.16 2s-.07 1.34-.16 2zm1.8 4h-2.95c.32-1.25.78-2.45 1.38-3.56 1.84.63 3.37 1.9 4.33 3.56zm1.6-6h-3.38c.08-.66.14-1.32.14-2s-.06-1.34-.14-2h3.38c.17.64.26 1.31.26 2s-.09 1.36-.26 2z",
         link: "M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z",
         plus: "M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z",
-        dice: "M7,3 H17 A4,4 0 0 1 21,7 V17 A4,4 0 0 1 17,21 H7 A4,4 0 0 1 3,17 V7 A4,4 0 0 1 7,3 Z M6.4,8 A1.6,1.6 0 1,0 9.6,8 A1.6,1.6 0 1,0 6.4,8 Z M10.4,12 A1.6,1.6 0 1,0 13.6,12 A1.6,1.6 0 1,0 10.4,12 Z M14.4,16 A1.6,1.6 0 1,0 17.6,16 A1.6,1.6 0 1,0 14.4,16 Z"
+        dice: "M7,3 H17 A4,4 0 0 1 21,7 V17 A4,4 0 0 1 17,21 H7 A4,4 0 0 1 3,17 V7 A4,4 0 0 1 7,3 Z M6.4,8 A1.6,1.6 0 1,0 9.6,8 A1.6,1.6 0 1,0 6.4,8 Z M10.4,12 A1.6,1.6 0 1,0 13.6,12 A1.6,1.6 0 1,0 10.4,12 Z M14.4,16 A1.6,1.6 0 1,0 17.6,16 A1.6,1.6 0 1,0 14.4,16 Z",
+        paste: "M19 3h-4.18C14.4 1.84 13.3 1 12 1c-1.3 0-2.4.84-2.82 2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 0c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zm7 16H5V5h2v3h10V5h2v14z"
     };
 
     // =========================================================
@@ -173,7 +174,26 @@
         toProperCase(str) {
             return str.replace(/\w\S*/g, w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
         },
-        attachClearButton(inputEl) {
+        // Single source of truth for building an icon <svg>, shared by
+        // UI._createSVG and any Utils-level control (e.g. the URL paste
+        // button) that needs an icon without depending on the UI module.
+        createSVGIcon(pathD, viewBox = '0 0 24 24', fillRule = 'nonzero') {
+            const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+            svg.setAttribute('viewBox', viewBox);
+            const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            path.setAttribute('d', pathD);
+            path.setAttribute('fill-rule', fillRule);
+            svg.appendChild(path);
+            return svg;
+        },
+        /**
+         * Wraps an input with a trailing clear (×) button. When options.onPaste
+         * is provided, a clipboard-paste button also shares the same slot:
+         * the paste button shows only while the field is empty, and yields to
+         * the clear button as soon as it has a value — the two are mutually
+         * exclusive so only one control ever occupies the corner.
+         */
+        attachClearButton(inputEl, options = {}) {
             const wrapper = document.createElement('div');
             wrapper.className = `${CONFIG.UI_PREFIX}-input-clear-wrapper`;
             wrapper.appendChild(inputEl);
@@ -186,8 +206,22 @@
             clearBtn.textContent = '×';
             wrapper.appendChild(clearBtn);
 
+            let pasteBtn = null;
+            if (typeof options.onPaste === 'function') {
+                pasteBtn = document.createElement('button');
+                pasteBtn.type = 'button';
+                pasteBtn.className = `${CONFIG.UI_PREFIX}-input-paste-btn`;
+                pasteBtn.setAttribute('aria-label', 'Paste from clipboard');
+                pasteBtn.title = 'Paste from clipboard';
+                pasteBtn.tabIndex = -1;
+                pasteBtn.appendChild(this.createSVGIcon(ICONS.paste));
+                wrapper.appendChild(pasteBtn);
+            }
+
             const toggle = () => {
-                clearBtn.classList.toggle(`${CONFIG.UI_PREFIX}-visible`, inputEl.value.length > 0);
+                const hasValue = inputEl.value.length > 0;
+                clearBtn.classList.toggle(`${CONFIG.UI_PREFIX}-visible`, hasValue);
+                if (pasteBtn) pasteBtn.classList.toggle(`${CONFIG.UI_PREFIX}-visible`, !hasValue);
             };
 
             clearBtn.addEventListener('mousedown', (e) => e.preventDefault());
@@ -198,6 +232,17 @@
                 inputEl.focus();
                 toggle();
             });
+
+            if (pasteBtn) {
+                pasteBtn.addEventListener('mousedown', (e) => e.preventDefault());
+                pasteBtn.addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    await options.onPaste(inputEl);
+                    toggle();
+                    inputEl.focus();
+                });
+            }
+
             inputEl.addEventListener('input', toggle);
             toggle();
 
@@ -459,14 +504,29 @@
             return this.metaLinks[id] || [];
         },
 
-        addLink(id, text, url) {
-            if (!this.metaLinks[id]) this.metaLinks[id] = [];
-            this.metaLinks[id].push({ t: text.trim(), u: url.trim() });
+        // Distinct list of Titles already used across every saved link, for
+        // the Title field's suggestion dropdown. De-duped case-insensitively
+        // (so "Facebook" and "facebook" collapse into one entry) while
+        // keeping whichever casing was first seen.
+        getAllLinkTitles() {
+            const seen = new Map();
+            Object.values(this.metaLinks).forEach(links => {
+                links.forEach(link => {
+                    const key = (link.t || '').toLowerCase();
+                    if (key && !seen.has(key)) seen.set(key, link.t);
+                });
+            });
+            return Array.from(seen.values()).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
         },
 
-        editLink(id, index, text, url) {
+        addLink(id, url, title, notes) {
+            if (!this.metaLinks[id]) this.metaLinks[id] = [];
+            this.metaLinks[id].push({ u: url.trim(), t: title.trim(), n: (notes || '').trim() });
+        },
+
+        editLink(id, index, url, title, notes) {
             if (this.metaLinks[id] && this.metaLinks[id][index]) {
-                this.metaLinks[id][index] = { t: text.trim(), u: url.trim() };
+                this.metaLinks[id][index] = { u: url.trim(), t: title.trim(), n: (notes || '').trim() };
             }
         },
 
@@ -1436,8 +1496,12 @@
         linkFormContainer: null,
         linkTextInput: null,
         linkUrlInput: null,
+        linkNotesInput: null,
+        linkTitleSuggestionsEl: null,
+        _linkTitleSuggestionsData: [],
         linkSaveBtn: null,
         headerAddLinkBtn: null,
+        headerGroupLinksBtn: null,
 
         sidePanels: {
             recent: { data: [], wrapper: null, container: null, inner: null, cachedHeight: 400 },
@@ -1515,13 +1579,7 @@
         },
 
         _createSVG(pathD, viewBox = '0 0 24 24', fillRule = 'nonzero') {
-            const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-            svg.setAttribute('viewBox', viewBox);
-            const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-            path.setAttribute('d', pathD);
-            path.setAttribute('fill-rule', fillRule);
-            svg.appendChild(path);
-            return svg;
+            return Utils.createSVGIcon(pathD, viewBox, fillRule);
         },
 
         injectStyles() {
@@ -2031,6 +2089,12 @@
                     font-size: clamp(0.7rem, 1.4vw, 0.9rem); font-weight: 700; color: var(--tm-accent, #ff4d82);
                     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
                 }
+                /* Clickability is signaled by cursor + opacity shift, never
+                   by underline-on-hover (kept consistent with the no-underline
+                   rule applied to every link/actionable text in this app). */
+                .${CONFIG.UI_PREFIX}-motd-name-actionable { cursor: pointer; outline: none; }
+                .${CONFIG.UI_PREFIX}-motd-name-actionable:hover,
+                .${CONFIG.UI_PREFIX}-motd-name-actionable:focus-visible { opacity: 0.8; }
                 .${CONFIG.UI_PREFIX}-motd-meta-row {
                     display: flex; align-items: center; justify-content: space-between; gap: 0.6rem;
                     margin-top: 0.4rem;
@@ -2080,6 +2144,26 @@
                 /* ── Input Clear Button ───────────────────────────────────── */
                 .${CONFIG.UI_PREFIX}-input-clear-wrapper { position: relative; display: flex; align-items: center; flex-grow: 1; min-width: 0; }
                 .${CONFIG.UI_PREFIX}-input-clear-wrapper input { width: 100%; padding-right: 2.2rem; box-sizing: border-box; }
+                /* ── Title Suggestions Dropdown ──────────────────────────────
+                   Anchored to the same wrapper as the clear button (which is
+                   already position:relative), so it floats directly under
+                   the Title field regardless of where that field sits. */
+                .${CONFIG.UI_PREFIX}-suggestions-dropdown {
+                    position: absolute; top: calc(100% + 0.3rem); left: 0; right: 0;
+                    background: var(--tm-bg-elevated); border: 1px solid var(--tm-border-light);
+                    border-radius: 0.6rem; max-height: 12rem; overflow-y: auto;
+                    z-index: 30; box-shadow: 0 0.4rem 1rem rgba(0, 0, 0, 0.4);
+                }
+                .${CONFIG.UI_PREFIX}-suggestions-dropdown::-webkit-scrollbar { width: 6px; }
+                .${CONFIG.UI_PREFIX}-suggestions-dropdown::-webkit-scrollbar-thumb { background: var(--tm-border-light); border-radius: 10px; }
+                .${CONFIG.UI_PREFIX}-suggestion-item {
+                    display: block; width: 100%; text-align: left; background: transparent; border: none;
+                    color: var(--tm-text-main); font-size: 0.88rem; font-family: inherit;
+                    padding: 0.55rem 0.8rem; cursor: pointer; white-space: nowrap;
+                    overflow: hidden; text-overflow: ellipsis; transition: background 0.15s;
+                }
+                .${CONFIG.UI_PREFIX}-suggestion-item:hover,
+                .${CONFIG.UI_PREFIX}-suggestion-item:focus { background: var(--tm-bg-hover-subtle); outline: none; }
                 .${CONFIG.UI_PREFIX}-input-clear-btn {
                     position: absolute;
                     right: 0.4rem; top: 50%; transform: translateY(-50%);
@@ -2092,6 +2176,22 @@
                 .${CONFIG.UI_PREFIX}-input-clear-btn.${CONFIG.UI_PREFIX}-visible { opacity: 1; pointer-events: auto; }
                 .${CONFIG.UI_PREFIX}-input-clear-btn:hover,
                 .${CONFIG.UI_PREFIX}-input-clear-btn:focus { background: var(--tm-bg-hover-subtle); color: var(--tm-text-main); outline: none; }
+                /* Shares the same corner slot as the clear button above —
+                   the two are mutually exclusive (empty vs has-value), so
+                   no layout conflict ever arises between them. */
+                .${CONFIG.UI_PREFIX}-input-paste-btn {
+                    position: absolute;
+                    right: 0.4rem; top: 50%; transform: translateY(-50%);
+                    width: 1.5rem; height: 1.5rem; display: flex; align-items: center; justify-content: center;
+                    background: transparent; border: none; padding: 0;
+                    border-radius: 50%; color: var(--tm-text-dim);
+                    cursor: pointer; opacity: 0; pointer-events: none;
+                    transition: opacity 0.15s, background 0.15s, color 0.15s;
+                }
+                .${CONFIG.UI_PREFIX}-input-paste-btn svg { width: 0.95rem; height: 0.95rem; fill: currentColor; }
+                .${CONFIG.UI_PREFIX}-input-paste-btn.${CONFIG.UI_PREFIX}-visible { opacity: 1; pointer-events: auto; }
+                .${CONFIG.UI_PREFIX}-input-paste-btn:hover,
+                .${CONFIG.UI_PREFIX}-input-paste-btn:focus { background: var(--tm-bg-hover-subtle); color: var(--tm-text-main); outline: none; }
 
                 /* ── CRUD Bar ─────────────────────────────────────────────── */
                 .${CONFIG.UI_PREFIX}-crud-bar       { display: none; gap: 0.5rem; margin-bottom: 1rem; flex-shrink: 0; transition: opacity 0.2s; }
@@ -2180,6 +2280,12 @@
                 .${CONFIG.UI_PREFIX}-history-delete-btn:hover:not(:disabled) { background: var(--tm-danger); color: #fff; }
                 .${CONFIG.UI_PREFIX}-settings-save-btn:disabled,
                 .${CONFIG.UI_PREFIX}-history-delete-btn:disabled { opacity: 0.4; cursor: not-allowed; border-color: var(--tm-border-focus); color: var(--tm-text-dark); background: var(--tm-bg-elevated); }
+
+                /* ── Global Hover Rule ────────────────────────────────────── */
+                /* Applies to every current and future <a> in the overlay:
+                   clickable affordance always comes from cursor/opacity/border
+                   changes here, never from a hover underline. */
+                #${CONFIG.UI_PREFIX}-overlay a:hover { text-decoration: none; }
 
                 /* ── Links View ───────────────────────────────────────────── */
                 /* Outer — flex-sized by the panel layout, not scrollable
@@ -3343,8 +3449,16 @@
             header.appendChild(label);
 
             const name = document.createElement('span');
-            name.className = `${CONFIG.UI_PREFIX}-motd-name`;
+            name.className = `${CONFIG.UI_PREFIX}-motd-name ${CONFIG.UI_PREFIX}-motd-name-actionable`;
             name.textContent = entry.n;
+            name.title = `View ${entry.n}'s links`;
+            name.setAttribute('tabindex', '0');
+            name.setAttribute('role', 'button');
+            const goToMemberLinks = () => this._openMemberLinksInMainPanel(entry.g, entry.n);
+            name.onclick = goToMemberLinks;
+            name.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goToMemberLinks(); }
+            });
 
             const metaRow = document.createElement('div');
             metaRow.className = `${CONFIG.UI_PREFIX}-motd-meta-row`;
@@ -3355,10 +3469,10 @@
             groupBadge.title = `View ${entry.g}`;
             groupBadge.setAttribute('tabindex', '0');
             groupBadge.setAttribute('role', 'button');
-            const goToGroup = () => {
-                this._collapseMotdSection();
-                this._openGroupInMainPanel(entry.g);
-            };
+            // Navigates the main panel to this group without collapsing the
+            // MOTD accordion — the person should be able to glance at the
+            // group/member and jump to it while the card stays open.
+            const goToGroup = () => this._openGroupInMainPanel(entry.g);
             groupBadge.onclick = goToGroup;
             groupBadge.addEventListener('keydown', (e) => {
                 if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goToGroup(); }
@@ -3634,21 +3748,46 @@
 
             requestAnimationFrame(() => this.updateListData(''));
 
-            const mainContainer = this._carousel.panelEls ? this._carousel.panelEls.main : null;
-            const mainPanelBox = mainContainer ? mainContainer.querySelector(`.${CONFIG.UI_PREFIX}-panel`) : null;
-            if (mainPanelBox) {
-                const glowClass = `${CONFIG.UI_PREFIX}-panel-glow`;
-                mainPanelBox.classList.remove(glowClass);
-                void mainPanelBox.offsetWidth;
-                mainPanelBox.classList.add(glowClass);
-                mainPanelBox.addEventListener('animationend', () => {
-                    mainPanelBox.classList.remove(glowClass);
-                }, { once: true });
-            }
+            this._glowMainPanel();
 
             if (this._carousel.isActive && this._carousel.currentId !== 'main') {
                 this._carouselGoTo('main');
             }
+        },
+
+        // Opens a specific member's Links view directly in the main panel —
+        // used by the MOTD card's member name so a click jumps straight to
+        // "View Links" instead of requiring a group drill-down first.
+        _openMemberLinksInMainPanel(group, member) {
+            this.currentLinkTargetId = `member::${group}::${member}`;
+            this.currentLinkTitle = member;
+            this._previousLinksView = this.currentView;
+            this._previousLinksSearch = this.searchInput ? this.searchInput.value : '';
+            this.currentView = 'links';
+            this.isLinkFormActive = false;
+            this.updateVisibility();
+            this.renderLinks();
+
+            this._glowMainPanel();
+
+            if (this._carousel.isActive && this._carousel.currentId !== 'main') {
+                this._carouselGoTo('main');
+            }
+        },
+
+        // Shared border-glow feedback used whenever a click elsewhere in the
+        // app jumps the main panel to a new group/member/links view.
+        _glowMainPanel() {
+            const mainContainer = this._carousel.panelEls ? this._carousel.panelEls.main : null;
+            const mainPanelBox = mainContainer ? mainContainer.querySelector(`.${CONFIG.UI_PREFIX}-panel`) : null;
+            if (!mainPanelBox) return;
+            const glowClass = `${CONFIG.UI_PREFIX}-panel-glow`;
+            mainPanelBox.classList.remove(glowClass);
+            void mainPanelBox.offsetWidth;
+            mainPanelBox.classList.add(glowClass);
+            mainPanelBox.addEventListener('animationend', () => {
+                mainPanelBox.classList.remove(glowClass);
+            }, { once: true });
         },
 
         refreshSidePanels() {
@@ -3851,13 +3990,38 @@
             this.headerAddLinkBtn.onclick = () => {
                 this.isLinkFormActive = true;
                 this.editLinkIndex = null;
-                this.linkTextInput.value = '';
                 this.linkUrlInput.value = '';
-                this.linkTextInput.dispatchEvent(new Event('input', { bubbles: true }));
+                this.linkTextInput.value = '';
+                this.linkNotesInput.value = '';
                 this.linkUrlInput.dispatchEvent(new Event('input', { bubbles: true }));
+                this.linkTextInput.dispatchEvent(new Event('input', { bubbles: true }));
+                this.linkNotesInput.dispatchEvent(new Event('input', { bubbles: true }));
+                this.refreshLinkTitleSuggestions();
                 this.updateVisibility();
             };
             rightGroup.appendChild(this.headerAddLinkBtn);
+
+            // Only surfaces while drilled into a group's member list — lets
+            // the group's own Links be opened without first backing out to
+            // the groups list and using its row's globe icon instead.
+            this.headerGroupLinksBtn = document.createElement('div');
+            this.headerGroupLinksBtn.className = `${CONFIG.UI_PREFIX}-icon-btn`;
+            Utils.makeFocusable(this.headerGroupLinksBtn);
+            this.headerGroupLinksBtn.title = "View Links";
+            this.headerGroupLinksBtn.appendChild(this._createSVG(ICONS.globe));
+            this.headerGroupLinksBtn.style.display = 'none';
+            this.headerGroupLinksBtn.onclick = () => {
+                if (!this.selectedGroup) return;
+                this.currentLinkTargetId = `group::${this.selectedGroup}`;
+                this.currentLinkTitle = this.selectedGroup;
+                this._previousLinksView = this.currentView;
+                this._previousLinksSearch = this.searchInput ? this.searchInput.value : '';
+                this.currentView = 'links';
+                this.isLinkFormActive = false;
+                this.updateVisibility();
+                this.renderLinks();
+            };
+            rightGroup.appendChild(this.headerGroupLinksBtn);
 
             rightGroup.appendChild(this._createPanelCloseBtn());
 
@@ -4018,13 +4182,21 @@
             this.linkFormContainer = document.createElement('div');
             this.linkFormContainer.className = `${CONFIG.UI_PREFIX}-link-form`;
 
-            this.linkTextInput = document.createElement('input');
-            this.linkTextInput.className = `${CONFIG.UI_PREFIX}-settings-input`;
-            this.linkTextInput.placeholder = "Link Title (e.g. Instagram)";
-
             this.linkUrlInput = document.createElement('input');
             this.linkUrlInput.className = `${CONFIG.UI_PREFIX}-settings-input`;
-            this.linkUrlInput.placeholder = "URL (https://...)";
+            this.linkUrlInput.placeholder = "URL";
+            this.linkUrlInput.type = "url";
+            this.linkUrlInput.autocomplete = "off";
+
+            this.linkTextInput = document.createElement('input');
+            this.linkTextInput.className = `${CONFIG.UI_PREFIX}-settings-input`;
+            this.linkTextInput.placeholder = "Title";
+            this.linkTextInput.autocomplete = "off";
+
+            this.linkNotesInput = document.createElement('input');
+            this.linkNotesInput.className = `${CONFIG.UI_PREFIX}-settings-input`;
+            this.linkNotesInput.placeholder = "Notes";
+            this.linkNotesInput.autocomplete = "off";
 
             this.linkSaveBtn = document.createElement('button');
             this.linkSaveBtn.className = `${CONFIG.UI_PREFIX}-settings-save-btn`;
@@ -4034,40 +4206,62 @@
                     this.showToast('Configure Cloud Engine credentials first to save links.', 'error');
                     return;
                 }
-                const t = this.linkTextInput.value.trim();
                 const u = this.linkUrlInput.value.trim();
-                if (!t || !u) {
-                    this.showToast('Both Title and URL are required.', 'error');
+                const t = this.linkTextInput.value.trim();
+                const n = this.linkNotesInput.value.trim();
+                if (!u || !t) {
+                    this.showToast('URL and Title are required.', 'error');
                     return;
                 }
                 if (this.editLinkIndex !== null) {
-                    Database.editLink(this.currentLinkTargetId, this.editLinkIndex, t, u);
+                    Database.editLink(this.currentLinkTargetId, this.editLinkIndex, u, t, n);
                 } else {
-                    Database.addLink(this.currentLinkTargetId, t, u);
+                    Database.addLink(this.currentLinkTargetId, u, t, n);
                 }
                 this.triggerCloudSync();
                 this.isLinkFormActive = false;
                 this.updateVisibility();
                 this.renderLinks();
+                this.refreshLinkTitleSuggestions();
             };
 
-            this.linkFormContainer.appendChild(Utils.attachClearButton(this.linkTextInput));
-            this.linkFormContainer.appendChild(Utils.attachClearButton(this.linkUrlInput));
+            this.linkFormContainer.appendChild(Utils.attachClearButton(this.linkUrlInput, {
+                onPaste: (inputEl) => this.pasteFromClipboard(inputEl)
+            }));
+
+            // Custom suggestions dropdown — a native <input list="..."> datalist
+            // draws its own browser dropdown-arrow affordance that only
+            // Chromium/WebKit lets us hide (via ::-webkit-calendar-picker-indicator);
+            // Firefox has no equivalent hook, so it always shows the triangle.
+            // Building the list ourselves guarantees identical, arrow-free
+            // rendering in every browser.
+            const titleWrapper = Utils.attachClearButton(this.linkTextInput);
+            this.linkTitleSuggestionsEl = document.createElement('div');
+            this.linkTitleSuggestionsEl.className = `${CONFIG.UI_PREFIX}-suggestions-dropdown`;
+            this.linkTitleSuggestionsEl.setAttribute('role', 'listbox');
+            this.linkTitleSuggestionsEl.style.display = 'none';
+            titleWrapper.appendChild(this.linkTitleSuggestionsEl);
+            this.linkFormContainer.appendChild(titleWrapper);
+
+            this.linkTextInput.addEventListener('input', () => this._renderLinkTitleSuggestions(this.linkTextInput.value));
+            this.linkTextInput.addEventListener('focus', () => this._renderLinkTitleSuggestions(this.linkTextInput.value));
+            this.linkTextInput.addEventListener('blur', () => this._hideLinkTitleSuggestions());
+            this.linkTextInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape') this._hideLinkTitleSuggestions();
+            });
+
+            this.linkFormContainer.appendChild(Utils.attachClearButton(this.linkNotesInput));
             this.linkFormContainer.appendChild(this.linkSaveBtn);
 
             // Enter key mapping for quick save — matches the same pattern
             // already used for the token/retention fields elsewhere.
-            this.linkTextInput.addEventListener('keydown', (e) => {
-                if (e.key === 'Enter') {
-                    e.preventDefault();
-                    this.linkSaveBtn.click();
-                }
-            });
-            this.linkUrlInput.addEventListener('keydown', (e) => {
-                if (e.key === 'Enter') {
-                    e.preventDefault();
-                    this.linkSaveBtn.click();
-                }
+            [this.linkUrlInput, this.linkTextInput, this.linkNotesInput].forEach(input => {
+                input.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        this.linkSaveBtn.click();
+                    }
+                });
             });
 
             panel.appendChild(this.linksWrapper);
@@ -4440,6 +4634,7 @@
             if (this.linksWrapper) this.linksWrapper.style.display = 'none';
             if (this.linkFormContainer) this.linkFormContainer.style.display = 'none';
             if (this.headerAddLinkBtn) this.headerAddLinkBtn.style.display = 'none';
+            if (this.headerGroupLinksBtn) this.headerGroupLinksBtn.style.display = 'none';
 
             if (this.currentView === 'diagnostics') {
                 this.headerTitle.replaceChildren();
@@ -4461,7 +4656,7 @@
                     this.headerTitle.textContent = this.editLinkIndex !== null ? 'Edit Link' : 'Add Link';
                     this.linkFormContainer.style.display = 'flex';
                     requestAnimationFrame(() => {
-                        if (this.linkTextInput) this.linkTextInput.focus();
+                        if (this.linkUrlInput) this.linkUrlInput.focus();
                     });
                 } else {
                     this.headerTitle.replaceChildren();
@@ -4488,6 +4683,7 @@
                     this.headerTitle.replaceChildren();
                     this.headerTitle.textContent = this.selectedGroup;
                     this.headerBackBtn.style.display = 'flex';
+                    if (this.headerGroupLinksBtn) this.headerGroupLinksBtn.style.display = 'flex';
                 }
 
                 if (this.isCrudMode) {
@@ -4508,6 +4704,85 @@
                     }
                 }
             }
+        },
+
+        // Reads the clipboard's current text into the given input. Feature-detects
+        // the Clipboard API first (older browsers / insecure contexts won't have
+        // it) and reports any failure — denied permission, empty clipboard, etc. —
+        // as a human-readable toast rather than a silent no-op.
+        async pasteFromClipboard(inputEl) {
+            if (!navigator.clipboard || !navigator.clipboard.readText) {
+                this.showToast('Clipboard access is not available in this browser.', 'error');
+                return;
+            }
+            try {
+                const text = await navigator.clipboard.readText();
+                if (!text) {
+                    this.showToast('Clipboard is empty.', 'error');
+                    return;
+                }
+                inputEl.value = text.trim();
+                inputEl.dispatchEvent(new Event('input', { bubbles: true }));
+            } catch (err) {
+                Logger.error('Clipboard read failed', err);
+                this.showToast('Could not read from clipboard. Check browser permissions.', 'error');
+            }
+        },
+
+        // Re-caches the distinct list of Titles already saved across the
+        // link database, so suggestions never go stale between Add/Edit
+        // Link sessions. If the dropdown happens to be open when this runs
+        // (e.g. right after a save), its visible list is refreshed too.
+        refreshLinkTitleSuggestions() {
+            this._linkTitleSuggestionsData = Database.getAllLinkTitles();
+            if (this.linkTitleSuggestionsEl && this.linkTitleSuggestionsEl.style.display !== 'none') {
+                this._renderLinkTitleSuggestions(this.linkTextInput.value);
+            }
+        },
+
+        // Filters the cached Title list against the current input value and
+        // renders it as a custom dropdown (see the comment where this field
+        // is built for why a native <datalist> isn't used instead).
+        _renderLinkTitleSuggestions(filterValue) {
+            if (!this.linkTitleSuggestionsEl) return;
+            if (document.activeElement !== this.linkTextInput) {
+                this._hideLinkTitleSuggestions();
+                return;
+            }
+            const query = (filterValue || '').trim().toLowerCase();
+            const all = this._linkTitleSuggestionsData || [];
+            const matches = query ? all.filter(title => title.toLowerCase().includes(query)) : all;
+
+            if (matches.length === 0) {
+                this._hideLinkTitleSuggestions();
+                return;
+            }
+
+            this.linkTitleSuggestionsEl.replaceChildren();
+            const fragment = document.createDocumentFragment();
+            matches.forEach(title => {
+                const option = document.createElement('button');
+                option.type = 'button';
+                option.className = `${CONFIG.UI_PREFIX}-suggestion-item`;
+                option.textContent = title;
+                option.setAttribute('role', 'option');
+                option.tabIndex = -1;
+                // mousedown (not click) fires before the input's blur event,
+                // so the dropdown doesn't hide itself out from under the click.
+                option.addEventListener('mousedown', (e) => {
+                    e.preventDefault();
+                    this.linkTextInput.value = title;
+                    this.linkTextInput.dispatchEvent(new Event('input', { bubbles: true }));
+                    this._hideLinkTitleSuggestions();
+                });
+                fragment.appendChild(option);
+            });
+            this.linkTitleSuggestionsEl.appendChild(fragment);
+            this.linkTitleSuggestionsEl.style.display = 'block';
+        },
+
+        _hideLinkTitleSuggestions() {
+            if (this.linkTitleSuggestionsEl) this.linkTitleSuggestionsEl.style.display = 'none';
         },
 
         renderLinks() {
@@ -4561,7 +4836,7 @@
                 linkText.href = link.u.startsWith('http') ? link.u : `https://${link.u}`;
                 linkText.target = "_blank";
                 linkText.rel = "noopener noreferrer";
-                linkText.textContent = link.t;
+                linkText.textContent = link.n ? `${link.t}: ${link.n}` : link.t;
                 linkText.title = link.u;
 
                 const actions = document.createElement('div');
@@ -4574,10 +4849,13 @@
                     e.stopPropagation();
                     this.editLinkIndex = idx;
                     this.isLinkFormActive = true;
-                    this.linkTextInput.value = link.t;
                     this.linkUrlInput.value = link.u;
-                    this.linkTextInput.dispatchEvent(new Event('input', { bubbles: true }));
+                    this.linkTextInput.value = link.t;
+                    this.linkNotesInput.value = link.n || '';
                     this.linkUrlInput.dispatchEvent(new Event('input', { bubbles: true }));
+                    this.linkTextInput.dispatchEvent(new Event('input', { bubbles: true }));
+                    this.linkNotesInput.dispatchEvent(new Event('input', { bubbles: true }));
+                    this.refreshLinkTitleSuggestions();
                     this.updateVisibility();
                 };
 
@@ -4590,6 +4868,7 @@
                         Database.deleteLink(this.currentLinkTargetId, idx);
                         this.triggerCloudSync();
                         this.renderLinks();
+                        this.refreshLinkTitleSuggestions();
                     }
                 };
 
