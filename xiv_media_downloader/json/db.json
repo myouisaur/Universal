@@ -1833,8 +1833,9 @@
     ],
     "group::NMIXX": [
       {
-        "t": "Twitter / X: bbl",
-        "u": "https://x.com/nmixxpics_"
+        "u": "https://x.com/nmixxpics_",
+        "t": "Twitter",
+        "n": "bbl"
       }
     ],
     "member::Red Velvet::Yeri": [
