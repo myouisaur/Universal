@@ -1916,8 +1916,9 @@
     ],
     "member::sns::Mabel Park": [
       {
-        "t": "Instagram 1: sejinparrk",
-        "u": "https://www.instagram.com/sejinparrk/"
+        "u": "https://www.instagram.com/sejinparrk/",
+        "t": "Instagram",
+        "n": "sejinparrk (main)"
       },
       {
         "t": "Instagram 2: mabelheartsyou",
