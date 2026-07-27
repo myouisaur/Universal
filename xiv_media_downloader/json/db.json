@@ -1774,7 +1774,6 @@
     "Ririka",
     "Rona"
   ],
-  "11111AAATEST": [],
   "_xiv_links": {
     "member::aespa::Karina": [
       {
@@ -2411,6 +2410,13 @@
       {
         "u": "https://www.tiktok.com/@_sojackie",
         "t": "TikTok",
+        "n": ""
+      }
+    ],
+    "group::11111AAATEST": [
+      {
+        "u": "https://scontent.fmnl17-4.fna.fbcdn.net/v/t39.99422-6/757533565_906340501894791_4494494862819981572_n.png?stp=dst-jpg_tt6&cstp=mx1638x2048&ctp=s1638x2048&_nc_cat=1&ccb=1-7&_nc_sid=127cfc&_nc_ohc=T7ynQ9-KIPoQ7kNvwHdcq4u&_nc_oc=AdohBzkSxPXKPyuSbkKHH3O1ODG7WYrU8EBSmu4iL1Vm_YNJe7tAWU01UgnXJQiR7Ks&_nc_zt=14&_nc_ht=scontent.fmnl17-4.fna&_nc_gid=lfbX09-8BZBtfSx5OzvWqQ&_nc_ss=7b2a8&oh=00_AQBpznbWr__iuOwNe21SEHU4iAoGAPHdCuU4sgTQ50tdyw&oe=6A6CCDE6",
+        "t": "test",
         "n": ""
       }
     ]
