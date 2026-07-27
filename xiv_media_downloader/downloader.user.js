@@ -2,7 +2,7 @@
 // @name         [Universal] Xiv Media Downloader
 // @namespace    https://github.com/myouisaur/Universal
 // @icon         data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23FF4081'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 11h3l-4 4-4-4h3V8h2v5z'/%3E%3C/svg%3E
-// @version      26.5
+// @version      27.3
 // @description  Organizes, tracks, and saves categorized media files through a centralized overlay.
 // @author       Xiv
 // @match        *://*/*
@@ -62,6 +62,7 @@
         SAVE_DEBOUNCE_MS: 1000,
         CLOUD_SAVE_QUIET_WINDOW_MS: 10000,
         CLOUD_HISTORY_THROTTLE_MS: 30000,
+        CLOUD_DB_THROTTLE_MS: 30000,
         CLOUD_MENU_POLL_MS: 10000,
         HISTORY_MAX_DAYS: 99999,
 
@@ -85,6 +86,14 @@
         DB_CACHE_KEY: 'xiv_media_dl_db_cache',
         DB_CACHE_TTL_MS: 12 * 60 * 60 * 1000,
 
+        // Link Title Autofill — Domain Aliases
+        // Maps a URL's extracted domain label (lowercase) to the brand name
+        // it should be matched/autofilled against, for rebrands or domains
+        // that don't match their commonly-used name.
+        LINK_TITLE_DOMAIN_ALIASES: {
+            'x': 'twitter'
+        },
+
         // Random Member of the Day (MOTD)
         MOTD_ENABLED: true,
         MOTD_STORAGE_KEY: 'xiv_media_dl_motd',
@@ -92,7 +101,7 @@
         MOTD_COOLDOWN_HOURS: 24,
         MOTD_NO_REPEAT_ROLLS: 20,
         MOTD_COUNTDOWN_TICK_MS: 1000,
-        MOTD_REGEN_COOLDOWN_MS: 1000
+        MOTD_REROLL_COOLDOWN_MS: 1000
     };
     // Derived from MOTD_COOLDOWN_HOURS so the hour value stays the single source of truth.
     CONFIG.MOTD_COOLDOWN_MS = CONFIG.MOTD_COOLDOWN_HOURS * 60 * 60 * 1000;
@@ -139,6 +148,21 @@
     };
 
     const Utils = {
+        // Pulls the base domain label out of a URL for Link Title
+        // auto-suggestion, e.g. "https://www.instagram.com/*/" -> "instagram".
+        // Returns '' for anything unparseable rather than throwing, since
+        // this only ever feeds an optional autofill.
+        extractDomainName(url) {
+            try {
+                const parsed = new URL(url);
+                let host = parsed.hostname.toLowerCase();
+                if (host.startsWith('www.')) host = host.slice(4);
+                const label = host.split('.')[0];
+                return label || '';
+            } catch (e) {
+                return '';
+            }
+        },
         debounce(fn, delay) {
             let timeoutId;
             return function (...args) {
@@ -239,7 +263,6 @@
                     e.stopPropagation();
                     await options.onPaste(inputEl);
                     toggle();
-                    inputEl.focus();
                 });
             }
 
@@ -394,10 +417,13 @@
         sortedGroups: [],
         isLoaded: false,
         isLoading: false,
+        _lastCloudFetch: 0,
 
         async init() {
             this.isLoading = true;
             if (UI.overlay) UI.updateListData(UI.searchInput ? UI.searchInput.value.toLowerCase().trim() : '');
+
+            this.setupCrossTabSync();
 
             try {
                 const cached = this.getCache();
@@ -423,6 +449,12 @@
             }
             if (UI.overlay) {
                 UI.updateListData(UI.searchInput ? UI.searchInput.value.toLowerCase().trim() : '');
+                // The MOTD card now renders by default before this data exists
+                // (previously it only ever opened after the user clicked the
+                // dice button, by which point loading had long finished), so
+                // give it the same "data just arrived" refresh used for
+                // cross-tab updates.
+                UI.onMotdRemoteUpdate();
             }
         },
 
@@ -453,6 +485,54 @@
                     this.processData(data);
                 })
                 .catch(() => Logger.warn('Background database update failed.'));
+        },
+
+        // Instant same-device sync: when another tab writes a fresh DB cache
+        // (e.g. after its own background poll pulls newer data), pick it up
+        // immediately instead of waiting for this tab's own next poll.
+        setupCrossTabSync() {
+            if (typeof GM_addValueChangeListener !== 'function') return;
+            GM_addValueChangeListener(CONFIG.DB_CACHE_KEY, (key, oldValue, newValue, remote) => {
+                if (!remote) return;
+                try {
+                    const cacheObj = JSON.parse(newValue || 'null');
+                    if (cacheObj && cacheObj.data) {
+                        this.processData(cacheObj.data);
+                        if (UI.overlay) UI.refreshDatabaseView();
+                    }
+                } catch (e) {
+                    Logger.warn('Failed to sync cross-tab database change.', e);
+                }
+            });
+        },
+
+        // Throttled remote pull used for cross-device sync, mirroring
+        // Storage.fetchCloudBackground(). Only re-renders when the fetched
+        // data actually differs from what's cached, so it never disrupts an
+        // in-progress edit or scroll position for no reason.
+        async fetchCloudBackground(force = false) {
+            if (!CloudAPI.isValid() || CloudAPI.isRateLimited()) return;
+            if (!force && Date.now() - this._lastCloudFetch < CONFIG.CLOUD_DB_THROTTLE_MS) return;
+            this._lastCloudFetch = Date.now();
+
+            try {
+                const cloudData = await CloudAPI.fetch(CONFIG.GITHUB_DB_PATH);
+                if (!cloudData) return;
+
+                const cachedRaw = GM_getValue(CONFIG.DB_CACHE_KEY, null);
+                let cachedData = null;
+                try { cachedData = cachedRaw ? JSON.parse(cachedRaw).data : null; } catch (e) { /* treat as changed */ }
+
+                const isChanged = JSON.stringify(cachedData) !== JSON.stringify(cloudData);
+                if (isChanged || force) {
+                    this.setCache(cloudData);
+                    this.processData(cloudData);
+                    if (UI.overlay) UI.refreshDatabaseView();
+                }
+            } catch (e) {
+                if (force) throw e;
+                Logger.warn(`Background database sync failure: ${e.message}`);
+            }
         },
 
         fetch() {
@@ -648,7 +728,7 @@
         },
 
         // Keeps every open tab's copy of the pick + roll history in sync the
-        // moment another tab generates or regenerates, without polling.
+        // moment another tab generates or rerolls, without polling.
         _setupCrossTabSync() {
             if (typeof GM_addValueChangeListener !== 'function') return;
             GM_addValueChangeListener(CONFIG.MOTD_STORAGE_KEY, (key, oldValue, newValue, remote) => {
@@ -712,8 +792,8 @@
             return { entry, reason: entry ? null : 'error' };
         },
 
-        /** Forces a new pick regardless of cooldown state — used by the manual "Regenerate" action. */
-        regenerate() {
+        /** Forces a new pick regardless of cooldown state — used by the manual "Reroll" action. */
+        reroll() {
             return this._generate(this._flattenMembers());
         },
 
@@ -1524,6 +1604,7 @@
         diagnosticsContainer: null,
         diagnosticsBody: null,
         _previousView: null,
+        _previousGroupsSearch: null,
 
         searchInput: null,
         crudInput: null,
@@ -1868,8 +1949,13 @@
                 }
                 .${CONFIG.UI_PREFIX}-icon-btn:hover { background: var(--tm-border); border-color: var(--tm-border-focus); }
                 .${CONFIG.UI_PREFIX}-icon-btn svg { width: 1.1rem; height: 1.1rem; fill: var(--tm-text-main); transition: fill 0.2s; }
+                /* Shared "active" look for any icon button — accent border +
+                   accent icon, background stays as-is. Used consistently by
+                   the CRUD edit toggle and the MOTD trigger button alike. */
+                .${CONFIG.UI_PREFIX}-icon-btn-active { border-color: var(--tm-primary); }
+                .${CONFIG.UI_PREFIX}-icon-btn-active svg { fill: var(--tm-primary); }
 
-                @keyframes tmSpin { 100% { transform: rotate(360deg); } }
+                @keyframes tmSpin { 100% { transform: rotate(-360deg); } }
                 .${CONFIG.UI_PREFIX}-spin svg { animation: tmSpin 1s linear infinite; }
 
                 .${CONFIG.UI_PREFIX}-notification-dot {
@@ -2078,11 +2164,11 @@
                     color: var(--tm-text-subtle); font-weight: 600;
                     padding-right: 2.6rem;
                 }
-                .${CONFIG.UI_PREFIX}-motd-regen-btn {
+                .${CONFIG.UI_PREFIX}-motd-reroll-btn {
                     position: absolute;
                     top: 0.65rem; right: 0.9rem;
                 }
-                .${CONFIG.UI_PREFIX}-motd-regen-btn.regen-cooldown { opacity: 0.4; pointer-events: none; }
+                .${CONFIG.UI_PREFIX}-motd-reroll-btn.reroll-cooldown { opacity: 0.4; pointer-events: none; }
                 .${CONFIG.UI_PREFIX}-motd-name {
                     display: block; width: 100%; margin-top: 0.2rem;
                     padding-right: 2.6rem; box-sizing: border-box;
@@ -3329,12 +3415,12 @@
 
         _createMotdTriggerBtn() {
             const btn = document.createElement('div');
-            btn.className = `${CONFIG.UI_PREFIX}-icon-btn`;
+            btn.className = `${CONFIG.UI_PREFIX}-icon-btn ${CONFIG.UI_PREFIX}-icon-btn-active`;
             btn.appendChild(this._createSVG(ICONS.dice, '0 0 24 24', 'evenodd'));
             btn.title = "Random Member of the Day";
             btn.setAttribute('tabindex', '0');
             btn.setAttribute('role', 'button');
-            btn.setAttribute('aria-expanded', 'false');
+            btn.setAttribute('aria-expanded', 'true');
             btn.setAttribute('aria-label', 'Show random member of the day');
             const trigger = (e) => {
                 e.stopPropagation();
@@ -3379,17 +3465,21 @@
             }
             section.classList.add(openClass);
             triggerBtn.setAttribute('aria-expanded', 'true');
+            triggerBtn.classList.add(`${CONFIG.UI_PREFIX}-icon-btn-active`);
             this._renderMotdCardContent();
         },
 
         _collapseMotdSection() {
             if (!this._motdSectionEl) return;
             this._motdSectionEl.classList.remove(`${CONFIG.UI_PREFIX}-motd-section-open`);
-            if (this._motdTriggerBtnEl) this._motdTriggerBtnEl.setAttribute('aria-expanded', 'false');
+            if (this._motdTriggerBtnEl) {
+                this._motdTriggerBtnEl.setAttribute('aria-expanded', 'false');
+                this._motdTriggerBtnEl.classList.remove(`${CONFIG.UI_PREFIX}-icon-btn-active`);
+            }
             this._stopMotdCountdown();
         },
 
-        // Called by MOTD._setupCrossTabSync() when another tab regenerates
+        // Called by MOTD._setupCrossTabSync() when another tab rerolls
         // the pick, so an already-open section reflects it immediately.
         onMotdRemoteUpdate() {
             if (this._motdSectionEl && this._motdSectionEl.classList.contains(`${CONFIG.UI_PREFIX}-motd-section-open`)) {
@@ -3427,24 +3517,35 @@
             label.className = `${CONFIG.UI_PREFIX}-motd-label`;
             label.textContent = 'Member of the Day';
 
-            const regenBtn = document.createElement('div');
-            regenBtn.className = `${CONFIG.UI_PREFIX}-icon-btn ${CONFIG.UI_PREFIX}-motd-regen-btn`;
-            regenBtn.appendChild(this._createSVG(ICONS.sync));
-            regenBtn.title = "Regenerate";
-            regenBtn.setAttribute('tabindex', '0');
-            regenBtn.setAttribute('role', 'button');
-            regenBtn.setAttribute('aria-label', 'Regenerate random member');
-            const doRegenerate = () => {
-                if (Date.now() < (this._motdRegenCooldownUntil || 0)) return;
-                this._motdRegenCooldownUntil = Date.now() + CONFIG.MOTD_REGEN_COOLDOWN_MS;
-                MOTD.regenerate();
+            const rerollBtn = document.createElement('div');
+            rerollBtn.className = `${CONFIG.UI_PREFIX}-icon-btn ${CONFIG.UI_PREFIX}-motd-reroll-btn`;
+            rerollBtn.appendChild(this._createSVG(ICONS.sync));
+            rerollBtn.title = "Reroll";
+            rerollBtn.setAttribute('tabindex', '0');
+            rerollBtn.setAttribute('role', 'button');
+            rerollBtn.setAttribute('aria-label', 'Reroll random member');
+            const doReroll = () => {
+                if (Date.now() < (this._motdRerollCooldownUntil || 0)) return;
+                this._motdRerollCooldownUntil = Date.now() + CONFIG.MOTD_REROLL_COOLDOWN_MS;
+                MOTD.reroll();
                 this._renderMotdCardContent();
+                // _renderMotdCardContent() just replaced this entire card's
+                // DOM (including this very button), so the spin class must
+                // be applied to the freshly rendered button, not this stale,
+                // now-detached one — otherwise nothing visible happens.
+                const freshRerollBtn = this._motdCardEl
+                    ? this._motdCardEl.querySelector(`.${CONFIG.UI_PREFIX}-motd-reroll-btn`)
+                    : null;
+                if (freshRerollBtn) {
+                    freshRerollBtn.classList.add(`${CONFIG.UI_PREFIX}-spin`);
+                    setTimeout(() => freshRerollBtn.classList.remove(`${CONFIG.UI_PREFIX}-spin`), 1000);
+                }
             };
-            regenBtn.onclick = doRegenerate;
-            regenBtn.addEventListener('keydown', (e) => {
-                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); doRegenerate(); }
+            rerollBtn.onclick = doReroll;
+            rerollBtn.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); doReroll(); }
             });
-            this._applyMotdRegenCooldownState(regenBtn);
+            this._applyMotdRerollCooldownState(rerollBtn);
 
             header.appendChild(label);
 
@@ -3494,7 +3595,7 @@
             card.appendChild(name);
             card.appendChild(metaRow);
             card.appendChild(progressTrack);
-            card.appendChild(regenBtn);
+            card.appendChild(rerollBtn);
 
             this._updateMotdCountdownText(countdown, entry);
             this._updateMotdProgress(progressFill, entry);
@@ -3504,18 +3605,18 @@
             this._syncMotdCountdownToVisibility();
         },
 
-        // Visually disables the regen button for whatever cooldown time remains
+        // Visually disables the reroll button for whatever cooldown time remains
         // (covers both the freshly-clicked button and the freshly re-rendered
-        // one after regenerate), then re-enables it automatically on expiry.
-        _applyMotdRegenCooldownState(btn) {
-            const remaining = (this._motdRegenCooldownUntil || 0) - Date.now();
+        // one after reroll), then re-enables it automatically on expiry.
+        _applyMotdRerollCooldownState(btn) {
+            const remaining = (this._motdRerollCooldownUntil || 0) - Date.now();
             if (remaining <= 0) return;
 
-            btn.classList.add('regen-cooldown');
+            btn.classList.add('reroll-cooldown');
             btn.setAttribute('aria-disabled', 'true');
             setTimeout(() => {
                 if (!btn.isConnected) return;
-                btn.classList.remove('regen-cooldown');
+                btn.classList.remove('reroll-cooldown');
                 btn.removeAttribute('aria-disabled');
             }, remaining);
         },
@@ -3630,6 +3731,10 @@
             }
             if (type === 'trending' && CONFIG.MOTD_ENABLED) {
                 panel.appendChild(this._createMotdSection());
+                // Shown by default now — previously required pressing the
+                // dice button first. The button itself still toggles it.
+                this._motdSectionEl.classList.add(`${CONFIG.UI_PREFIX}-motd-section-open`);
+                this._renderMotdCardContent();
             }
 
             const wrapper = document.createElement('div');
@@ -3744,6 +3849,7 @@
         _openGroupInMainPanel(group) {
             this.selectedGroup = group;
             this.currentView = 'members';
+            this._previousGroupsSearch = this.searchInput ? this.searchInput.value : '';
             if (this.searchInput) this.searchInput.value = '';
 
             requestAnimationFrame(() => this.updateListData(''));
@@ -3788,6 +3894,18 @@
             mainPanelBox.addEventListener('animationend', () => {
                 mainPanelBox.classList.remove(glowClass);
             }, { once: true });
+        },
+
+        // Called after a remote Database change (cross-tab listener or
+        // background poll) so groups/members/links reflect the update live,
+        // the same way refreshSidePanels() does for History.
+        refreshDatabaseView() {
+            if (!this.overlay) return;
+            if (this.currentView === 'groups' || this.currentView === 'members') {
+                this.updateListData(this.searchInput ? this.searchInput.value.toLowerCase().trim() : '');
+            } else if (this.currentView === 'links') {
+                this.renderLinks();
+            }
         },
 
         refreshSidePanels() {
@@ -3966,8 +4084,10 @@
                 } else if (this.currentView === 'members') {
                     this.currentView = 'groups';
                     this.selectedGroup = null;
-                    this.searchInput.value = '';
-                    this.updateListData('');
+                    const restoreSearch = this._previousGroupsSearch || '';
+                    this.searchInput.value = restoreSearch;
+                    this.updateListData(restoreSearch.toLowerCase().trim());
+                    this._previousGroupsSearch = null;
                 }
                 this.updateVisibility();
                 if (this.currentView === 'links') this.renderLinks();
@@ -4187,6 +4307,9 @@
             this.linkUrlInput.placeholder = "URL";
             this.linkUrlInput.type = "url";
             this.linkUrlInput.autocomplete = "off";
+            this.linkUrlInput.addEventListener('paste', () => {
+                setTimeout(() => this._autofillLinkTitleFromUrl(), 0);
+            });
 
             this.linkTextInput = document.createElement('input');
             this.linkTextInput.className = `${CONFIG.UI_PREFIX}-settings-input`;
@@ -4384,6 +4507,7 @@
                     const itemData = this.currentListData[index];
                     this.selectedGroup = itemData.group;
                     this.currentView = 'members';
+                    this._previousGroupsSearch = this.searchInput ? this.searchInput.value : '';
                     this.searchInput.value = '';
                     this.updateListData('');
                     return;
@@ -4690,18 +4814,10 @@
                     this.crudBarContainer.style.display = 'flex';
                     this.crudInput.placeholder = this.currentView === 'groups' ? 'Enter new group name...' : 'Enter new member name...';
                     this.crudBtn.textContent = this.currentView === 'groups' ? 'Add Group' : 'Add Member';
-                    if (this.editBtn) {
-                        this.editBtn.style.borderColor = 'var(--tm-primary)';
-                        const svg = this.editBtn.querySelector('svg');
-                        if (svg) svg.style.fill = 'var(--tm-primary)';
-                    }
+                    if (this.editBtn) this.editBtn.classList.add(`${CONFIG.UI_PREFIX}-icon-btn-active`);
                 } else {
                     this.crudBarContainer.style.display = 'none';
-                    if (this.editBtn) {
-                        this.editBtn.style.borderColor = '';
-                        const svg = this.editBtn.querySelector('svg');
-                        if (svg) svg.style.fill = '';
-                    }
+                    if (this.editBtn) this.editBtn.classList.remove(`${CONFIG.UI_PREFIX}-icon-btn-active`);
                 }
             }
         },
@@ -4710,6 +4826,30 @@
         // the Clipboard API first (older browsers / insecure contexts won't have
         // it) and reports any failure — denied permission, empty clipboard, etc. —
         // as a human-readable toast rather than a silent no-op.
+        // Runs right after a URL is pasted into the Link URL field. If the
+        // pasted domain matches a Title already saved in the database
+        // (case-insensitively), autofills that exact Title and jumps focus
+        // to Notes; otherwise leaves Title blank and jumps focus there so
+        // the user can type a new one.
+        _autofillLinkTitleFromUrl() {
+            if (!this.linkUrlInput || !this.linkTextInput || !this.linkNotesInput) return;
+
+            const domain = Utils.extractDomainName(this.linkUrlInput.value.trim());
+            if (!domain) return;
+
+            const aliasedDomain = CONFIG.LINK_TITLE_DOMAIN_ALIASES[domain.toLowerCase()] || domain;
+            const knownTitles = Database.getAllLinkTitles();
+            const match = knownTitles.find(title => title.toLowerCase() === aliasedDomain.toLowerCase());
+
+            if (match) {
+                this.linkTextInput.value = match;
+                this.linkTextInput.dispatchEvent(new Event('input', { bubbles: true }));
+                this.linkNotesInput.focus();
+            } else {
+                this.linkTextInput.focus();
+            }
+        },
+
         async pasteFromClipboard(inputEl) {
             if (!navigator.clipboard || !navigator.clipboard.readText) {
                 this.showToast('Clipboard access is not available in this browser.', 'error');
@@ -4723,6 +4863,11 @@
                 }
                 inputEl.value = text.trim();
                 inputEl.dispatchEvent(new Event('input', { bubbles: true }));
+                if (inputEl === this.linkUrlInput) {
+                    this._autofillLinkTitleFromUrl();
+                } else {
+                    inputEl.focus();
+                }
             } catch (err) {
                 Logger.error('Clipboard read failed', err);
                 this.showToast('Could not read from clipboard. Check browser permissions.', 'error');
@@ -4993,6 +5138,7 @@
                             e.stopPropagation();
                             this.selectedGroup = itemData.group;
                             this.currentView = 'members';
+                            this._previousGroupsSearch = this.searchInput ? this.searchInput.value : '';
                             if (this.searchInput) this.searchInput.value = '';
                             this.updateListData('');
                         };
@@ -5083,6 +5229,7 @@
             if (itemData.type === 'group') {
                 this.selectedGroup = itemData.group;
                 this.currentView = 'members';
+                this._previousGroupsSearch = this.searchInput ? this.searchInput.value : '';
                 this.searchInput.value = '';
                 this.updateListData('');
             } else {
@@ -5513,6 +5660,7 @@
             if (this.overlay) return;
             if (CloudAPI.isValid() && !CloudAPI.isRateLimited()) {
                 Storage.fetchCloudBackground(true);
+                Database.fetchCloudBackground(true);
             }
 
             if (!Database.isLoaded) {
@@ -5533,6 +5681,7 @@
             this.syncInterval = setInterval(() => {
                 if (CloudAPI.isValid() && !CloudAPI.isRateLimited()) {
                     Storage.fetchCloudBackground(true);
+                    Database.fetchCloudBackground(true);
                 }
             }, CONFIG.CLOUD_MENU_POLL_MS);
             this.syncTimeInterval = setInterval(() => {
@@ -5611,6 +5760,7 @@
             setInterval(() => {
                 if (document.visibilityState === 'visible' && !UI.overlay) {
                     Storage.fetchCloudBackground();
+                    Database.fetchCloudBackground();
                 }
             }, CONFIG.CLOUD_HISTORY_THROTTLE_MS);
             Logger.info('Initialized Xiv Media Downloader v24.6');
@@ -5625,6 +5775,7 @@
             document.addEventListener('visibilitychange', () => {
                 if (document.visibilityState === 'visible') {
                     Storage.fetchCloudBackground();
+                    Database.fetchCloudBackground();
                 }
             });
             document.addEventListener('mousemove', (e) => {
