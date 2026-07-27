@@ -2,7 +2,7 @@
 // @name         [Universal] Xiv Media Downloader
 // @namespace    https://github.com/myouisaur/Universal
 // @icon         data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23FF4081'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 11h3l-4 4-4-4h3V8h2v5z'/%3E%3C/svg%3E
-// @version      27.3
+// @version      27.6
 // @description  Organizes, tracks, and saves categorized media files through a centralized overlay.
 // @author       Xiv
 // @match        *://*/*
@@ -162,6 +162,20 @@
             } catch (e) {
                 return '';
             }
+        },
+
+        // Removes one or more trailing slashes so saved link URLs are
+        // consistent (e.g. ".../test_username/" -> ".../test_username").
+        stripTrailingSlash(url) {
+            return url.replace(/\/+$/, '');
+        },
+
+        // Bare email check — deliberately excludes ":" and "/" before the
+        // "@" so a URL with userinfo (e.g. "http://user@host") or an
+        // already-prefixed "mailto:" address isn't misdetected as a raw
+        // email paste.
+        isEmailAddress(value) {
+            return /^[^\s@:/]+@[^\s@]+\.[^\s@]+$/.test(value);
         },
         debounce(fn, delay) {
             let timeoutId;
@@ -578,10 +592,92 @@
             delete cleanData._xiv_links;
             this.data = cleanData;
             this.sortedGroups = Object.keys(this.data).sort((a, b) => a.localeCompare(b));
+
+            const prunedCount = this.pruneOrphanedLinks();
+            if (prunedCount > 0) this._persistPrunedLinks();
         },
+
+        // Pushes the cleaned metaLinks back to db.json after an automatic
+        // prune, so orphaned entries are actually removed from the source
+        // of truth instead of just being hidden locally until the next
+        // fetch brings them right back. Silent (no toast) — this is
+        // background maintenance, not a user-initiated save.
+        _persistPrunedLinks() {
+            if (!CloudAPI.isValid() || CloudAPI.isRateLimited()) return;
+            this.saveCloud().catch(e => Logger.warn(`Failed to persist orphaned link cleanup: ${e.message}`));
+        },
+
+        // Checks whether a link id ("group::X" or "member::X::Y") still
+        // points at a group/member that actually exists. Anything in an
+        // unrecognized format is treated as invalid too.
+        _isLinkIdValid(id) {
+            if (id.startsWith('group::')) {
+                const groupName = id.slice('group::'.length);
+                return !!this.data[groupName];
+            }
+            if (id.startsWith('member::')) {
+                const rest = id.slice('member::'.length);
+                const sepIndex = rest.indexOf('::');
+                if (sepIndex === -1) return false;
+                const groupName = rest.slice(0, sepIndex);
+                const memberName = rest.slice(sepIndex + 2);
+                return !!(this.data[groupName] && this.data[groupName].includes(memberName));
+            }
+            return false;
+        },
+
+        // Safety net for links left behind by a deleted group/member —
+        // whether removed locally, on another device, or via a stale/manually
+        // edited db.json. Runs automatically after every processData() call.
+        pruneOrphanedLinks() {
+            let prunedCount = 0;
+            Object.keys(this.metaLinks).forEach(id => {
+                if (!this._isLinkIdValid(id)) {
+                    delete this.metaLinks[id];
+                    prunedCount++;
+                }
+            });
+            if (prunedCount > 0) {
+                Logger.warn(`Pruned ${prunedCount} orphaned link ${prunedCount === 1 ? 'entry' : 'entries'} with no matching group/member.`);
+            }
+            return prunedCount;
+        },
+
+        // Moves a group's own links plus every member's links to the new
+        // group name after a rename, instead of letting them get pruned.
+        _migrateGroupLinks(oldGroup, newGroup) {
+            const oldGroupId = `group::${oldGroup}`;
+            const newGroupId = `group::${newGroup}`;
+            if (this.metaLinks[oldGroupId]) {
+                this.metaLinks[newGroupId] = this.metaLinks[oldGroupId];
+                delete this.metaLinks[oldGroupId];
+            }
+            (this.data[newGroup] || []).forEach(memberName => {
+                const oldMemberId = `member::${oldGroup}::${memberName}`;
+                const newMemberId = `member::${newGroup}::${memberName}`;
+                if (this.metaLinks[oldMemberId]) {
+                    this.metaLinks[newMemberId] = this.metaLinks[oldMemberId];
+                    delete this.metaLinks[oldMemberId];
+                }
+            });
+        },
+
 
         getLinks(id) {
             return this.metaLinks[id] || [];
+        },
+
+        // Checks whether any saved link under this group/member id matches
+        // the search term against its URL, Title, or Notes (case-insensitive).
+        // searchVal is expected to already be lowercased/trimmed by the caller.
+        linksMatchSearch(id, searchVal) {
+            const links = this.metaLinks[id];
+            if (!links || links.length === 0 || !searchVal) return false;
+            return links.some(link =>
+                (link.u && link.u.toLowerCase().includes(searchVal)) ||
+                (link.t && link.t.toLowerCase().includes(searchVal)) ||
+                (link.n && link.n.toLowerCase().includes(searchVal))
+            );
         },
 
         // Distinct list of Titles already used across every saved link, for
@@ -601,12 +697,12 @@
 
         addLink(id, url, title, notes) {
             if (!this.metaLinks[id]) this.metaLinks[id] = [];
-            this.metaLinks[id].push({ u: url.trim(), t: title.trim(), n: (notes || '').trim() });
+            this.metaLinks[id].push({ u: Utils.stripTrailingSlash(url.trim()), t: title.trim(), n: (notes || '').trim() });
         },
 
         editLink(id, index, url, title, notes) {
             if (this.metaLinks[id] && this.metaLinks[id][index]) {
-                this.metaLinks[id][index] = { u: url.trim(), t: title.trim(), n: (notes || '').trim() };
+                this.metaLinks[id][index] = { u: Utils.stripTrailingSlash(url.trim()), t: title.trim(), n: (notes || '').trim() };
             }
         },
 
@@ -653,6 +749,7 @@
             if (!normalized || this.data[normalized] || !this.data[oldName]) return false;
             this.data[normalized] = this.data[oldName];
             delete this.data[oldName];
+            this._migrateGroupLinks(oldName, normalized);
 
             const payload = { ...this.data, _xiv_links: this.metaLinks };
             this.processData(payload);
@@ -672,6 +769,7 @@
             const index = this.data[groupName].indexOf(memberName);
             if (index === -1) return false;
             this.data[groupName].splice(index, 1);
+            delete this.metaLinks[`member::${groupName}::${memberName}`];
             return true;
         },
 
@@ -682,6 +780,13 @@
             if (index === -1) return false;
             this.data[groupName][index] = normalized;
             this.data[groupName].sort((a, b) => a.localeCompare(b));
+
+            const oldId = `member::${groupName}::${oldName}`;
+            const newId = `member::${groupName}::${normalized}`;
+            if (this.metaLinks[oldId]) {
+                this.metaLinks[newId] = this.metaLinks[oldId];
+                delete this.metaLinks[oldId];
+            }
             return true;
         }
     };
@@ -4596,7 +4701,7 @@
                 }
             });
             this.searchInput.oninput = Utils.debounce((e) => {
-                this.updateListData(e.target.value.toLowerCase().trim());
+                this.updateListData(e.target.value.toLowerCase().trim(), { jumpToMain: true });
             }, 150);
 
             // --- Footer ---
@@ -4822,19 +4927,34 @@
             }
         },
 
-        // Reads the clipboard's current text into the given input. Feature-detects
-        // the Clipboard API first (older browsers / insecure contexts won't have
-        // it) and reports any failure — denied permission, empty clipboard, etc. —
-        // as a human-readable toast rather than a silent no-op.
-        // Runs right after a URL is pasted into the Link URL field. If the
-        // pasted domain matches a Title already saved in the database
-        // (case-insensitively), autofills that exact Title and jumps focus
-        // to Notes; otherwise leaves Title blank and jumps focus there so
-        // the user can type a new one.
+        // Runs right after a URL is pasted into the Link URL field.
+        // - If the pasted value is a bare email address, converts it to a
+        //   mailto: link, sets Title to "Email", copies the address into
+        //   Notes, and focuses Notes.
+        // - Otherwise, strips any trailing slash from the URL, then checks
+        //   whether the domain matches a Title already saved in the
+        //   database (case-insensitively, via the alias map). On a match,
+        //   autofills that exact Title and jumps focus to Notes; otherwise
+        //   leaves Title blank and jumps focus there so the user can type
+        //   a new one.
         _autofillLinkTitleFromUrl() {
             if (!this.linkUrlInput || !this.linkTextInput || !this.linkNotesInput) return;
 
-            const domain = Utils.extractDomainName(this.linkUrlInput.value.trim());
+            const rawValue = this.linkUrlInput.value.trim();
+            if (!rawValue) return;
+
+            if (Utils.isEmailAddress(rawValue)) {
+                this._autofillLinkFieldsForEmail(rawValue);
+                return;
+            }
+
+            const normalizedUrl = Utils.stripTrailingSlash(rawValue);
+            if (normalizedUrl !== this.linkUrlInput.value) {
+                this.linkUrlInput.value = normalizedUrl;
+                this.linkUrlInput.dispatchEvent(new Event('input', { bubbles: true }));
+            }
+
+            const domain = Utils.extractDomainName(normalizedUrl);
             if (!domain) return;
 
             const aliasedDomain = CONFIG.LINK_TITLE_DOMAIN_ALIASES[domain.toLowerCase()] || domain;
@@ -4850,6 +4970,25 @@
             }
         },
 
+        // Converts a bare pasted email address into a full mailto: link
+        // entry, autofilling all three link fields and focusing Notes.
+        _autofillLinkFieldsForEmail(email) {
+            this.linkUrlInput.value = `mailto:${email}`;
+            this.linkUrlInput.dispatchEvent(new Event('input', { bubbles: true }));
+
+            this.linkTextInput.value = 'Email';
+            this.linkTextInput.dispatchEvent(new Event('input', { bubbles: true }));
+
+            this.linkNotesInput.value = email;
+            this.linkNotesInput.dispatchEvent(new Event('input', { bubbles: true }));
+
+            this.linkNotesInput.focus();
+        },
+
+        // Reads the clipboard's current text into the given input. Feature-detects
+        // the Clipboard API first (older browsers / insecure contexts won't have
+        // it) and reports any failure — denied permission, empty clipboard, etc. —
+        // as a human-readable toast rather than a silent no-op.
         async pasteFromClipboard(inputEl) {
             if (!navigator.clipboard || !navigator.clipboard.readText) {
                 this.showToast('Clipboard access is not available in this browser.', 'error');
@@ -5027,19 +5166,22 @@
             this.linksListInner.appendChild(fragment);
         },
 
-        updateListData(searchVal) {
+        updateListData(searchVal, { jumpToMain = false } = {}) {
             this.currentListData = [];
             const isSearch = searchVal.length > 0;
 
             if (this.currentView === 'groups') {
                 Database.sortedGroups.forEach(gName => {
-                    const groupMatches = !isSearch || gName.toLowerCase().includes(searchVal);
-                    if (groupMatches) {
+                    const groupNameMatches = !isSearch || gName.toLowerCase().includes(searchVal);
+                    const groupLinkMatches = isSearch && Database.linksMatchSearch(`group::${gName}`, searchVal);
+                    if (groupNameMatches || groupLinkMatches) {
                         this.currentListData.push({ type: 'group', group: gName, label: gName, badge: 'Group' });
                     }
                     if (isSearch) {
                         Database.data[gName].forEach(mName => {
-                            if (mName.toLowerCase().includes(searchVal)) {
+                            const memberNameMatches = mName.toLowerCase().includes(searchVal);
+                            const memberLinkMatches = Database.linksMatchSearch(`member::${gName}::${mName}`, searchVal);
+                            if (memberNameMatches || memberLinkMatches) {
                                 this.currentListData.push({ type: 'member', group: gName, member: mName, label: mName, badge: gName });
                             }
                         });
@@ -5048,7 +5190,9 @@
             } else if (this.currentView === 'members') {
                 if (Database.data[this.selectedGroup]) {
                     Database.data[this.selectedGroup].forEach(mName => {
-                        if (!isSearch || mName.toLowerCase().includes(searchVal)) {
+                        const memberNameMatches = !isSearch || mName.toLowerCase().includes(searchVal);
+                        const memberLinkMatches = isSearch && Database.linksMatchSearch(`member::${this.selectedGroup}::${mName}`, searchVal);
+                        if (memberNameMatches || memberLinkMatches) {
                             this.currentListData.push({ type: 'member', group: this.selectedGroup, member: mName, label: mName, badge: '' });
                         }
                     });
@@ -5060,7 +5204,7 @@
             this.updateVisibility();
             this.renderVirtualList();
 
-            if (this._carousel.isActive && this._carousel.currentId !== 'main') {
+            if (jumpToMain && this._carousel.isActive && this._carousel.currentId !== 'main') {
                 this._carouselGoTo('main');
             }
         },
