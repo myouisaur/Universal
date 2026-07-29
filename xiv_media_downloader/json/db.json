@@ -2454,11 +2454,6 @@
         "u": "mailto:test@email.com",
         "t": "Email",
         "n": "test@email.com"
-      },
-      {
-        "u": "5",
-        "t": "5",
-        "n": "5"
       }
     ]
   },
