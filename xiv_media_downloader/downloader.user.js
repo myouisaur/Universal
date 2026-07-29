@@ -2,7 +2,7 @@
 // @name         [Universal] Xiv Media Downloader
 // @namespace    https://github.com/myouisaur/Universal
 // @icon         data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23FF4081'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 11h3l-4 4-4-4h3V8h2v5z'/%3E%3C/svg%3E
-// @version      27.6
+// @version      29.5
 // @description  Organizes, tracks, and saves categorized media files through a centralized overlay.
 // @author       Xiv
 // @match        *://*/*
@@ -65,6 +65,11 @@
         CLOUD_DB_THROTTLE_MS: 30000,
         CLOUD_MENU_POLL_MS: 10000,
         HISTORY_MAX_DAYS: 99999,
+        // How long an incoming background/cross-tab database sync is held
+        // back after a local edit (link add/edit/delete), so a fetch that
+        // was already in flight can't land with pre-edit data and silently
+        // revert what the user just saved. Manual "Force Sync" bypasses this.
+        DB_LOCAL_WRITE_GUARD_MS: 15000,
 
         // Trending Score (Storage.getTrendingStats/getGroupTrendingStats)
         TRENDING_SCOPE_DAYS: 99999,
@@ -94,17 +99,20 @@
             'x': 'twitter'
         },
 
-        // Random Member of the Day (MOTD)
-        MOTD_ENABLED: true,
-        MOTD_STORAGE_KEY: 'xiv_media_dl_motd',
-        MOTD_HISTORY_KEY: 'xiv_media_dl_motd_history',
-        MOTD_COOLDOWN_HOURS: 24,
-        MOTD_NO_REPEAT_ROLLS: 20,
-        MOTD_COUNTDOWN_TICK_MS: 1000,
-        MOTD_REROLL_COOLDOWN_MS: 1000
+        // Featured Member — Weighted Lottery
+        FEATURED_ENABLED: true,
+        FEATURED_STORAGE_KEY: 'xiv_media_dl_featured',
+        FEATURED_HISTORY_KEY: 'xiv_media_dl_featured_history',
+        FEATURED_NO_REPEAT_ROLLS: 50,
+        FEATURED_REROLL_COOLDOWN_MS: 1000,
+        // Every member starts with this many tickets regardless of activity;
+        // bonus tickets on top of this come from their Trending score.
+        FEATURED_BASE_TICKETS: 1,
+
+        // Comments (per group/member notes, independent of Links)
+        COMMENT_MAX_LENGTH: 2000,
+        COMMENT_SAVE_DEBOUNCE_MS: 800
     };
-    // Derived from MOTD_COOLDOWN_HOURS so the hour value stays the single source of truth.
-    CONFIG.MOTD_COOLDOWN_MS = CONFIG.MOTD_COOLDOWN_HOURS * 60 * 60 * 1000;
 
     // =========================================================
     // ICONS DICTIONARY
@@ -127,7 +135,9 @@
         link: "M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z",
         plus: "M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z",
         dice: "M7,3 H17 A4,4 0 0 1 21,7 V17 A4,4 0 0 1 17,21 H7 A4,4 0 0 1 3,17 V7 A4,4 0 0 1 7,3 Z M6.4,8 A1.6,1.6 0 1,0 9.6,8 A1.6,1.6 0 1,0 6.4,8 Z M10.4,12 A1.6,1.6 0 1,0 13.6,12 A1.6,1.6 0 1,0 10.4,12 Z M14.4,16 A1.6,1.6 0 1,0 17.6,16 A1.6,1.6 0 1,0 14.4,16 Z",
-        paste: "M19 3h-4.18C14.4 1.84 13.3 1 12 1c-1.3 0-2.4.84-2.82 2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 0c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zm7 16H5V5h2v3h10V5h2v14z"
+        paste: "M19 3h-4.18C14.4 1.84 13.3 1 12 1c-1.3 0-2.4.84-2.82 2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 0c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zm7 16H5V5h2v3h10V5h2v14z",
+        ticket: "M20 12v-2c0-1.11-.89-2-2-2H6c-1.11 0-2 .89-2 2v2c1.11 0 2 .89 2 2s-.89 2-2 2v2c0 1.11.89 2 2 2h12c1.11 0 2-.89 2-2v-2c-1.11 0-2-.89-2-2s.89-2 2-2zm-9 6.5h-1v-1h1v1zm0-2.5h-1v-2h1v2zm0-3h-1v-2h1v2zm0-3h-1v-2h1v2z",
+        chevronDown: "M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6z"
     };
 
     // =========================================================
@@ -168,6 +178,19 @@
         // consistent (e.g. ".../test_username/" -> ".../test_username").
         stripTrailingSlash(url) {
             return url.replace(/\/+$/, '');
+        },
+
+        // Cuts off everything from the first "?" or "#" onward, so pasted
+        // links (tracking params, share-link fragments, etc.) are saved as
+        // plain clean URLs, e.g.
+        // "https://linktr.ee/name?utm_source=ig&utm_medium=social" ->
+        // "https://linktr.ee/name". Falls back to the original string if
+        // nothing to strip. Deliberately unconditional (not limited to a
+        // known tracking-param list) — every query string and fragment is
+        // dropped regardless of content.
+        stripQueryAndFragment(url) {
+            const cutIndex = url.search(/[?#]/);
+            return cutIndex === -1 ? url : url.slice(0, cutIndex);
         },
 
         // Bare email check — deliberately excludes ":" and "/" before the
@@ -428,10 +451,13 @@
     const Database = {
         data: {},
         metaLinks: {},
+        metaComments: {},
         sortedGroups: [],
         isLoaded: false,
         isLoading: false,
         _lastCloudFetch: 0,
+        _lastLocalWriteAt: 0,
+        _saveQueue: Promise.resolve(),
 
         async init() {
             this.isLoading = true;
@@ -463,12 +489,12 @@
             }
             if (UI.overlay) {
                 UI.updateListData(UI.searchInput ? UI.searchInput.value.toLowerCase().trim() : '');
-                // The MOTD card now renders by default before this data exists
+                // The Featured card now renders by default before this data exists
                 // (previously it only ever opened after the user clicked the
                 // dice button, by which point loading had long finished), so
                 // give it the same "data just arrived" refresh used for
                 // cross-tab updates.
-                UI.onMotdRemoteUpdate();
+                UI.onFeaturedRemoteUpdate();
             }
         },
 
@@ -495,6 +521,10 @@
         fetchBackground() {
             this.fetch()
                 .then(data => {
+                    if (this._isWithinLocalWriteGuard()) {
+                        Logger.info('Skipped background DB refresh — recent local edit still settling.');
+                        return;
+                    }
                     this.setCache(data);
                     this.processData(data);
                 })
@@ -508,6 +538,10 @@
             if (typeof GM_addValueChangeListener !== 'function') return;
             GM_addValueChangeListener(CONFIG.DB_CACHE_KEY, (key, oldValue, newValue, remote) => {
                 if (!remote) return;
+                if (this._isWithinLocalWriteGuard()) {
+                    Logger.info('Skipped cross-tab DB sync — recent local edit still settling.');
+                    return;
+                }
                 try {
                     const cacheObj = JSON.parse(newValue || 'null');
                     if (cacheObj && cacheObj.data) {
@@ -527,6 +561,7 @@
         async fetchCloudBackground(force = false) {
             if (!CloudAPI.isValid() || CloudAPI.isRateLimited()) return;
             if (!force && Date.now() - this._lastCloudFetch < CONFIG.CLOUD_DB_THROTTLE_MS) return;
+            if (!force && this._isWithinLocalWriteGuard()) return;
             this._lastCloudFetch = Date.now();
 
             try {
@@ -578,38 +613,71 @@
             });
         },
 
+        // Marks "we just changed local data" so any background/cross-tab
+        // sync that was already in flight (and would otherwise land with
+        // stale pre-edit data) gets held back instead of silently
+        // overwriting the edit. See DB_LOCAL_WRITE_GUARD_MS.
+        _touchLocalWrite() {
+            this._lastLocalWriteAt = Date.now();
+        },
+
+        _isWithinLocalWriteGuard() {
+            return (Date.now() - this._lastLocalWriteAt) < CONFIG.DB_LOCAL_WRITE_GUARD_MS;
+        },
+
+        // Overlapping saveCloud() calls (e.g. adding two links back-to-back
+        // before the first request finishes) are chained through this queue
+        // instead of firing independently, so they always resolve in the
+        // order they were triggered. Each turn reads this.data/metaLinks
+        // fresh at execution time rather than from a snapshot taken at call
+        // time, so whichever save runs last always uploads the true latest
+        // state — an older, slower request can no longer complete after a
+        // newer one and clobber it.
         async saveCloud() {
             if (!CloudAPI.isValid()) throw new Error('Cloud credentials missing.');
-            const payload = { ...this.data, _xiv_links: this.metaLinks };
-            await CloudAPI.put(CONFIG.GITHUB_DB_PATH, payload);
-            this.setCache(payload);
+
+            const runSave = async () => {
+                const payload = { ...this.data, _xiv_links: this.metaLinks, _xiv_comments: this.metaComments };
+                await CloudAPI.put(CONFIG.GITHUB_DB_PATH, payload);
+                this.setCache(payload);
+                this._touchLocalWrite();
+            };
+
+            const queued = this._saveQueue.then(runSave, runSave);
+            // Keep the queue chain alive even if this turn fails, without
+            // turning that failure into an unhandled rejection — the
+            // caller still gets the real rejection via the returned promise.
+            this._saveQueue = queued.catch(() => {});
+            return queued;
         },
 
         processData(data) {
             data = data || {};
             this.metaLinks = data._xiv_links || {};
+            this.metaComments = data._xiv_comments || {};
             const cleanData = { ...data };
             delete cleanData._xiv_links;
+            delete cleanData._xiv_comments;
             this.data = cleanData;
             this.sortedGroups = Object.keys(this.data).sort((a, b) => a.localeCompare(b));
 
             const prunedCount = this.pruneOrphanedLinks();
-            if (prunedCount > 0) this._persistPrunedLinks();
+            if (prunedCount > 0) this._persistPrunedMeta();
         },
 
-        // Pushes the cleaned metaLinks back to db.json after an automatic
-        // prune, so orphaned entries are actually removed from the source
-        // of truth instead of just being hidden locally until the next
-        // fetch brings them right back. Silent (no toast) — this is
+        // Pushes the cleaned metaLinks/metaComments back to db.json after an
+        // automatic prune, so orphaned entries are actually removed from the
+        // source of truth instead of just being hidden locally until the
+        // next fetch brings them right back. Silent (no toast) — this is
         // background maintenance, not a user-initiated save.
-        _persistPrunedLinks() {
+        _persistPrunedMeta() {
             if (!CloudAPI.isValid() || CloudAPI.isRateLimited()) return;
-            this.saveCloud().catch(e => Logger.warn(`Failed to persist orphaned link cleanup: ${e.message}`));
+            this.saveCloud().catch(e => Logger.warn(`Failed to persist orphaned metadata cleanup: ${e.message}`));
         },
 
-        // Checks whether a link id ("group::X" or "member::X::Y") still
-        // points at a group/member that actually exists. Anything in an
-        // unrecognized format is treated as invalid too.
+        // Checks whether a link/comment id ("group::X" or "member::X::Y")
+        // still points at a group/member that actually exists. Anything in
+        // an unrecognized format is treated as invalid too.
         _isLinkIdValid(id) {
             if (id.startsWith('group::')) {
                 const groupName = id.slice('group::'.length);
@@ -626,9 +694,10 @@
             return false;
         },
 
-        // Safety net for links left behind by a deleted group/member —
-        // whether removed locally, on another device, or via a stale/manually
-        // edited db.json. Runs automatically after every processData() call.
+        // Safety net for links/comments left behind by a deleted group/member
+        // — whether removed locally, on another device, or via a stale/
+        // manually edited db.json. Runs automatically after every
+        // processData() call.
         pruneOrphanedLinks() {
             let prunedCount = 0;
             Object.keys(this.metaLinks).forEach(id => {
@@ -637,13 +706,19 @@
                     prunedCount++;
                 }
             });
+            Object.keys(this.metaComments).forEach(id => {
+                if (!this._isLinkIdValid(id)) {
+                    delete this.metaComments[id];
+                    prunedCount++;
+                }
+            });
             if (prunedCount > 0) {
-                Logger.warn(`Pruned ${prunedCount} orphaned link ${prunedCount === 1 ? 'entry' : 'entries'} with no matching group/member.`);
+                Logger.warn(`Pruned ${prunedCount} orphaned link/comment ${prunedCount === 1 ? 'entry' : 'entries'} with no matching group/member.`);
             }
             return prunedCount;
         },
 
-        // Moves a group's own links plus every member's links to the new
+        // Moves a group's own links/comments plus every member's to the new
         // group name after a rename, instead of letting them get pruned.
         _migrateGroupLinks(oldGroup, newGroup) {
             const oldGroupId = `group::${oldGroup}`;
@@ -652,12 +727,20 @@
                 this.metaLinks[newGroupId] = this.metaLinks[oldGroupId];
                 delete this.metaLinks[oldGroupId];
             }
+            if (this.metaComments[oldGroupId]) {
+                this.metaComments[newGroupId] = this.metaComments[oldGroupId];
+                delete this.metaComments[oldGroupId];
+            }
             (this.data[newGroup] || []).forEach(memberName => {
                 const oldMemberId = `member::${oldGroup}::${memberName}`;
                 const newMemberId = `member::${newGroup}::${memberName}`;
                 if (this.metaLinks[oldMemberId]) {
                     this.metaLinks[newMemberId] = this.metaLinks[oldMemberId];
                     delete this.metaLinks[oldMemberId];
+                }
+                if (this.metaComments[oldMemberId]) {
+                    this.metaComments[newMemberId] = this.metaComments[oldMemberId];
+                    delete this.metaComments[oldMemberId];
                 }
             });
         },
@@ -680,6 +763,32 @@
             );
         },
 
+        getComment(id) {
+            return this.metaComments[id] || '';
+        },
+
+        // Empty/whitespace-only text deletes the key entirely rather than
+        // storing a blank string, so db.json doesn't accumulate empty
+        // comment entries for every group/member that's ever had the
+        // accordion opened.
+        setComment(id, text) {
+            const trimmed = (text || '').trim();
+            if (trimmed) {
+                this.metaComments[id] = trimmed;
+            } else {
+                delete this.metaComments[id];
+            }
+            this._touchLocalWrite();
+        },
+
+        // Same search convention as linksMatchSearch — searchVal is expected
+        // to already be lowercased/trimmed by the caller.
+        commentMatchesSearch(id, searchVal) {
+            const comment = this.metaComments[id];
+            if (!comment || !searchVal) return false;
+            return comment.toLowerCase().includes(searchVal);
+        },
+
         // Distinct list of Titles already used across every saved link, for
         // the Title field's suggestion dropdown. De-duped case-insensitively
         // (so "Facebook" and "facebook" collapse into one entry) while
@@ -698,11 +807,13 @@
         addLink(id, url, title, notes) {
             if (!this.metaLinks[id]) this.metaLinks[id] = [];
             this.metaLinks[id].push({ u: Utils.stripTrailingSlash(url.trim()), t: title.trim(), n: (notes || '').trim() });
+            this._touchLocalWrite();
         },
 
         editLink(id, index, url, title, notes) {
             if (this.metaLinks[id] && this.metaLinks[id][index]) {
                 this.metaLinks[id][index] = { u: Utils.stripTrailingSlash(url.trim()), t: title.trim(), n: (notes || '').trim() };
+                this._touchLocalWrite();
             }
         },
 
@@ -710,6 +821,7 @@
             if (this.metaLinks[id]) {
                 this.metaLinks[id].splice(index, 1);
                 if (this.metaLinks[id].length === 0) delete this.metaLinks[id];
+                this._touchLocalWrite();
             }
         },
 
@@ -729,6 +841,7 @@
             const normalized = groupName.trim();
             if (!normalized || this.data[normalized]) return false;
             this.data[normalized] = [];
+            this._touchLocalWrite();
 
             const payload = { ...this.data, _xiv_links: this.metaLinks };
             this.processData(payload);
@@ -738,6 +851,7 @@
         deleteGroup(groupName) {
             if (!this.data[groupName]) return false;
             delete this.data[groupName];
+            this._touchLocalWrite();
 
             const payload = { ...this.data, _xiv_links: this.metaLinks };
             this.processData(payload);
@@ -750,6 +864,7 @@
             this.data[normalized] = this.data[oldName];
             delete this.data[oldName];
             this._migrateGroupLinks(oldName, normalized);
+            this._touchLocalWrite();
 
             const payload = { ...this.data, _xiv_links: this.metaLinks };
             this.processData(payload);
@@ -761,6 +876,7 @@
             if (!this.data[groupName] || !normalized || this.data[groupName].includes(normalized)) return false;
             this.data[groupName].push(normalized);
             this.data[groupName].sort((a, b) => a.localeCompare(b));
+            this._touchLocalWrite();
             return true;
         },
 
@@ -770,6 +886,7 @@
             if (index === -1) return false;
             this.data[groupName].splice(index, 1);
             delete this.metaLinks[`member::${groupName}::${memberName}`];
+            this._touchLocalWrite();
             return true;
         },
 
@@ -787,16 +904,17 @@
                 this.metaLinks[newId] = this.metaLinks[oldId];
                 delete this.metaLinks[oldId];
             }
+            this._touchLocalWrite();
             return true;
         }
     };
 
     // =========================================================
-    // RANDOM MEMBER OF THE DAY MODULE
+    // FEATURED MEMBER MODULE
     // =========================================================
-    const MOTD = {
+    const Featured = {
         current: null,   // { g, n, generatedAt } | null
-        history: [],      // most-recently-rolled identifiers ("group|name"), capped at MOTD_NO_REPEAT_ROLLS
+        history: [],      // most-recently-rolled identifiers ("group|name"), capped at FEATURED_NO_REPEAT_ROLLS
 
         init() {
             this._loadCurrent();
@@ -813,21 +931,21 @@
 
         _loadCurrent() {
             try {
-                const raw = GM_getValue(CONFIG.MOTD_STORAGE_KEY, null);
+                const raw = GM_getValue(CONFIG.FEATURED_STORAGE_KEY, null);
                 const parsed = raw ? JSON.parse(raw) : null;
                 this.current = this._isValidEntryShape(parsed) ? parsed : null;
             } catch (e) {
-                Logger.warn('Corrupted MOTD data, resetting.');
+                Logger.warn('Corrupted Featured data, resetting.');
                 this.current = null;
             }
         },
 
         _loadHistory() {
             try {
-                const parsed = JSON.parse(GM_getValue(CONFIG.MOTD_HISTORY_KEY, '[]'));
+                const parsed = JSON.parse(GM_getValue(CONFIG.FEATURED_HISTORY_KEY, '[]'));
                 this.history = Array.isArray(parsed) ? parsed.filter(item => typeof item === 'string') : [];
             } catch (e) {
-                Logger.warn('Corrupted MOTD roll history, resetting.');
+                Logger.warn('Corrupted Featured roll history, resetting.');
                 this.history = [];
             }
         },
@@ -836,22 +954,22 @@
         // moment another tab generates or rerolls, without polling.
         _setupCrossTabSync() {
             if (typeof GM_addValueChangeListener !== 'function') return;
-            GM_addValueChangeListener(CONFIG.MOTD_STORAGE_KEY, (key, oldValue, newValue, remote) => {
+            GM_addValueChangeListener(CONFIG.FEATURED_STORAGE_KEY, (key, oldValue, newValue, remote) => {
                 if (!remote) return;
                 try {
                     this.current = newValue ? JSON.parse(newValue) : null;
-                    if (UI.overlay) UI.onMotdRemoteUpdate();
+                    if (UI.overlay) UI.onFeaturedRemoteUpdate();
                 } catch (e) {
-                    Logger.warn('Failed to sync MOTD cross-tab change.', e);
+                    Logger.warn('Failed to sync Featured cross-tab change.', e);
                 }
             });
-            GM_addValueChangeListener(CONFIG.MOTD_HISTORY_KEY, (key, oldValue, newValue, remote) => {
+            GM_addValueChangeListener(CONFIG.FEATURED_HISTORY_KEY, (key, oldValue, newValue, remote) => {
                 if (!remote) return;
                 try {
                     const parsed = JSON.parse(newValue || '[]');
                     this.history = Array.isArray(parsed) ? parsed : [];
                 } catch (e) {
-                    Logger.warn('Failed to sync MOTD roll history cross-tab change.', e);
+                    Logger.warn('Failed to sync Featured roll history cross-tab change.', e);
                 }
             });
         },
@@ -875,29 +993,26 @@
             return Array.isArray(members) && members.includes(entry.n);
         },
 
-        _isExpired(entry) {
-            if (!entry || !entry.generatedAt) return true;
-            return this.getMsRemaining(entry) <= 0;
-        },
-
         /**
          * Single entry point for the popover: flattens the database only once,
-         * then either reuses a valid current pick or generates a fresh one.
-         * Returns { entry, reason } where reason is null on success, or
-         * 'empty' (no members exist at all) / 'error' (pick failed unexpectedly).
+         * then either reuses the current pick (if still valid) or generates a
+         * fresh one. Picks are permanent — the only things that force a new
+         * one are the member being removed from the database, or an explicit
+         * reroll. Returns { entry, reason } where reason is null on success,
+         * or 'empty' (no members exist at all) / 'error' (pick failed unexpectedly).
          */
         resolveForDisplay() {
             const pool = this._flattenMembers();
             if (pool.length === 0) return { entry: null, reason: 'empty' };
 
             let entry = this.current;
-            if (!entry || !this._isStillValid(entry) || this._isExpired(entry)) {
+            if (!entry || !this._isStillValid(entry)) {
                 entry = this._generate(pool);
             }
             return { entry, reason: entry ? null : 'error' };
         },
 
-        /** Forces a new pick regardless of cooldown state — used by the manual "Reroll" action. */
+        /** Forces a new pick — the only way to change the Featured Member — used by the manual "Reroll" action. */
         reroll() {
             return this._generate(this._flattenMembers());
         },
@@ -912,7 +1027,7 @@
 
             // Exclusion sets are tried from strictest to most relaxed so the
             // feature degrades gracefully on small databases instead of dead-ending:
-            //   1. everyone in the last MOTD_NO_REPEAT_ROLLS rolls
+            //   1. everyone in the last FEATURED_NO_REPEAT_ROLLS rolls
             //   2. just the exact current pick
             //   3. no exclusion at all (only possible if the database has 1 member)
             const rollHistorySet = new Set(this.history);
@@ -925,31 +1040,77 @@
             }
             if (candidates.length === 0) candidates = list;
 
-            const pick = candidates[Math.floor(Math.random() * candidates.length)];
-            const entry = { g: pick.g, n: pick.n, generatedAt: Date.now() };
+            const drawn = this._drawTicket(candidates);
+            const entry = {
+                g: drawn.pick.g,
+                n: drawn.pick.n,
+                generatedAt: Date.now(),
+                tickets: drawn.tickets,
+                totalTickets: drawn.totalTickets
+            };
 
             this.current = entry;
-            this.history.push(`${pick.g}|${pick.n}`);
-            if (this.history.length > CONFIG.MOTD_NO_REPEAT_ROLLS) {
-                this.history = this.history.slice(-CONFIG.MOTD_NO_REPEAT_ROLLS);
+            this.history.push(`${drawn.pick.g}|${drawn.pick.n}`);
+            if (this.history.length > CONFIG.FEATURED_NO_REPEAT_ROLLS) {
+                this.history = this.history.slice(-CONFIG.FEATURED_NO_REPEAT_ROLLS);
             }
             this._persist();
-            if (DEBUG) Logger.info(`[MOTD] Picked "${entry.n}" (${entry.g}).`);
+            if (DEBUG) {
+                const odds = ((drawn.tickets / drawn.totalTickets) * 100).toFixed(1);
+                Logger.info(`[Featured] Picked "${entry.n}" (${entry.g}) — ${drawn.tickets}/${drawn.totalTickets} tickets (≈${odds}%).`);
+            }
             return entry;
+        },
+
+        /**
+         * Builds a weighted ticket pool from the Trending score of each
+         * candidate (base ticket + floor(score) bonus tickets), then draws
+         * one winner without materializing per-ticket duplicate entries —
+         * a single cumulative-weight walk keeps this O(n) regardless of
+         * how large individual scores get.
+         */
+        _drawTicket(candidates) {
+            const scoreMap = this._getTrendingScoreMap();
+            let totalTickets = 0;
+            const weighted = candidates.map(member => {
+                const score = scoreMap.get(`${member.g}|${member.n}`) || 0;
+                const bonusTickets = Math.max(0, Math.floor(score));
+                const tickets = CONFIG.FEATURED_BASE_TICKETS + bonusTickets;
+                totalTickets += tickets;
+                return { member, tickets, cumulative: totalTickets };
+            });
+
+            // Defensive fallback: should be unreachable since every member
+            // has at least FEATURED_BASE_TICKETS, but never dead-end regardless.
+            if (totalTickets <= 0) {
+                const pick = candidates[Math.floor(Math.random() * candidates.length)];
+                return { pick, tickets: 1, totalTickets: candidates.length || 1 };
+            }
+
+            const roll = Math.floor(Math.random() * totalTickets);
+            const winner = weighted.find(w => roll < w.cumulative) || weighted[weighted.length - 1];
+            return { pick: winner.member, tickets: winner.tickets, totalTickets };
+        },
+
+        /** Maps "group|name" → Trending score for O(1) ticket lookups per candidate. */
+        _getTrendingScoreMap() {
+            const map = new Map();
+            try {
+                const stats = Storage.getTrendingStats();
+                stats.forEach(s => map.set(`${s.g}|${s.n}`, s.score));
+            } catch (e) {
+                Logger.warn('[Featured] Failed to read Trending scores; falling back to base tickets only.', e);
+            }
+            return map;
         },
 
         _persist() {
             try {
-                GM_setValue(CONFIG.MOTD_STORAGE_KEY, JSON.stringify(this.current));
-                GM_setValue(CONFIG.MOTD_HISTORY_KEY, JSON.stringify(this.history));
+                GM_setValue(CONFIG.FEATURED_STORAGE_KEY, JSON.stringify(this.current));
+                GM_setValue(CONFIG.FEATURED_HISTORY_KEY, JSON.stringify(this.history));
             } catch (e) {
-                Logger.warn('Failed to persist MOTD data.');
+                Logger.warn('Failed to persist Featured data.');
             }
-        },
-
-        getMsRemaining(entry) {
-            if (!entry || !entry.generatedAt) return 0;
-            return Math.max(0, CONFIG.MOTD_COOLDOWN_MS - (Date.now() - entry.generatedAt));
         }
     };
 
@@ -2033,6 +2194,7 @@
 
                 .${CONFIG.UI_PREFIX}-icon-title { display: flex; align-items: center; gap: 0.45rem; }
                 .${CONFIG.UI_PREFIX}-icon-title-svg { width: 1.1rem; height: 1.1rem; fill: var(--tm-text-main); flex-shrink: 0; }
+                .${CONFIG.UI_PREFIX}-header-title-group-badge { flex-shrink: 0; }
                 .${CONFIG.UI_PREFIX}-header h2 {
                     font-size: clamp(0.85rem, 1.1vw, 1.1rem);
                     margin: 0; font-weight: 600; color: var(--tm-text-heading); text-align: left;
@@ -2056,7 +2218,7 @@
                 .${CONFIG.UI_PREFIX}-icon-btn svg { width: 1.1rem; height: 1.1rem; fill: var(--tm-text-main); transition: fill 0.2s; }
                 /* Shared "active" look for any icon button — accent border +
                    accent icon, background stays as-is. Used consistently by
-                   the CRUD edit toggle and the MOTD trigger button alike. */
+                   the CRUD edit toggle and the Featured trigger button alike. */
                 .${CONFIG.UI_PREFIX}-icon-btn-active { border-color: var(--tm-primary); }
                 .${CONFIG.UI_PREFIX}-icon-btn-active svg { fill: var(--tm-primary); }
 
@@ -2179,6 +2341,32 @@
                 .${CONFIG.UI_PREFIX}-badge-actionable:hover       { background: var(--tm-bg-hover-subtle); border-color: var(--tm-border-focus); color: var(--tm-text-main); cursor: pointer; }
                 .${CONFIG.UI_PREFIX}-badge-actionable.accent:hover { background: var(--tm-border-light); border-color: var(--tm-text-dark); color: var(--tm-text-main); }
 
+                /* Compact "View Links" trigger on Recent/Trending/History
+                   rows. Dim when the target has no saved links yet, lit
+                   once it does — mirrors the main list's per-row globe
+                   icon so the indicator means the same thing everywhere. */
+                .${CONFIG.UI_PREFIX}-sidepanel-globe-btn {
+                    background: transparent; border: none; cursor: pointer;
+                    padding: 0.3rem; margin-left: 0.2rem; border-radius: 0.4rem;
+                    display: flex; align-items: center; justify-content: center;
+                    flex-shrink: 0; transition: background 0.2s;
+                }
+                .${CONFIG.UI_PREFIX}-sidepanel-globe-btn:hover,
+                .${CONFIG.UI_PREFIX}-sidepanel-globe-btn:focus-visible {
+                    background: var(--tm-bg-hover-subtle);
+                    outline: 1px solid var(--tm-border-focus); outline-offset: -1px;
+                }
+                .${CONFIG.UI_PREFIX}-sidepanel-globe-btn svg {
+                    width: 1rem; height: 1rem;
+                    fill: var(--tm-text-dark); opacity: 0.6;
+                    transition: fill 0.2s, opacity 0.2s;
+                }
+                .${CONFIG.UI_PREFIX}-sidepanel-globe-btn:hover svg,
+                .${CONFIG.UI_PREFIX}-sidepanel-globe-btn:focus-visible svg { fill: var(--tm-text-main); opacity: 1; }
+                .${CONFIG.UI_PREFIX}-sidepanel-globe-btn-filled svg { fill: var(--tm-text-muted); opacity: 1; }
+                .${CONFIG.UI_PREFIX}-sidepanel-globe-btn-filled:hover svg,
+                .${CONFIG.UI_PREFIX}-sidepanel-globe-btn-filled:focus-visible svg { fill: var(--tm-text-main); }
+
                 /* ── Trending Panel Member/Group Sliding Toggle ────────────── */
                 .${CONFIG.UI_PREFIX}-trending-switch {
                     position: relative;
@@ -2239,8 +2427,8 @@
                     transform: translateX(100%) translateZ(0);
                 }
 
-                /* ── Random Member of the Day (inline panel accordion) ───── */
-                .${CONFIG.UI_PREFIX}-motd-section {
+                /* ── Featured Member (inline panel accordion) ─────────────── */
+                .${CONFIG.UI_PREFIX}-featured-section {
                     display: grid;
                     grid-template-rows: 0fr;
                     transition: grid-template-rows 0.25s ease;
@@ -2249,12 +2437,12 @@
                     margin: 0 clamp(0.6rem, 2vw, 0.9rem);
                     box-sizing: border-box;
                 }
-                .${CONFIG.UI_PREFIX}-motd-section-open {
+                .${CONFIG.UI_PREFIX}-featured-section-open {
                     grid-template-rows: 1fr;
                     margin-bottom: 0.75rem;
                 }
-                .${CONFIG.UI_PREFIX}-motd-section-inner { overflow: hidden; min-height: 0; }
-                .${CONFIG.UI_PREFIX}-motd-card {
+                .${CONFIG.UI_PREFIX}-featured-section-inner { overflow: hidden; min-height: 0; }
+                .${CONFIG.UI_PREFIX}-featured-card {
                     background: var(--tm-bg-elevated);
                     border: 1px solid var(--tm-border-light);
                     border-radius: 1rem;
@@ -2263,18 +2451,18 @@
                     box-sizing: border-box;
                     position: relative;
                 }
-                .${CONFIG.UI_PREFIX}-motd-card-header { display: flex; align-items: center; }
-                .${CONFIG.UI_PREFIX}-motd-label {
+                .${CONFIG.UI_PREFIX}-featured-card-header { display: flex; align-items: center; }
+                .${CONFIG.UI_PREFIX}-featured-label {
                     font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em;
                     color: var(--tm-text-subtle); font-weight: 600;
                     padding-right: 2.6rem;
                 }
-                .${CONFIG.UI_PREFIX}-motd-reroll-btn {
+                .${CONFIG.UI_PREFIX}-featured-reroll-btn {
                     position: absolute;
                     top: 0.65rem; right: 0.9rem;
                 }
-                .${CONFIG.UI_PREFIX}-motd-reroll-btn.reroll-cooldown { opacity: 0.4; pointer-events: none; }
-                .${CONFIG.UI_PREFIX}-motd-name {
+                .${CONFIG.UI_PREFIX}-featured-reroll-btn.reroll-cooldown { opacity: 0.4; cursor: not-allowed; }
+                .${CONFIG.UI_PREFIX}-featured-name {
                     display: block; width: 100%; margin-top: 0.2rem;
                     padding-right: 2.6rem; box-sizing: border-box;
                     font-size: clamp(0.7rem, 1.4vw, 0.9rem); font-weight: 700; color: var(--tm-accent, #ff4d82);
@@ -2283,30 +2471,34 @@
                 /* Clickability is signaled by cursor + opacity shift, never
                    by underline-on-hover (kept consistent with the no-underline
                    rule applied to every link/actionable text in this app). */
-                .${CONFIG.UI_PREFIX}-motd-name-actionable { cursor: pointer; outline: none; }
-                .${CONFIG.UI_PREFIX}-motd-name-actionable:hover,
-                .${CONFIG.UI_PREFIX}-motd-name-actionable:focus-visible { opacity: 0.8; }
-                .${CONFIG.UI_PREFIX}-motd-meta-row {
+                .${CONFIG.UI_PREFIX}-featured-name-actionable { cursor: pointer; outline: none; }
+                .${CONFIG.UI_PREFIX}-featured-name-actionable:hover,
+                .${CONFIG.UI_PREFIX}-featured-name-actionable:focus-visible { opacity: 0.8; }
+                .${CONFIG.UI_PREFIX}-featured-meta-row {
                     display: flex; align-items: center; justify-content: space-between; gap: 0.6rem;
                     margin-top: 0.4rem;
                 }
-                .${CONFIG.UI_PREFIX}-motd-group-badge {
+                .${CONFIG.UI_PREFIX}-featured-ticket-badge {
+                    display: flex; align-items: center; gap: 0.3rem;
+                    font-size: clamp(0.65rem, 0.6rem + 0.2vw, 0.75rem);
+                    white-space: nowrap;
+                    flex-shrink: 0;
+                }
+                .${CONFIG.UI_PREFIX}-featured-ticket-badge-svg {
+                    width: 0.85rem; height: 0.85rem; fill: currentColor; flex-shrink: 0;
+                }
+                .${CONFIG.UI_PREFIX}-featured-group-badge {
                     min-width: 0; flex-shrink: 1;
                     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
                 }
-                .${CONFIG.UI_PREFIX}-motd-countdown {
-                    font-size: 0.78rem; color: var(--tm-text-dim);
-                    flex-shrink: 0; white-space: nowrap;
-                }
-                .${CONFIG.UI_PREFIX}-motd-progress-track {
+                .${CONFIG.UI_PREFIX}-featured-progress-track {
                     height: 0.35rem; border-radius: 0.2rem; overflow: hidden;
                     background: var(--tm-border-light); margin-top: 0.55rem;
                 }
-                .${CONFIG.UI_PREFIX}-motd-progress-fill {
-                    height: 100%; border-radius: 0.2rem; background: var(--tm-accent, #ff4d82);
-                    transition: width 1s linear;
+                .${CONFIG.UI_PREFIX}-featured-progress-fill {
+                    height: 100%; width: 100%; border-radius: 0.2rem; background: var(--tm-accent, #ff4d82);
                 }
-                .${CONFIG.UI_PREFIX}-motd-empty { font-size: 0.85rem; color: var(--tm-text-dim); text-align: center; padding: 0.4rem 0; }
+                .${CONFIG.UI_PREFIX}-featured-empty { font-size: 0.85rem; color: var(--tm-text-dim); text-align: center; padding: 0.4rem 0; }
 
                 /* ── Footer & Action Buttons ──────────────────────────────── */
                 .${CONFIG.UI_PREFIX}-footer       { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--tm-border); flex-shrink: 0; display: flex; flex-direction: column; gap: 0.5rem; }
@@ -2477,6 +2669,64 @@
                    clickable affordance always comes from cursor/opacity/border
                    changes here, never from a hover underline. */
                 #${CONFIG.UI_PREFIX}-overlay a:hover { text-decoration: none; }
+
+                /* ── Comments Accordion (sits above the Links view, per-group/
+                   member free-text note independent of Links) ───────────── */
+                .${CONFIG.UI_PREFIX}-comments-accordion {
+                    display: none; flex-direction: column; flex-shrink: 0; width: 100%;
+                    margin-bottom: 0.6rem; box-sizing: border-box;
+                }
+                .${CONFIG.UI_PREFIX}-comments-header {
+                    display: flex; align-items: center; gap: 0.6rem; width: 100%;
+                    min-height: 42px; padding: 0 1rem; box-sizing: border-box;
+                    background: #141414; border: 1px solid var(--tm-border-focus);
+                    border-radius: 0.8rem; cursor: pointer;
+                    transition: border-color 0.2s, background 0.2s;
+                }
+                .${CONFIG.UI_PREFIX}-comments-header:hover,
+                .${CONFIG.UI_PREFIX}-comments-header:focus-visible {
+                    border-color: var(--tm-border-light);
+                }
+                /* Real pink accent (var(--tm-primary)) — deliberately distinct
+                   from the grey .badge.accent style used elsewhere, since this
+                   is the one "has content" signal for this control, not a
+                   static label like the group/ticket badges. */
+                .${CONFIG.UI_PREFIX}-comments-header-filled {
+                    border-color: var(--tm-primary); background: rgba(255, 64, 129, 0.12);
+                }
+                .${CONFIG.UI_PREFIX}-comments-label { font-size: 0.9rem; font-weight: 500; flex: 1; }
+                .${CONFIG.UI_PREFIX}-comments-chevron {
+                    width: 1.1rem; height: 1.1rem; fill: currentColor; flex-shrink: 0;
+                    transition: transform 0.2s ease;
+                }
+                .${CONFIG.UI_PREFIX}-comments-accordion.${CONFIG.UI_PREFIX}-comments-open .${CONFIG.UI_PREFIX}-comments-chevron {
+                    transform: rotate(180deg);
+                }
+                /* Fixed-height expansion (not content-driven auto-grow) so the
+                   links list below always resizes by the same known amount —
+                   overflow is handled by the textarea's own internal scroll
+                   instead of the accordion growing indefinitely. */
+                .${CONFIG.UI_PREFIX}-comments-body {
+                    max-height: 0; overflow: hidden;
+                    transition: max-height 0.25s ease;
+                }
+                .${CONFIG.UI_PREFIX}-comments-accordion.${CONFIG.UI_PREFIX}-comments-open .${CONFIG.UI_PREFIX}-comments-body {
+                    max-height: 9rem;
+                }
+                .${CONFIG.UI_PREFIX}-comments-textarea {
+                    width: 100%; height: 8rem; margin-top: 0.5rem;
+                    background: var(--tm-bg-input); border: 1px solid var(--tm-border-light);
+                    border-radius: 0.6rem; padding: 0.7rem 0.8rem; color: var(--tm-text-main);
+                    font-size: 0.88rem; font-family: inherit; outline: none; resize: none;
+                    overflow-y: auto; box-sizing: border-box; transition: border-color 0.2s, background 0.2s;
+                }
+                    font-size: 0.88rem; font-family: inherit; outline: none; resize: vertical;
+                    box-sizing: border-box; transition: border-color 0.2s, background 0.2s;
+                }
+                .${CONFIG.UI_PREFIX}-comments-textarea:focus {
+                    border-color: var(--tm-primary); background: var(--tm-bg-elevated);
+                }
+                .${CONFIG.UI_PREFIX}-comments-textarea::placeholder { color: var(--tm-text-dark); }
 
                 /* ── Links View ───────────────────────────────────────────── */
                 /* Outer — flex-sized by the panel layout, not scrollable
@@ -3233,6 +3483,40 @@
             }
         },
 
+        // Resolves which Links target a Recent/Trending/History row points
+        // at. Every row shape (Recent summary, Recent history, Trending
+        // member mode) represents a member except Trending's Group mode,
+        // which represents a group — everything else funnels through the
+        // same member:: id. Centralized here so the row renderer and the
+        // click handlers can't drift out of sync on what a row means.
+        _sidePanelLinkTarget(type, itemData) {
+            const isGroupTarget = type === 'trending' && this.sidePanels.trending.viewMode === 'group';
+            if (isGroupTarget) {
+                return { id: `group::${itemData.g}`, name: itemData.g, isGroup: true };
+            }
+            return { id: `member::${itemData.g}::${itemData.n}`, name: itemData.n, isGroup: false };
+        },
+
+        // Builds the compact "View Links" icon used on Recent/Trending/
+        // History rows. Dim when the target has no saved links yet, lit
+        // once it does — same at-a-glance convention as the main list's
+        // per-row globe icon, so the indicator means the same thing
+        // everywhere it appears.
+        _createSidePanelGlobeBtn(target) {
+            const globeBtn = document.createElement('button');
+            globeBtn.type = 'button';
+            globeBtn.className = `${CONFIG.UI_PREFIX}-sidepanel-globe-btn`;
+            const label = `View ${target.name}'s links`;
+            globeBtn.title = label;
+            globeBtn.setAttribute('aria-label', label);
+            globeBtn.appendChild(this._createSVG(ICONS.globe));
+
+            if (Database.getLinks(target.id).length > 0) {
+                globeBtn.classList.add(`${CONFIG.UI_PREFIX}-sidepanel-globe-btn-filled`);
+            }
+            return globeBtn;
+        },
+
         _renderSidePanelVirtual(type) {
             const panelObj = this.sidePanels[type];
             if (!panelObj.container || !panelObj.inner) return;
@@ -3290,8 +3574,13 @@
                     histBadge.style.flexShrink = '0';
                     histBadge.textContent = itemData.g;
 
+                    const histRightWrapper = document.createElement('div');
+                    histRightWrapper.style.cssText = 'display:flex;align-items:center;gap:0.3rem;flex-shrink:0;';
+                    histRightWrapper.appendChild(histBadge);
+                    histRightWrapper.appendChild(this._createSidePanelGlobeBtn(this._sidePanelLinkTarget(type, itemData)));
+
                     btn.appendChild(histLeftDiv);
-                    btn.appendChild(histBadge);
+                    btn.appendChild(histRightWrapper);
                 } else {
                     const isTrendingGroupMode = type === 'trending' && this.sidePanels.trending.viewMode === 'group';
                     const nameSpan = document.createElement('span');
@@ -3313,6 +3602,10 @@
                     badgeSpan.textContent = badgeText;
                     if (!isTrendingGroupMode) badgeSpan.title = `View ${itemData.g}`;
 
+                    if (type === 'trending' && typeof itemData.score === 'number') {
+                        btn.title = `Trending score: ${itemData.score.toFixed(2)}`;
+                    }
+
                     const rightWrapper = document.createElement('div');
                     rightWrapper.style.display = 'flex';
                     rightWrapper.style.alignItems = 'center';
@@ -3326,6 +3619,7 @@
                     }
 
                     rightWrapper.appendChild(badgeSpan);
+                    rightWrapper.appendChild(this._createSidePanelGlobeBtn(this._sidePanelLinkTarget(type, itemData)));
                     btn.appendChild(nameSpan);
                     btn.appendChild(rightWrapper);
                 }
@@ -3421,6 +3715,17 @@
                 requestAnimationFrame(() => this._renderSidePanelVirtual('recent'));
             });
             inner.addEventListener('click', (e) => {
+                const globeBtn = e.target.closest(`.${CONFIG.UI_PREFIX}-sidepanel-globe-btn`);
+                if (globeBtn) {
+                    e.stopPropagation();
+                    const index = parseInt(globeBtn.closest(`.${CONFIG.UI_PREFIX}-item`).dataset.index, 10);
+                    const itemData = this.sidePanels.recent.data[index];
+                    const target = this._sidePanelLinkTarget('recent', itemData);
+                    if (target.isGroup) this._openGroupLinksInMainPanel(target.name);
+                    else this._openMemberLinksInMainPanel(itemData.g, itemData.n);
+                    return;
+                }
+
                 if (this.recentPanelMode === 'history') {
                     const removeBtn = e.target.closest(`.${CONFIG.UI_PREFIX}-queue-remove`);
                     const itemEl = e.target.closest(`.${CONFIG.UI_PREFIX}-item`);
@@ -3518,128 +3823,150 @@
             return closeBtn;
         },
 
-        _createMotdTriggerBtn() {
+        _createFeaturedTriggerBtn() {
             const btn = document.createElement('div');
             btn.className = `${CONFIG.UI_PREFIX}-icon-btn ${CONFIG.UI_PREFIX}-icon-btn-active`;
             btn.appendChild(this._createSVG(ICONS.dice, '0 0 24 24', 'evenodd'));
-            btn.title = "Random Member of the Day";
+            btn.title = "Featured Member";
             btn.setAttribute('tabindex', '0');
             btn.setAttribute('role', 'button');
             btn.setAttribute('aria-expanded', 'true');
-            btn.setAttribute('aria-label', 'Show random member of the day');
+            btn.setAttribute('aria-label', 'Show featured member');
             const trigger = (e) => {
                 e.stopPropagation();
-                this._toggleMotdSection(btn);
+                this._toggleFeaturedSection(btn);
             };
             btn.onclick = trigger;
             btn.addEventListener('keydown', (e) => {
                 if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); trigger(e); }
             });
-            this._motdTriggerBtnEl = btn;
+            this._featuredTriggerBtnEl = btn;
             return btn;
         },
 
         // Builds the collapsed accordion shell that sits inline inside the
         // Trending panel itself (between the header and the list), so it can
         // only ever push that panel's own content — never overlap anything else.
-        _createMotdSection() {
+        _createFeaturedSection() {
             const section = document.createElement('div');
-            section.className = `${CONFIG.UI_PREFIX}-motd-section`;
+            section.className = `${CONFIG.UI_PREFIX}-featured-section`;
 
             const inner = document.createElement('div');
-            inner.className = `${CONFIG.UI_PREFIX}-motd-section-inner`;
+            inner.className = `${CONFIG.UI_PREFIX}-featured-section-inner`;
 
             const card = document.createElement('div');
-            card.className = `${CONFIG.UI_PREFIX}-motd-card`;
+            card.className = `${CONFIG.UI_PREFIX}-featured-card`;
 
             inner.appendChild(card);
             section.appendChild(inner);
 
-            this._motdSectionEl = section;
-            this._motdCardEl = card;
+            this._featuredSectionEl = section;
+            this._featuredCardEl = card;
             return section;
         },
 
-        _toggleMotdSection(triggerBtn) {
-            const section = this._motdSectionEl;
+        _toggleFeaturedSection(triggerBtn) {
+            const section = this._featuredSectionEl;
             if (!section) return;
-            const openClass = `${CONFIG.UI_PREFIX}-motd-section-open`;
+            const openClass = `${CONFIG.UI_PREFIX}-featured-section-open`;
             if (section.classList.contains(openClass)) {
-                this._collapseMotdSection();
+                this._collapseFeaturedSection();
                 return;
             }
             section.classList.add(openClass);
             triggerBtn.setAttribute('aria-expanded', 'true');
             triggerBtn.classList.add(`${CONFIG.UI_PREFIX}-icon-btn-active`);
-            this._renderMotdCardContent();
+            this._renderFeaturedCardContent();
         },
 
-        _collapseMotdSection() {
-            if (!this._motdSectionEl) return;
-            this._motdSectionEl.classList.remove(`${CONFIG.UI_PREFIX}-motd-section-open`);
-            if (this._motdTriggerBtnEl) {
-                this._motdTriggerBtnEl.setAttribute('aria-expanded', 'false');
-                this._motdTriggerBtnEl.classList.remove(`${CONFIG.UI_PREFIX}-icon-btn-active`);
+        _collapseFeaturedSection() {
+            if (!this._featuredSectionEl) return;
+            this._featuredSectionEl.classList.remove(`${CONFIG.UI_PREFIX}-featured-section-open`);
+            if (this._featuredTriggerBtnEl) {
+                this._featuredTriggerBtnEl.setAttribute('aria-expanded', 'false');
+                this._featuredTriggerBtnEl.classList.remove(`${CONFIG.UI_PREFIX}-icon-btn-active`);
             }
-            this._stopMotdCountdown();
         },
 
-        // Called by MOTD._setupCrossTabSync() when another tab rerolls
+        // Called by Featured._setupCrossTabSync() when another tab rerolls
         // the pick, so an already-open section reflects it immediately.
-        onMotdRemoteUpdate() {
-            if (this._motdSectionEl && this._motdSectionEl.classList.contains(`${CONFIG.UI_PREFIX}-motd-section-open`)) {
-                this._renderMotdCardContent();
+        onFeaturedRemoteUpdate() {
+            if (this._featuredSectionEl && this._featuredSectionEl.classList.contains(`${CONFIG.UI_PREFIX}-featured-section-open`)) {
+                this._renderFeaturedCardContent();
             }
         },
 
-        _renderMotdEmptyState(card, message) {
+        _renderFeaturedEmptyState(card, message) {
             const empty = document.createElement('div');
-            empty.className = `${CONFIG.UI_PREFIX}-motd-empty`;
+            empty.className = `${CONFIG.UI_PREFIX}-featured-empty`;
             empty.textContent = message;
             card.appendChild(empty);
         },
 
-        _renderMotdCardContent() {
-            const card = this._motdCardEl;
+        // Shows the winning member's ticket count and draw odds so the pick
+        // reads as a transparent weighted lottery rather than a black box.
+        // Absent on entries persisted before this feature existed (no
+        // tickets/totalTickets recorded yet) — degrades to no badge instead
+        // of showing misleading "0/0" data.
+        _createFeaturedTicketBadge(entry) {
+            if (!entry || !entry.tickets || !entry.totalTickets) return null;
+
+            const badge = document.createElement('span');
+            badge.className = `${CONFIG.UI_PREFIX}-badge accent ${CONFIG.UI_PREFIX}-featured-ticket-badge`;
+            const odds = ((entry.tickets / entry.totalTickets) * 100).toFixed(1);
+
+            // SVG icon instead of an emoji, consistent with every other icon
+            // in this script; fill: currentColor lets it inherit the badge's
+            // accent text color automatically instead of needing its own.
+            const ticketIcon = this._createSVG(ICONS.ticket);
+            ticketIcon.classList.add(`${CONFIG.UI_PREFIX}-featured-ticket-badge-svg`);
+            badge.appendChild(ticketIcon);
+            badge.appendChild(document.createTextNode(`${entry.tickets} · ${odds}%`));
+
+            badge.title = `Won with ${entry.tickets} of ${entry.totalTickets} total lottery tickets`;
+            return badge;
+        },
+
+        _renderFeaturedCardContent() {
+            const card = this._featuredCardEl;
             if (!card) return;
-            this._stopMotdCountdown();
             card.replaceChildren();
 
-            const { entry, reason } = MOTD.resolveForDisplay();
+            const { entry, reason } = Featured.resolveForDisplay();
             if (reason === 'empty') {
-                this._renderMotdEmptyState(card, 'Add idols to your database first.');
+                this._renderFeaturedEmptyState(card, 'Add idols to your database first.');
                 return;
             }
             if (reason === 'error' || !entry) {
-                this._renderMotdEmptyState(card, 'Could not pick a member. Please try again.');
+                this._renderFeaturedEmptyState(card, 'Could not pick a member. Please try again.');
                 return;
             }
 
             const header = document.createElement('div');
-            header.className = `${CONFIG.UI_PREFIX}-motd-card-header`;
+            header.className = `${CONFIG.UI_PREFIX}-featured-card-header`;
 
             const label = document.createElement('div');
-            label.className = `${CONFIG.UI_PREFIX}-motd-label`;
-            label.textContent = 'Member of the Day';
+            label.className = `${CONFIG.UI_PREFIX}-featured-label`;
+            label.textContent = 'Featured Member';
 
             const rerollBtn = document.createElement('div');
-            rerollBtn.className = `${CONFIG.UI_PREFIX}-icon-btn ${CONFIG.UI_PREFIX}-motd-reroll-btn`;
+            rerollBtn.className = `${CONFIG.UI_PREFIX}-icon-btn ${CONFIG.UI_PREFIX}-featured-reroll-btn`;
             rerollBtn.appendChild(this._createSVG(ICONS.sync));
             rerollBtn.title = "Reroll";
             rerollBtn.setAttribute('tabindex', '0');
             rerollBtn.setAttribute('role', 'button');
-            rerollBtn.setAttribute('aria-label', 'Reroll random member');
+            rerollBtn.setAttribute('aria-label', 'Reroll featured member');
             const doReroll = () => {
-                if (Date.now() < (this._motdRerollCooldownUntil || 0)) return;
-                this._motdRerollCooldownUntil = Date.now() + CONFIG.MOTD_REROLL_COOLDOWN_MS;
-                MOTD.reroll();
-                this._renderMotdCardContent();
-                // _renderMotdCardContent() just replaced this entire card's
+                if (Date.now() < (this._featuredRerollCooldownUntil || 0)) return;
+                this._featuredRerollCooldownUntil = Date.now() + CONFIG.FEATURED_REROLL_COOLDOWN_MS;
+                Featured.reroll();
+                this._renderFeaturedCardContent();
+                // _renderFeaturedCardContent() just replaced this entire card's
                 // DOM (including this very button), so the spin class must
                 // be applied to the freshly rendered button, not this stale,
                 // now-detached one — otherwise nothing visible happens.
-                const freshRerollBtn = this._motdCardEl
-                    ? this._motdCardEl.querySelector(`.${CONFIG.UI_PREFIX}-motd-reroll-btn`)
+                const freshRerollBtn = this._featuredCardEl
+                    ? this._featuredCardEl.querySelector(`.${CONFIG.UI_PREFIX}-featured-reroll-btn`)
                     : null;
                 if (freshRerollBtn) {
                     freshRerollBtn.classList.add(`${CONFIG.UI_PREFIX}-spin`);
@@ -3650,12 +3977,12 @@
             rerollBtn.addEventListener('keydown', (e) => {
                 if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); doReroll(); }
             });
-            this._applyMotdRerollCooldownState(rerollBtn);
+            this._applyFeaturedRerollCooldownState(rerollBtn);
 
             header.appendChild(label);
 
             const name = document.createElement('span');
-            name.className = `${CONFIG.UI_PREFIX}-motd-name ${CONFIG.UI_PREFIX}-motd-name-actionable`;
+            name.className = `${CONFIG.UI_PREFIX}-featured-name ${CONFIG.UI_PREFIX}-featured-name-actionable`;
             name.textContent = entry.n;
             name.title = `View ${entry.n}'s links`;
             name.setAttribute('tabindex', '0');
@@ -3667,16 +3994,16 @@
             });
 
             const metaRow = document.createElement('div');
-            metaRow.className = `${CONFIG.UI_PREFIX}-motd-meta-row`;
+            metaRow.className = `${CONFIG.UI_PREFIX}-featured-meta-row`;
 
             const groupBadge = document.createElement('span');
-            groupBadge.className = `${CONFIG.UI_PREFIX}-badge accent ${CONFIG.UI_PREFIX}-badge-actionable ${CONFIG.UI_PREFIX}-motd-group-badge`;
+            groupBadge.className = `${CONFIG.UI_PREFIX}-badge accent ${CONFIG.UI_PREFIX}-badge-actionable ${CONFIG.UI_PREFIX}-featured-group-badge`;
             groupBadge.textContent = entry.g;
             groupBadge.title = `View ${entry.g}`;
             groupBadge.setAttribute('tabindex', '0');
             groupBadge.setAttribute('role', 'button');
             // Navigates the main panel to this group without collapsing the
-            // MOTD accordion — the person should be able to glance at the
+            // Featured accordion — the person should be able to glance at the
             // group/member and jump to it while the card stays open.
             const goToGroup = () => this._openGroupInMainPanel(entry.g);
             groupBadge.onclick = goToGroup;
@@ -3684,16 +4011,17 @@
                 if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goToGroup(); }
             });
 
-            const countdown = document.createElement('div');
-            countdown.className = `${CONFIG.UI_PREFIX}-motd-countdown`;
-
             metaRow.appendChild(groupBadge);
-            metaRow.appendChild(countdown);
+            const ticketBadge = this._createFeaturedTicketBadge(entry);
+            if (ticketBadge) metaRow.appendChild(ticketBadge);
 
+            // Static full-width bar kept purely for visual weight under the
+            // card — the feature it used to track (cooldown countdown) no
+            // longer exists now that a pick is permanent until rerolled.
             const progressTrack = document.createElement('div');
-            progressTrack.className = `${CONFIG.UI_PREFIX}-motd-progress-track`;
+            progressTrack.className = `${CONFIG.UI_PREFIX}-featured-progress-track`;
             const progressFill = document.createElement('div');
-            progressFill.className = `${CONFIG.UI_PREFIX}-motd-progress-fill`;
+            progressFill.className = `${CONFIG.UI_PREFIX}-featured-progress-fill`;
             progressTrack.appendChild(progressFill);
 
             card.appendChild(header);
@@ -3701,20 +4029,13 @@
             card.appendChild(metaRow);
             card.appendChild(progressTrack);
             card.appendChild(rerollBtn);
-
-            this._updateMotdCountdownText(countdown, entry);
-            this._updateMotdProgress(progressFill, entry);
-            this._motdCountdownEntry = entry;
-            this._motdCountdownEl = countdown;
-            this._motdProgressFillEl = progressFill;
-            this._syncMotdCountdownToVisibility();
         },
 
         // Visually disables the reroll button for whatever cooldown time remains
         // (covers both the freshly-clicked button and the freshly re-rendered
         // one after reroll), then re-enables it automatically on expiry.
-        _applyMotdRerollCooldownState(btn) {
-            const remaining = (this._motdRerollCooldownUntil || 0) - Date.now();
+        _applyFeaturedRerollCooldownState(btn) {
+            const remaining = (this._featuredRerollCooldownUntil || 0) - Date.now();
             if (remaining <= 0) return;
 
             btn.classList.add('reroll-cooldown');
@@ -3724,74 +4045,6 @@
                 btn.classList.remove('reroll-cooldown');
                 btn.removeAttribute('aria-disabled');
             }, remaining);
-        },
-
-        // Ticks the countdown once per second while the tab is visible, and
-        // pauses entirely while it's hidden instead of running unattended.
-        _syncMotdCountdownToVisibility() {
-            if (document.visibilityState === 'hidden') {
-                this._stopMotdCountdownTimer();
-                return;
-            }
-            if (!this._motdVisibilityHandler) {
-                this._motdVisibilityHandler = () => this._syncMotdCountdownToVisibility();
-                document.addEventListener('visibilitychange', this._motdVisibilityHandler);
-            }
-            if (this._motdCountdownInterval || !this._motdCountdownEntry) return;
-
-            const entry = this._motdCountdownEntry;
-            const countdown = this._motdCountdownEl;
-            const progressFill = this._motdProgressFillEl;
-            this._updateMotdCountdownText(countdown, entry);
-            this._updateMotdProgress(progressFill, entry);
-            this._motdCountdownInterval = setInterval(() => {
-                const stillCurrent = MOTD.current && MOTD.current.generatedAt === entry.generatedAt
-                    && MOTD.current.g === entry.g && MOTD.current.n === entry.n;
-                if (!stillCurrent || MOTD.getMsRemaining(entry) <= 0) {
-                    this._renderMotdCardContent();
-                    return;
-                }
-                this._updateMotdCountdownText(countdown, entry);
-                this._updateMotdProgress(progressFill, entry);
-            }, CONFIG.MOTD_COUNTDOWN_TICK_MS);
-        },
-
-        _updateMotdCountdownText(el, entry) {
-            const totalSeconds = Math.ceil(MOTD.getMsRemaining(entry) / 1000);
-            const h = Math.floor(totalSeconds / 3600);
-            const m = Math.floor((totalSeconds % 3600) / 60);
-            const s = totalSeconds % 60;
-            const pad = (n) => String(n).padStart(2, '0');
-
-            const duration = `${pad(h)}:${pad(m)}:${pad(s)}`;
-            el.textContent = duration;
-            el.setAttribute('aria-label', `New member in ${h}h ${m}m ${s}s`);
-        },
-
-        // Fraction of the cooldown window still remaining, expressed as a
-        // 0-100 width percentage for the progress bar fill. The bar starts
-        // full and drains down to 0 as the countdown proceeds.
-        _updateMotdProgress(el, entry) {
-            if (!el || !entry) return;
-            const remaining = MOTD.getMsRemaining(entry);
-            const remainingPct = CONFIG.MOTD_COOLDOWN_MS > 0
-                ? (remaining / CONFIG.MOTD_COOLDOWN_MS) * 100
-                : 0;
-            el.style.width = `${Math.min(100, Math.max(0, remainingPct))}%`;
-        },
-
-        _stopMotdCountdownTimer() {
-            if (this._motdCountdownInterval) {
-                clearInterval(this._motdCountdownInterval);
-                this._motdCountdownInterval = null;
-            }
-        },
-
-        _stopMotdCountdown() {
-            this._stopMotdCountdownTimer();
-            this._motdCountdownEntry = null;
-            this._motdCountdownEl = null;
-            this._motdProgressFillEl = null;
         },
 
         _updatePanelCloseButtonVisibility() {
@@ -3824,8 +4077,8 @@
 
             const rightGroup = document.createElement('div');
             rightGroup.className = `${CONFIG.UI_PREFIX}-header-right`;
-            if (type === 'trending' && CONFIG.MOTD_ENABLED) {
-                rightGroup.appendChild(this._createMotdTriggerBtn());
+            if (type === 'trending' && CONFIG.FEATURED_ENABLED) {
+                rightGroup.appendChild(this._createFeaturedTriggerBtn());
             }
             rightGroup.appendChild(this._createPanelCloseBtn(type));
             header.appendChild(rightGroup);
@@ -3834,12 +4087,12 @@
             if (type === 'trending') {
                 panel.appendChild(this._createTrendingViewToggle());
             }
-            if (type === 'trending' && CONFIG.MOTD_ENABLED) {
-                panel.appendChild(this._createMotdSection());
+            if (type === 'trending' && CONFIG.FEATURED_ENABLED) {
+                panel.appendChild(this._createFeaturedSection());
                 // Shown by default now — previously required pressing the
                 // dice button first. The button itself still toggles it.
-                this._motdSectionEl.classList.add(`${CONFIG.UI_PREFIX}-motd-section-open`);
-                this._renderMotdCardContent();
+                this._featuredSectionEl.classList.add(`${CONFIG.UI_PREFIX}-featured-section-open`);
+                this._renderFeaturedCardContent();
             }
 
             const wrapper = document.createElement('div');
@@ -3860,6 +4113,17 @@
                 requestAnimationFrame(() => this._renderSidePanelVirtual(type));
             });
             inner.addEventListener('click', (e) => {
+                const globeBtn = e.target.closest(`.${CONFIG.UI_PREFIX}-sidepanel-globe-btn`);
+                if (globeBtn) {
+                    e.stopPropagation();
+                    const index = parseInt(globeBtn.closest(`.${CONFIG.UI_PREFIX}-item`).dataset.index, 10);
+                    const itemData = this.sidePanels[type].data[index];
+                    const target = this._sidePanelLinkTarget(type, itemData);
+                    if (target.isGroup) this._openGroupLinksInMainPanel(target.name);
+                    else this._openMemberLinksInMainPanel(itemData.g, itemData.n);
+                    return;
+                }
+
                 const badge = e.target.closest(`.${CONFIG.UI_PREFIX}-badge-actionable`);
                 if (badge) {
                     e.stopPropagation();
@@ -3966,24 +4230,57 @@
             }
         },
 
-        // Opens a specific member's Links view directly in the main panel —
-        // used by the MOTD card's member name so a click jumps straight to
-        // "View Links" instead of requiring a group drill-down first.
-        _openMemberLinksInMainPanel(group, member) {
-            this.currentLinkTargetId = `member::${group}::${member}`;
-            this.currentLinkTitle = member;
-            this._previousLinksView = this.currentView;
-            this._previousLinksSearch = this.searchInput ? this.searchInput.value : '';
-            this.currentView = 'links';
-            this.isLinkFormActive = false;
-            this.updateVisibility();
-            this.renderLinks();
+        // Opens a group's own Links view directly in the main panel — the
+        // group-level counterpart to _openMemberLinksInMainPanel(), used by
+        // the Recent/Trending/History row globe icons when the row
+        // represents a group rather than a member (Trending's Group mode).
+        _openGroupLinksInMainPanel(group) {
+            this._enterLinksView(`group::${group}`, group);
 
             this._glowMainPanel();
 
             if (this._carousel.isActive && this._carousel.currentId !== 'main') {
                 this._carouselGoTo('main');
             }
+        },
+
+        // Opens a specific member's Links view directly in the main panel —
+        // used by the Featured card's member name so a click jumps straight to
+        // "View Links" instead of requiring a group drill-down first.
+        // Extracts the group from a "member::{group}::{member}" link target
+        // ID for display in the links header. Returns null for group-level
+        // link targets ("group::{group}") since no badge is needed there.
+        _getMemberLinkTargetGroup() {
+            if (!this.currentLinkTargetId || !this.currentLinkTargetId.startsWith('member::')) return null;
+            const parts = this.currentLinkTargetId.split('::');
+            return parts.length >= 2 ? parts[1] : null;
+        },
+
+        _openMemberLinksInMainPanel(group, member) {
+            this._enterLinksView(`member::${group}::${member}`, member);
+
+            this._glowMainPanel();
+
+            if (this._carousel.isActive && this._carousel.currentId !== 'main') {
+                this._carouselGoTo('main');
+            }
+        },
+
+        // Single entry point for switching into the Links view — every
+        // trigger (member name, group globe button, per-row globe icon)
+        // funnels through here so the Comments accordion always gets
+        // reloaded for the new target, instead of each call site needing to
+        // remember to do it separately.
+        _enterLinksView(targetId, title) {
+            this.currentLinkTargetId = targetId;
+            this.currentLinkTitle = title;
+            this._previousLinksView = this.currentView;
+            this._previousLinksSearch = this.searchInput ? this.searchInput.value : '';
+            this.currentView = 'links';
+            this.isLinkFormActive = false;
+            this._loadCommentsForCurrentTarget();
+            this.updateVisibility();
+            this.renderLinks();
         },
 
         // Shared border-glow feedback used whenever a click elsewhere in the
@@ -4237,14 +4534,7 @@
             this.headerGroupLinksBtn.style.display = 'none';
             this.headerGroupLinksBtn.onclick = () => {
                 if (!this.selectedGroup) return;
-                this.currentLinkTargetId = `group::${this.selectedGroup}`;
-                this.currentLinkTitle = this.selectedGroup;
-                this._previousLinksView = this.currentView;
-                this._previousLinksSearch = this.searchInput ? this.searchInput.value : '';
-                this.currentView = 'links';
-                this.isLinkFormActive = false;
-                this.updateVisibility();
-                this.renderLinks();
+                this._enterLinksView(`group::${this.selectedGroup}`, this.selectedGroup);
             };
             rightGroup.appendChild(this.headerGroupLinksBtn);
 
@@ -4492,6 +4782,7 @@
                 });
             });
 
+            panel.appendChild(this._createCommentsAccordion());
             panel.appendChild(this.linksWrapper);
             panel.appendChild(this.linkFormContainer);
 
@@ -4861,6 +5152,7 @@
             if (this.footer) this.footer.style.display = 'none';
             if (this.crudBarContainer) this.crudBarContainer.style.display = 'none';
             if (this.linksWrapper) this.linksWrapper.style.display = 'none';
+            if (this._commentsAccordionEl) this._commentsAccordionEl.style.display = 'none';
             if (this.linkFormContainer) this.linkFormContainer.style.display = 'none';
             if (this.headerAddLinkBtn) this.headerAddLinkBtn.style.display = 'none';
             if (this.headerGroupLinksBtn) this.headerGroupLinksBtn.style.display = 'none';
@@ -4893,7 +5185,15 @@
                     icon.classList.add(`${CONFIG.UI_PREFIX}-icon-title-svg`);
                     this.headerTitle.appendChild(icon);
                     this.headerTitle.appendChild(document.createTextNode(this.currentLinkTitle));
+                    const targetGroup = this._getMemberLinkTargetGroup();
+                    if (targetGroup) {
+                        const groupBadge = document.createElement('span');
+                        groupBadge.className = `${CONFIG.UI_PREFIX}-badge accent ${CONFIG.UI_PREFIX}-header-title-group-badge`;
+                        groupBadge.textContent = targetGroup;
+                        this.headerTitle.appendChild(groupBadge);
+                    }
                     this.linksWrapper.style.display = 'flex';
+                    if (this._commentsAccordionEl) this._commentsAccordionEl.style.display = 'flex';
                     this.headerAddLinkBtn.style.display = 'flex';
                 }
             } else {
@@ -4931,7 +5231,8 @@
         // - If the pasted value is a bare email address, converts it to a
         //   mailto: link, sets Title to "Email", copies the address into
         //   Notes, and focuses Notes.
-        // - Otherwise, strips any trailing slash from the URL, then checks
+        // - Otherwise, strips any query string/fragment (tracking params,
+        //   share-link junk) and trailing slash from the URL, then checks
         //   whether the domain matches a Title already saved in the
         //   database (case-insensitively, via the alias map). On a match,
         //   autofills that exact Title and jumps focus to Notes; otherwise
@@ -4948,7 +5249,7 @@
                 return;
             }
 
-            const normalizedUrl = Utils.stripTrailingSlash(rawValue);
+            const normalizedUrl = Utils.stripTrailingSlash(Utils.stripQueryAndFragment(rawValue));
             if (normalizedUrl !== this.linkUrlInput.value) {
                 this.linkUrlInput.value = normalizedUrl;
                 this.linkUrlInput.dispatchEvent(new Event('input', { bubbles: true }));
@@ -5069,6 +5370,125 @@
             if (this.linkTitleSuggestionsEl) this.linkTitleSuggestionsEl.style.display = 'none';
         },
 
+        // Builds the collapsed Comments accordion shell — a per-group/member
+        // free-text note, fully independent of Links. Sits as a fixed
+        // element above the virtualized links list (mirrors how the
+        // Featured section sits above the Trending list) so the accordion
+        // never has to fight the links list's fixed-slot virtualization
+        // math; flexbox + the existing ResizeObserver on linksWrapper
+        // naturally resize the list underneath as this accordion opens/
+        // closes, with zero extra recalculation code needed. Expansion
+        // itself uses a fixed max-height rather than growing to fit
+        // content, so that resize is always a known, predictable amount —
+        // overflow is handled by the textarea's own internal scroll.
+        _createCommentsAccordion() {
+            const wrapper = document.createElement('div');
+            wrapper.className = `${CONFIG.UI_PREFIX}-comments-accordion`;
+
+            const header = document.createElement('div');
+            header.className = `${CONFIG.UI_PREFIX}-comments-header`;
+            header.setAttribute('tabindex', '0');
+            header.setAttribute('role', 'button');
+            header.setAttribute('aria-expanded', 'false');
+            header.setAttribute('aria-label', 'Toggle comments');
+
+            const label = document.createElement('span');
+            label.className = `${CONFIG.UI_PREFIX}-comments-label`;
+            label.textContent = 'Comments';
+
+            const chevron = this._createSVG(ICONS.chevronDown);
+            chevron.classList.add(`${CONFIG.UI_PREFIX}-comments-chevron`);
+
+            header.appendChild(label);
+            header.appendChild(chevron);
+
+            const body = document.createElement('div');
+            body.className = `${CONFIG.UI_PREFIX}-comments-body`;
+
+            const textarea = document.createElement('textarea');
+            textarea.className = `${CONFIG.UI_PREFIX}-comments-textarea`;
+            textarea.placeholder = 'Add a comment...';
+            textarea.maxLength = CONFIG.COMMENT_MAX_LENGTH;
+            textarea.setAttribute('aria-label', 'Comment text');
+
+            body.appendChild(textarea);
+
+            const toggleOpen = () => {
+                const isOpen = wrapper.classList.toggle(`${CONFIG.UI_PREFIX}-comments-open`);
+                header.setAttribute('aria-expanded', String(isOpen));
+            };
+            header.onclick = toggleOpen;
+            header.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleOpen(); }
+            });
+
+            // Debounced auto-save — persists a short while after typing
+            // stops rather than on every keystroke, so switching members
+            // rapidly can't spam the cloud API. savingForId is captured here
+            // (not read live from this.currentLinkTargetId when the timer
+            // fires) so a save already in flight always lands on the target
+            // it was actually typed for, even after navigating elsewhere.
+            textarea.addEventListener('input', () => {
+                this._updateCommentsFilledState(textarea.value);
+                const savingForId = this.currentLinkTargetId;
+                const text = textarea.value;
+                clearTimeout(this._commentsSaveTimeout);
+                this._pendingCommentSave = () => {
+                    Database.setComment(savingForId, text);
+                    this.triggerCloudSync();
+                };
+                this._commentsSaveTimeout = setTimeout(() => {
+                    this._flushPendingCommentSave();
+                }, CONFIG.COMMENT_SAVE_DEBOUNCE_MS);
+            });
+
+            wrapper.appendChild(header);
+            wrapper.appendChild(body);
+
+            this._commentsAccordionEl = wrapper;
+            this._commentsHeaderEl = header;
+            this._commentsTextareaEl = textarea;
+            return wrapper;
+        },
+
+        // Toggles the pink accent-filled styling based on whether the
+        // comment currently has content — called both on load and on every
+        // keystroke so the collapsed header stays in sync live.
+        _updateCommentsFilledState(text) {
+            if (!this._commentsHeaderEl) return;
+            const trimmed = (text || '').trim();
+            const filledClass = `${CONFIG.UI_PREFIX}-comments-header-filled`;
+            this._commentsHeaderEl.classList.toggle(filledClass, !!trimmed);
+        },
+
+        // Immediately saves whatever comment edit is still pending from a
+        // debounce timer, instead of letting it get silently dropped by a
+        // clearTimeout — called whenever we're about to leave the comment
+        // that edit belongs to (switching target, or closing the panel).
+        _flushPendingCommentSave() {
+            clearTimeout(this._commentsSaveTimeout);
+            if (this._pendingCommentSave) {
+                const save = this._pendingCommentSave;
+                this._pendingCommentSave = null;
+                save();
+            }
+        },
+
+        // Loads the current target's comment into the textarea, collapses
+        // the accordion, and flushes any pending debounced save from
+        // whatever the previous target was — critical so rapidly switching
+        // members can't lose an in-progress edit.
+        _loadCommentsForCurrentTarget() {
+            if (!this._commentsAccordionEl || !this._commentsTextareaEl) return;
+            this._flushPendingCommentSave();
+            this._commentsAccordionEl.classList.remove(`${CONFIG.UI_PREFIX}-comments-open`);
+            if (this._commentsHeaderEl) this._commentsHeaderEl.setAttribute('aria-expanded', 'false');
+
+            const text = Database.getComment(this.currentLinkTargetId);
+            this._commentsTextareaEl.value = text;
+            this._updateCommentsFilledState(text);
+        },
+
         renderLinks() {
             if (!this.linksContainer || !this.linksListInner) return;
             const rawLinks = Database.getLinks(this.currentLinkTargetId);
@@ -5173,15 +5593,17 @@
             if (this.currentView === 'groups') {
                 Database.sortedGroups.forEach(gName => {
                     const groupNameMatches = !isSearch || gName.toLowerCase().includes(searchVal);
-                    const groupLinkMatches = isSearch && Database.linksMatchSearch(`group::${gName}`, searchVal);
-                    if (groupNameMatches || groupLinkMatches) {
+                    const groupId = `group::${gName}`;
+                    const groupMetaMatches = isSearch && (Database.linksMatchSearch(groupId, searchVal) || Database.commentMatchesSearch(groupId, searchVal));
+                    if (groupNameMatches || groupMetaMatches) {
                         this.currentListData.push({ type: 'group', group: gName, label: gName, badge: 'Group' });
                     }
                     if (isSearch) {
                         Database.data[gName].forEach(mName => {
                             const memberNameMatches = mName.toLowerCase().includes(searchVal);
-                            const memberLinkMatches = Database.linksMatchSearch(`member::${gName}::${mName}`, searchVal);
-                            if (memberNameMatches || memberLinkMatches) {
+                            const memberId = `member::${gName}::${mName}`;
+                            const memberMetaMatches = Database.linksMatchSearch(memberId, searchVal) || Database.commentMatchesSearch(memberId, searchVal);
+                            if (memberNameMatches || memberMetaMatches) {
                                 this.currentListData.push({ type: 'member', group: gName, member: mName, label: mName, badge: gName });
                             }
                         });
@@ -5191,8 +5613,9 @@
                 if (Database.data[this.selectedGroup]) {
                     Database.data[this.selectedGroup].forEach(mName => {
                         const memberNameMatches = !isSearch || mName.toLowerCase().includes(searchVal);
-                        const memberLinkMatches = isSearch && Database.linksMatchSearch(`member::${this.selectedGroup}::${mName}`, searchVal);
-                        if (memberNameMatches || memberLinkMatches) {
+                        const memberId = `member::${this.selectedGroup}::${mName}`;
+                        const memberMetaMatches = isSearch && (Database.linksMatchSearch(memberId, searchVal) || Database.commentMatchesSearch(memberId, searchVal));
+                        if (memberNameMatches || memberMetaMatches) {
                             this.currentListData.push({ type: 'member', group: this.selectedGroup, member: mName, label: mName, badge: '' });
                         }
                     });
@@ -5317,18 +5740,12 @@
 
                 globeBtn.onclick = (e) => {
                     e.stopPropagation();
-                    this.currentLinkTargetId = globeLinkId;
-                    this.currentLinkTitle = itemData.type === 'group' ? itemData.group : itemData.member;
                     // Remember exactly where we came from — inferring it from
                     // the link ID prefix (group:: vs member::) was wrong when
                     // a member's globe icon is clicked from a 'groups'-view
                     // search result rather than an actual 'members' drill-down.
-                    this._previousLinksView = this.currentView;
-                    this._previousLinksSearch = this.searchInput ? this.searchInput.value : '';
-                    this.currentView = 'links';
-                    this.isLinkFormActive = false;
-                    this.updateVisibility();
-                    this.renderLinks();
+                    // _enterLinksView captures this.currentView before switching.
+                    this._enterLinksView(globeLinkId, itemData.type === 'group' ? itemData.group : itemData.member);
                 };
                 rightWrapper.appendChild(globeBtn);
 
@@ -5824,8 +6241,13 @@
             this.render();
             this.syncInterval = setInterval(() => {
                 if (CloudAPI.isValid() && !CloudAPI.isRateLimited()) {
-                    Storage.fetchCloudBackground(true);
-                    Database.fetchCloudBackground(true);
+                    // Unforced: respects both the standard throttle and the
+                    // local-write guard, so a poll landing mid-edit can't
+                    // revert changes the user just made in this panel. The
+                    // one-off fetch on menu open (above) stays forced since
+                    // nothing has been edited yet at that point.
+                    Storage.fetchCloudBackground();
+                    Database.fetchCloudBackground();
                 }
             }, CONFIG.CLOUD_MENU_POLL_MS);
             this.syncTimeInterval = setInterval(() => {
@@ -5839,13 +6261,9 @@
             if (this.currentView === 'config' && this.hasUnsavedChanges()) {
                 if (!confirm("You have unsaved changes. Discard them?")) return;
             }
+            this._flushPendingCommentSave();
             if (this.overlay) {
                 this.exitMultiSelectMode();
-                this._stopMotdCountdown();
-                if (this._motdVisibilityHandler) {
-                    document.removeEventListener('visibilitychange', this._motdVisibilityHandler);
-                    this._motdVisibilityHandler = null;
-                }
                 this.overlay.remove();
                 this.overlay = null;
                 document.body.style.overflow = '';
@@ -5899,7 +6317,7 @@
             UI.injectStyles();
             this.bindEvents();
             Database.init();
-            if (CONFIG.MOTD_ENABLED) MOTD.init();
+            if (CONFIG.FEATURED_ENABLED) Featured.init();
 
             setInterval(() => {
                 if (document.visibilityState === 'visible' && !UI.overlay) {
