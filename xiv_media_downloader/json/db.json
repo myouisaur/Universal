@@ -2475,5 +2475,7 @@
       }
     ]
   },
-  "_xiv_comments": {}
+  "_xiv_comments": {
+    "group::15&": "test"
+  }
 }
