@@ -2,7 +2,7 @@
 // @name         [Universal] Xiv Media Downloader
 // @namespace    https://github.com/myouisaur/Universal
 // @icon         data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23FF4081'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 11h3l-4 4-4-4h3V8h2v5z'/%3E%3C/svg%3E
-// @version      29.5
+// @version      29.13
 // @description  Organizes, tracks, and saves categorized media files through a centralized overlay.
 // @author       Xiv
 // @match        *://*/*
@@ -70,10 +70,24 @@
         // was already in flight can't land with pre-edit data and silently
         // revert what the user just saved. Manual "Force Sync" bypasses this.
         DB_LOCAL_WRITE_GUARD_MS: 15000,
+        // Same idea as DB_LOCAL_WRITE_GUARD_MS, but for the history cache
+        // (Storage module) that backs Recent/Trending. Renaming a member
+        // rewrites entries in place without changing their timestamp; the
+        // cloud copy of those entries still shows the old name until the
+        // quiet-window push finishes uploading. Without this guard, a
+        // background/cross-tab cloud fetch landing in that gap merges the
+        // stale cloud entry (old name) alongside the renamed local entry
+        // (new name) under the old dedupe key, doubling the row in Recent
+        // and Trending. Manual "Force Sync" bypasses this.
+        HISTORY_LOCAL_WRITE_GUARD_MS: 15000,
 
         // Trending Score (Storage.getTrendingStats/getGroupTrendingStats)
         TRENDING_SCOPE_DAYS: 99999,
         TRENDING_HALF_LIFE_DAYS: 6,
+        // Entries whose decayed score falls below this are hidden from
+        // Trending entirely, so long-decayed one-off downloads from long ago
+        // don't linger forever at the bottom of the list. Tune to taste.
+        TRENDING_MIN_SCORE: 0.05,
 
         // List Rendering / Virtualization
         VIRTUAL_ITEM_HEIGHT: 50,
@@ -621,6 +635,16 @@
             this._lastLocalWriteAt = Date.now();
         },
 
+        // Writes the current in-memory state to the local Tampermonkey DB
+        // cache right away, independent of whether a cloud push succeeds.
+        // Without this, a rename/add/delete only reaches the local cache as
+        // a side effect of saveCloud() — so a failed/skipped cloud sync
+        // (no token, offline, rate-limited) would leave the on-disk cache
+        // stale until the next successful network fetch.
+        _persistLocalCache() {
+            this.setCache({ ...this.data, _xiv_links: this.metaLinks, _xiv_comments: this.metaComments });
+        },
+
         _isWithinLocalWriteGuard() {
             return (Date.now() - this._lastLocalWriteAt) < CONFIG.DB_LOCAL_WRITE_GUARD_MS;
         },
@@ -842,18 +866,36 @@
             if (!normalized || this.data[normalized]) return false;
             this.data[normalized] = [];
             this._touchLocalWrite();
+            this._persistLocalCache();
 
-            const payload = { ...this.data, _xiv_links: this.metaLinks };
+            const payload = { ...this.data, _xiv_links: this.metaLinks, _xiv_comments: this.metaComments };
             this.processData(payload);
             return true;
         },
 
+        // Removes the group's own link/comment entry plus every member's,
+        // immediately and explicitly — rather than depending on the
+        // background prune-on-processData pass to catch them later.
+        _purgeGroupMeta(groupName, members) {
+            const groupId = `group::${groupName}`;
+            delete this.metaLinks[groupId];
+            delete this.metaComments[groupId];
+            (members || []).forEach(memberName => {
+                const memberId = `member::${groupName}::${memberName}`;
+                delete this.metaLinks[memberId];
+                delete this.metaComments[memberId];
+            });
+        },
+
         deleteGroup(groupName) {
             if (!this.data[groupName]) return false;
+            const members = this.data[groupName];
+            this._purgeGroupMeta(groupName, members);
             delete this.data[groupName];
             this._touchLocalWrite();
+            this._persistLocalCache();
 
-            const payload = { ...this.data, _xiv_links: this.metaLinks };
+            const payload = { ...this.data, _xiv_links: this.metaLinks, _xiv_comments: this.metaComments };
             this.processData(payload);
             return true;
         },
@@ -865,8 +907,9 @@
             delete this.data[oldName];
             this._migrateGroupLinks(oldName, normalized);
             this._touchLocalWrite();
+            this._persistLocalCache();
 
-            const payload = { ...this.data, _xiv_links: this.metaLinks };
+            const payload = { ...this.data, _xiv_links: this.metaLinks, _xiv_comments: this.metaComments };
             this.processData(payload);
             return true;
         },
@@ -880,13 +923,21 @@
             return true;
         },
 
+        // Deletes the member from this exact group only — the id embeds the
+        // group name, so a same-named member in a different group is never
+        // touched. Only the db-side link/comment entry is removed here;
+        // download history is intentionally left alone (history is only
+        // ever modified on rename, never on delete).
         deleteMember(groupName, memberName) {
             if (!this.data[groupName]) return false;
             const index = this.data[groupName].indexOf(memberName);
             if (index === -1) return false;
             this.data[groupName].splice(index, 1);
-            delete this.metaLinks[`member::${groupName}::${memberName}`];
+            const memberId = `member::${groupName}::${memberName}`;
+            delete this.metaLinks[memberId];
+            delete this.metaComments[memberId];
             this._touchLocalWrite();
+            this._persistLocalCache();
             return true;
         },
 
@@ -898,13 +949,22 @@
             this.data[groupName][index] = normalized;
             this.data[groupName].sort((a, b) => a.localeCompare(b));
 
+            // Ids embed the group name, so this only ever moves the link/
+            // comment belonging to this exact member in this exact group —
+            // a same-named member in a different group has a different id
+            // and is never touched.
             const oldId = `member::${groupName}::${oldName}`;
             const newId = `member::${groupName}::${normalized}`;
             if (this.metaLinks[oldId]) {
                 this.metaLinks[newId] = this.metaLinks[oldId];
                 delete this.metaLinks[oldId];
             }
+            if (this.metaComments[oldId]) {
+                this.metaComments[newId] = this.metaComments[oldId];
+                delete this.metaComments[oldId];
+            }
             this._touchLocalWrite();
+            this._persistLocalCache();
             return true;
         }
     };
@@ -1123,6 +1183,17 @@
         _quietPushTimer: null,
         _lastCloudFetch: 0,
         _taskQueue: Promise.resolve(),
+        _lastLocalWriteAt: 0,
+
+        // Marks that a local edit (rename/delete) just touched _cache, so
+        // incoming cloud merges know to hold off. See HISTORY_LOCAL_WRITE_GUARD_MS.
+        _markLocalWrite() {
+            this._lastLocalWriteAt = Date.now();
+        },
+
+        _isWithinLocalWriteGuard() {
+            return (Date.now() - this._lastLocalWriteAt) < CONFIG.HISTORY_LOCAL_WRITE_GUARD_MS;
+        },
 
         init(isSilentMode = false) {
             this.cleanupDeprecatedConfig();
@@ -1218,6 +1289,10 @@
             if (typeof GM_addValueChangeListener === 'function') {
                 GM_addValueChangeListener(CONFIG.STORAGE_KEY, (key, oldValue, newValue, remote) => {
                     if (remote) {
+                        if (this._isWithinLocalWriteGuard()) {
+                            Logger.info('Skipped cross-tab history sync — recent local edit still settling.');
+                            return;
+                        }
                         try {
                             this._cache = JSON.parse(newValue || '[]');
                             if (UI.overlay) {
@@ -1295,10 +1370,28 @@
                     GM_setValue(`${CONFIG.UI_PREFIX}_last_sync_time`, Date.now());
                     if (UI.overlay) UI.updateSyncTimeUI();
 
+                    if (this._isWithinLocalWriteGuard()) {
+                        Logger.info('Skipped background history merge — recent local edit still settling.');
+                        return;
+                    }
+
                     await this._queueTask(() => this._withLock(async () => {
+                        // Re-check inside the lock: a rename/delete may have landed
+                        // while this fetch was in flight.
+                        if (this._isWithinLocalWriteGuard()) {
+                            Logger.info('Skipped background history merge — recent local edit still settling.');
+                            return;
+                        }
+
+                        // Dedupe by timestamp+group only, NOT name. Name is
+                        // mutable (renames rewrite it in place while keeping the
+                        // original timestamp), so keying on it would let a stale
+                        // cloud copy of a renamed entry survive the merge as a
+                        // second, duplicate row instead of being collapsed into
+                        // the local entry.
                         const mergedMap = new Map();
                         [...this._cache, ...cloudData].forEach(item => {
-                            mergedMap.set(`${item.t}-${item.g}-${item.n}`, item);
+                            mergedMap.set(`${item.t}-${item.g}`, item);
                         });
 
                         const newCache = Array.from(mergedMap.values()).sort((a, b) => a.t - b.t);
@@ -1437,6 +1530,7 @@
                 });
 
                 if (changed) {
+                    this._markLocalWrite();
                     GM_setValue(CONFIG.STORAGE_KEY, JSON.stringify(this._cache));
                     this._scheduleQuietPush();
                     if (UI.overlay) UI.refreshSidePanels();
@@ -1453,6 +1547,7 @@
                 this._cache = this._cache.filter(item => !idsClone.has(`${item.t}-${item.g}-${item.n}`));
 
                 if (this._cache.length !== originalLength) {
+                    this._markLocalWrite();
                     GM_setValue(CONFIG.STORAGE_KEY, JSON.stringify(this._cache));
                     this._scheduleQuietPush();
                     if (UI.overlay) {
@@ -1502,7 +1597,9 @@
                 frequencies[identifier].count++;
                 frequencies[identifier].score += weight;
             });
-            return Object.values(frequencies).sort((a, b) => b.score - a.score);
+            return Object.values(frequencies)
+                .filter(entry => entry.score >= CONFIG.TRENDING_MIN_SCORE)
+                .sort((a, b) => b.score - a.score);
         },
 
         getGroupTrendingStats() {
@@ -1517,7 +1614,9 @@
                 frequencies[item.g].count++;
                 frequencies[item.g].score += weight;
             });
-            return Object.values(frequencies).sort((a, b) => b.score - a.score);
+            return Object.values(frequencies)
+                .filter(entry => entry.score >= CONFIG.TRENDING_MIN_SCORE)
+                .sort((a, b) => b.score - a.score);
         }
     };
 
@@ -2324,7 +2423,7 @@
                     position: absolute;
                     top: 0; left: 0; width: 100%; height: 42px;
                     background: #141414; border: 1px solid transparent; padding: 0 1rem; border-radius: 0.8rem;
-                    cursor: pointer; transition: background 0.15s; font-size: 0.95rem;
+                    cursor: pointer; transition: background 0.15s; font-size: 0.85rem;
                     display: flex; justify-content: space-between; align-items: center;
                     box-sizing: border-box; will-change: transform;
                 }
@@ -2347,7 +2446,7 @@
                    icon so the indicator means the same thing everywhere. */
                 .${CONFIG.UI_PREFIX}-sidepanel-globe-btn {
                     background: transparent; border: none; cursor: pointer;
-                    padding: 0.3rem; margin-left: 0.2rem; border-radius: 0.4rem;
+                    padding: 0.25rem; border-radius: 0.4rem;
                     display: flex; align-items: center; justify-content: center;
                     flex-shrink: 0; transition: background 0.2s;
                 }
@@ -2582,7 +2681,7 @@
                 .${CONFIG.UI_PREFIX}-crud-input:focus { border-color: var(--tm-text-dark); }
                 .${CONFIG.UI_PREFIX}-crud-add-btn   { background: #222; color: var(--tm-text-main); border: 1px solid var(--tm-border-light); border-radius: 0.6rem; padding: 0.7rem 1rem; font-size: 0.85rem; cursor: pointer; white-space: nowrap; transition: background 0.2s, border-color 0.2s; }
                 .${CONFIG.UI_PREFIX}-crud-add-btn:hover:not(:disabled) { background: var(--tm-border-light); border-color: var(--tm-border-focus); }
-                .${CONFIG.UI_PREFIX}-edit-item-btn, .${CONFIG.UI_PREFIX}-delete-btn { background: transparent; border: none; cursor: pointer; padding: 0.4rem; display: flex; align-items: center; justify-content: center; border-radius: 0.4rem; transition: background 0.2s; margin-left: 0.2rem; }
+                .${CONFIG.UI_PREFIX}-edit-item-btn, .${CONFIG.UI_PREFIX}-delete-btn { background: transparent; border: none; cursor: pointer; padding: 0.3rem; display: flex; align-items: center; justify-content: center; border-radius: 0.4rem; transition: background 0.2s; }
                 .${CONFIG.UI_PREFIX}-edit-item-btn svg, .${CONFIG.UI_PREFIX}-delete-btn svg { width: 1.1rem; height: 1.1rem; transition: fill 0.2s; }
                 .${CONFIG.UI_PREFIX}-edit-item-btn svg         { fill: var(--tm-text-muted); }
                 .${CONFIG.UI_PREFIX}-edit-item-btn:hover       { background: rgba(255,255,255,0.15); }
@@ -3511,7 +3610,7 @@
             globeBtn.setAttribute('aria-label', label);
             globeBtn.appendChild(this._createSVG(ICONS.globe));
 
-            if (Database.getLinks(target.id).length > 0) {
+            if (Database.getLinks(target.id).length > 0 || Database.getComment(target.id).length > 0) {
                 globeBtn.classList.add(`${CONFIG.UI_PREFIX}-sidepanel-globe-btn-filled`);
             }
             return globeBtn;
@@ -3575,7 +3674,7 @@
                     histBadge.textContent = itemData.g;
 
                     const histRightWrapper = document.createElement('div');
-                    histRightWrapper.style.cssText = 'display:flex;align-items:center;gap:0.3rem;flex-shrink:0;';
+                    histRightWrapper.style.cssText = 'display:flex;align-items:center;gap:0.15rem;flex-shrink:0;';
                     histRightWrapper.appendChild(histBadge);
                     histRightWrapper.appendChild(this._createSidePanelGlobeBtn(this._sidePanelLinkTarget(type, itemData)));
 
@@ -3609,7 +3708,7 @@
                     const rightWrapper = document.createElement('div');
                     rightWrapper.style.display = 'flex';
                     rightWrapper.style.alignItems = 'center';
-                    rightWrapper.style.gap = '0.4rem';
+                    rightWrapper.style.gap = '0.15rem';
 
                     if (isInCart) {
                         const check = document.createElement('span');
@@ -4084,15 +4183,15 @@
             header.appendChild(rightGroup);
 
             panel.appendChild(header);
-            if (type === 'trending') {
-                panel.appendChild(this._createTrendingViewToggle());
-            }
             if (type === 'trending' && CONFIG.FEATURED_ENABLED) {
                 panel.appendChild(this._createFeaturedSection());
                 // Shown by default now — previously required pressing the
                 // dice button first. The button itself still toggles it.
                 this._featuredSectionEl.classList.add(`${CONFIG.UI_PREFIX}-featured-section-open`);
                 this._renderFeaturedCardContent();
+            }
+            if (type === 'trending') {
+                panel.appendChild(this._createTrendingViewToggle());
             }
 
             const wrapper = document.createElement('div');
@@ -4304,7 +4403,10 @@
         refreshDatabaseView() {
             if (!this.overlay) return;
             if (this.currentView === 'groups' || this.currentView === 'members') {
-                this.updateListData(this.searchInput ? this.searchInput.value.toLowerCase().trim() : '');
+                // preserveScroll: true — this fires from a background poll,
+                // not a user action, so the list must refresh in place
+                // without yanking the user's scroll position back to top.
+                this.updateListData(this.searchInput ? this.searchInput.value.toLowerCase().trim() : '', { preserveScroll: true });
             } else if (this.currentView === 'links') {
                 this.renderLinks();
             }
@@ -5586,7 +5688,7 @@
             this.linksListInner.appendChild(fragment);
         },
 
-        updateListData(searchVal, { jumpToMain = false } = {}) {
+        updateListData(searchVal, { jumpToMain = false, preserveScroll = false } = {}) {
             this.currentListData = [];
             const isSearch = searchVal.length > 0;
 
@@ -5623,7 +5725,7 @@
             }
 
             this.activeIndex = this.currentListData.length > 0 ? 0 : -1;
-            this.listContainer.scrollTop = 0;
+            if (!preserveScroll) this.listContainer.scrollTop = 0;
             this.updateVisibility();
             this.renderVirtualList();
 
@@ -5684,7 +5786,7 @@
                 const rightWrapper = document.createElement('div');
                 rightWrapper.style.display = 'flex';
                 rightWrapper.style.alignItems = 'center';
-                rightWrapper.style.gap = '0.4rem';
+                rightWrapper.style.gap = '0.15rem';
 
                 if (isInCart) {
                     const check = document.createElement('span');
@@ -5718,7 +5820,7 @@
                 globeBtn.className = `${CONFIG.UI_PREFIX}-icon-btn`;
                 globeBtn.style.background = 'transparent';
                 globeBtn.style.border = 'none';
-                globeBtn.style.padding = '0.4rem';
+                globeBtn.style.padding = '0.3rem';
                 globeBtn.title = "View Links";
                 const globeSvg = this._createSVG(ICONS.globe);
                 globeSvg.style.width = '1.1rem'; globeSvg.style.height = '1.1rem';
@@ -5726,16 +5828,18 @@
 
                 const globeLinkId = itemData.type === 'group' ? `group::${itemData.group}` : `member::${itemData.group}::${itemData.member}`;
                 const hasLinks = Database.getLinks(globeLinkId).length > 0;
-                // Dimmer when empty — the icon itself signals "no links yet"
+                const hasComment = Database.getComment(globeLinkId).length > 0;
+                const hasContent = hasLinks || hasComment;
+                // Dimmer when empty — the icon itself signals "nothing here yet"
                 // rather than looking identical whether or not there's content.
-                globeSvg.style.fill = hasLinks ? 'var(--tm-text-muted)' : 'var(--tm-text-dark)';
-                globeSvg.style.opacity = hasLinks ? '1' : '0.5';
+                globeSvg.style.fill = hasContent ? 'var(--tm-text-muted)' : 'var(--tm-text-dark)';
+                globeSvg.style.opacity = hasContent ? '1' : '0.5';
 
                 // No background hover — icon-only feedback, matching the request
                 globeBtn.onmouseover = () => { globeSvg.style.fill = 'var(--tm-text-main)'; globeSvg.style.opacity = '1'; };
                 globeBtn.onmouseout = () => {
-                    globeSvg.style.fill = hasLinks ? 'var(--tm-text-muted)' : 'var(--tm-text-dark)';
-                    globeSvg.style.opacity = hasLinks ? '1' : '0.5';
+                    globeSvg.style.fill = hasContent ? 'var(--tm-text-muted)' : 'var(--tm-text-dark)';
+                    globeSvg.style.opacity = hasContent ? '1' : '0.5';
                 };
 
                 globeBtn.onclick = (e) => {
