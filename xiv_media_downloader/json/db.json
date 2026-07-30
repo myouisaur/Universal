@@ -2454,6 +2454,13 @@
         "t": "Instagram",
         "n": ""
       }
+    ],
+    "member::STAYC::Isa": [
+      {
+        "u": "https://www.reddit.com/r/isa",
+        "t": "Reddit",
+        "n": "/r/isa"
+      }
     ]
   },
   "_xiv_comments": {
