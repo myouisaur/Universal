@@ -2,7 +2,7 @@
 // @name         [Universal] Xiv Media Downloader
 // @namespace    https://github.com/myouisaur/Universal
 // @icon         data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23FF4081'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 11h3l-4 4-4-4h3V8h2v5z'/%3E%3C/svg%3E
-// @version      29.13
+// @version      29.21
 // @description  Organizes, tracks, and saves categorized media files through a centralized overlay.
 // @author       Xiv
 // @match        *://*/*
@@ -88,6 +88,14 @@
         // Trending entirely, so long-decayed one-off downloads from long ago
         // don't linger forever at the bottom of the list. Tune to taste.
         TRENDING_MIN_SCORE: 0.05,
+        // Each list row's border is tinted with the accent color at an
+        // opacity proportional to its score relative to the current
+        // highest-scoring member/group (members and groups each use their
+        // own baseline — the single highest-scoring member gets full
+        // opacity among member rows, independent of the highest group).
+        // Score 0 => fully transparent, matching the original default look.
+        TRENDING_BORDER_ENABLED: true,
+        TRENDING_BORDER_ACCENT_HEX: '#ff4d82',
 
         // List Rendering / Virtualization
         VIRTUAL_ITEM_HEIGHT: 50,
@@ -172,6 +180,21 @@
     };
 
     const Utils = {
+        // Converts '#rrggbb' to an "r, g, b" string, memoized since it's
+        // called once per visible row on every render. Falls back to the
+        // pink accent's own RGB if given something unparseable, rather than
+        // throwing and breaking the whole row render.
+        _hexToRgbCache: new Map(),
+        hexToRgb(hex) {
+            if (this._hexToRgbCache.has(hex)) return this._hexToRgbCache.get(hex);
+            const match = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex || '');
+            const result = match
+                ? `${parseInt(match[1], 16)}, ${parseInt(match[2], 16)}, ${parseInt(match[3], 16)}`
+                : '255, 77, 130';
+            this._hexToRgbCache.set(hex, result);
+            return result;
+        },
+
         // Pulls the base domain label out of a URL for Link Title
         // auto-suggestion, e.g. "https://www.instagram.com/*/" -> "instagram".
         // Returns '' for anything unparseable rather than throwing, since
@@ -1383,15 +1406,29 @@
                             return;
                         }
 
-                        // Dedupe by timestamp+group only, NOT name. Name is
-                        // mutable (renames rewrite it in place while keeping the
-                        // original timestamp), so keying on it would let a stale
-                        // cloud copy of a renamed entry survive the merge as a
-                        // second, duplicate row instead of being collapsed into
-                        // the local entry.
+                        // Dedupe by a stable per-entry id, NOT by timestamp+group
+                        // and NOT by name. Name is mutable (renames rewrite it
+                        // in place while keeping the original timestamp), so
+                        // keying on it let a stale cloud copy of a renamed
+                        // entry survive as a duplicate row. Keying on
+                        // timestamp+group alone is worse: every member in a
+                        // same-group multi-select batch shares the exact same
+                        // timestamp AND group, so they collided and collapsed
+                        // to a single surviving entry. An independent id
+                        // avoids both failure modes. Legacy entries saved
+                        // before this field existed are backfilled here with a
+                        // fresh id (using their own t-g-n as a one-time merge
+                        // key so pre-existing duplicates don't get created by
+                        // the backfill itself) — this mutates this._cache
+                        // in place, so it persists via the GM_setValue below
+                        // and only needs to happen once per entry.
+                        const backfillId = (item) => {
+                            if (!item.id) item.id = `legacy-${item.t}-${item.g}-${item.n}`;
+                            return item.id;
+                        };
                         const mergedMap = new Map();
                         [...this._cache, ...cloudData].forEach(item => {
-                            mergedMap.set(`${item.t}-${item.g}`, item);
+                            mergedMap.set(backfillId(item), item);
                         });
 
                         const newCache = Array.from(mergedMap.values()).sort((a, b) => a.t - b.t);
@@ -1466,16 +1503,28 @@
             }
         },
 
+        // Unique, stable, immutable per history entry — used as the cloud
+        // merge key (see fetchCloudBackground). Deliberately NOT derived
+        // from t/g/n: timestamp+group collide across a same-group multi-
+        // member batch (identical t, identical g), and name changes on
+        // rename. An independent id survives both.
+        _generateHistoryId() {
+            return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+        },
+
         recordSuccess(group, name) {
             if (!group || !name) return;
             try {
                 this.syncFromStorage();
-                this._cache.push({ g: group, n: name, t: Date.now() });
+                this._cache.push({ g: group, n: name, t: Date.now(), id: this._generateHistoryId() });
                 this.clean();
                 GM_setValue(CONFIG.STORAGE_KEY, JSON.stringify(this._cache));
 
                 GM_setValue(`${CONFIG.UI_PREFIX}_sync_dirty`, true);
-                if (UI.overlay) UI.refreshSidePanels();
+                if (UI.overlay) {
+                    UI.refreshSidePanels();
+                    UI.refreshDatabaseView();
+                }
             } catch (e) {
                 Logger.error('Fast local sync write failed', e);
             }
@@ -1487,13 +1536,16 @@
                 this.syncFromStorage();
                 const now = Date.now();
                 cartArray.forEach(item => {
-                    this._cache.push({ g: item.g, n: item.n, t: now });
+                    this._cache.push({ g: item.g, n: item.n, t: now, id: this._generateHistoryId() });
                 });
                 this.clean();
                 GM_setValue(CONFIG.STORAGE_KEY, JSON.stringify(this._cache));
 
                 GM_setValue(`${CONFIG.UI_PREFIX}_sync_dirty`, true);
-                if (UI.overlay) UI.refreshSidePanels();
+                if (UI.overlay) {
+                    UI.refreshSidePanels();
+                    UI.refreshDatabaseView();
+                }
             } catch (e) {
                 Logger.error('Fast local batch sync write failed', e);
             }
@@ -1584,39 +1636,65 @@
             return Math.pow(2, -ageMs / HALF_LIFE_MS);
         },
 
-        getTrendingStats() {
+        // Shared by getTrendingStats/getGroupTrendingStats/getMemberScoreMap/
+        // getGroupScoreMap so the decay-weighted score formula lives in one
+        // place. byGroupOnly=true aggregates by group; false aggregates by
+        // group+member.
+        _rawFrequencies(byGroupOnly) {
             const now = Date.now();
             const frequencies = {};
             this._cache.forEach(item => {
                 const weight = this._trendingWeight(item.t, now);
                 if (weight === 0) return;
-                const identifier = `${item.g}|${item.n}`;
+                const identifier = byGroupOnly ? item.g : `${item.g}|${item.n}`;
                 if (!frequencies[identifier]) {
-                    frequencies[identifier] = { g: item.g, n: item.n, count: 0, score: 0 };
+                    frequencies[identifier] = byGroupOnly
+                        ? { g: item.g, count: 0, score: 0 }
+                        : { g: item.g, n: item.n, count: 0, score: 0 };
                 }
                 frequencies[identifier].count++;
                 frequencies[identifier].score += weight;
             });
-            return Object.values(frequencies)
+            return frequencies;
+        },
+
+        getTrendingStats() {
+            return Object.values(this._rawFrequencies(false))
                 .filter(entry => entry.score >= CONFIG.TRENDING_MIN_SCORE)
                 .sort((a, b) => b.score - a.score);
         },
 
         getGroupTrendingStats() {
-            const now = Date.now();
-            const frequencies = {};
-            this._cache.forEach(item => {
-                const weight = this._trendingWeight(item.t, now);
-                if (weight === 0) return;
-                if (!frequencies[item.g]) {
-                    frequencies[item.g] = { g: item.g, count: 0, score: 0 };
-                }
-                frequencies[item.g].count++;
-                frequencies[item.g].score += weight;
-            });
-            return Object.values(frequencies)
+            return Object.values(this._rawFrequencies(true))
                 .filter(entry => entry.score >= CONFIG.TRENDING_MIN_SCORE)
                 .sort((a, b) => b.score - a.score);
+        },
+
+        // Powers the trending-score border tint on list rows
+        // (UI.renderVirtualList). Deliberately NOT filtered by
+        // TRENDING_MIN_SCORE like the two methods above — a below-cutoff
+        // item should just end up with a near-fully-transparent border,
+        // not be missing from the map entirely.
+        getMemberScoreMap() {
+            const frequencies = this._rawFrequencies(false);
+            const map = new Map();
+            let max = 0;
+            Object.entries(frequencies).forEach(([id, entry]) => {
+                map.set(id, entry.score);
+                if (entry.score > max) max = entry.score;
+            });
+            return { map, max };
+        },
+
+        getGroupScoreMap() {
+            const frequencies = this._rawFrequencies(true);
+            const map = new Map();
+            let max = 0;
+            Object.entries(frequencies).forEach(([id, entry]) => {
+                map.set(id, entry.score);
+                if (entry.score > max) max = entry.score;
+            });
+            return { map, max };
         }
     };
 
@@ -1674,7 +1752,7 @@
                     const members = groups[g].join('-');
                     return `${g}-${members}`;
                 });
-                baseName = `_multi_${parts.join('_')}`;
+                baseName = parts.join('_');
             }
 
             const ext = this.getExtension();
@@ -2244,7 +2322,7 @@
                 }
                 .${CONFIG.UI_PREFIX}-main { width: 100%; height: 100%; position: relative; }
                 .${CONFIG.UI_PREFIX}-side {
-                    width: clamp(13rem, 20vw, 22rem);
+                    width: calc(clamp(17rem, 26vw, 28rem) * 0.9);
                     height: clamp(60vh, 78vh, 88vh);
                     background: var(--tm-bg-panel); flex-shrink: 1;
                 }
@@ -2277,7 +2355,7 @@
                     pointer-events: none;
                 }
                 .${CONFIG.UI_PREFIX}-cart-panel.active {
-                    width: clamp(13rem, 20vw, 22rem);
+                    width: calc(clamp(17rem, 26vw, 28rem) * 0.8);
                     padding-left: 1.5rem; padding-right: 1.5rem;
                     opacity: 1; border: 1px solid var(--tm-border);
                     margin-left: 0; pointer-events: auto;
@@ -2422,13 +2500,19 @@
                 .${CONFIG.UI_PREFIX}-item {
                     position: absolute;
                     top: 0; left: 0; width: 100%; height: 42px;
-                    background: #141414; border: 1px solid transparent; padding: 0 1rem; border-radius: 0.8rem;
-                    cursor: pointer; transition: background 0.15s; font-size: 0.85rem;
+                    background: #141414; border: 1px solid var(--${CONFIG.UI_PREFIX}-trending-tint, transparent); padding: 0 1rem; border-radius: 0.8rem;
+                    cursor: pointer; transition: background 0.15s, border-color 0.3s; font-size: 0.85rem;
                     display: flex; justify-content: space-between; align-items: center;
                     box-sizing: border-box; will-change: transform;
                 }
                 .${CONFIG.UI_PREFIX}-item:hover,
-                .${CONFIG.UI_PREFIX}-item.active-focus { background: var(--tm-bg-hover); border-color: var(--tm-border-focus); }
+                .${CONFIG.UI_PREFIX}-item.active-focus {
+                    /* No border-color change here on purpose — the border
+                       always reflects trending score (see --xiv-trending-tint
+                       above), including while hovered/selected. Selection
+                       feedback comes entirely from the background tint. */
+                    background: rgba(${Utils.hexToRgb(CONFIG.TRENDING_BORDER_ACCENT_HEX)}, 0.14);
+                }
 
                 .${CONFIG.UI_PREFIX}-badge {
                     font-size: 0.7rem;
@@ -3642,12 +3726,36 @@
             panelObj.inner.textContent = '';
             const fragment = document.createDocumentFragment();
 
+            // Same "computed once per pass, not per row" approach as the
+            // main list's renderVirtualList(). Group mode only applies to
+            // the Trending panel; Recent is always member-level.
+            const isTrendingGroupModePass = type === 'trending' && this.sidePanels.trending.viewMode === 'group';
+            let memberScoreData = null, groupScoreData = null;
+            if (CONFIG.TRENDING_BORDER_ENABLED) {
+                if (isTrendingGroupModePass) {
+                    groupScoreData = Storage.getGroupScoreMap();
+                } else {
+                    memberScoreData = Storage.getMemberScoreMap();
+                }
+            }
+
             for (let i = startIndex; i < endIndex; i++) {
                 const itemData = panelObj.data[i];
                 const btn = document.createElement('div');
                 btn.className = `${CONFIG.UI_PREFIX}-item`;
                 btn.style.transform = `translate3d(0, ${i * itemHeight}px, 0)`;
                 btn.dataset.index = i;
+
+                if (CONFIG.TRENDING_BORDER_ENABLED) {
+                    const scoreData = isTrendingGroupModePass ? groupScoreData : memberScoreData;
+                    const scoreId = isTrendingGroupModePass ? itemData.g : `${itemData.g}|${itemData.n}`;
+                    const score = scoreData.map.get(scoreId) || 0;
+                    const ratio = scoreData.max > 0 ? Math.min(1, score / scoreData.max) : 0;
+                    if (ratio > 0) {
+                        btn.style.setProperty(`--${CONFIG.UI_PREFIX}-trending-tint`, `rgba(${Utils.hexToRgb(CONFIG.TRENDING_BORDER_ACCENT_HEX)}, ${ratio.toFixed(3)})`);
+                    }
+                }
+
                 if (type === 'recent' && this.recentPanelMode === 'history') {
                     const id = `${itemData.t}-${itemData.g}-${itemData.n}`;
                     if (this.historySelected.has(id)) {
@@ -5767,6 +5875,16 @@
             this.listInner.textContent = '';
             const fragment = document.createDocumentFragment();
 
+            // Computed once per render pass, not per row — the list is
+            // virtualized and rows get rebuilt constantly during scroll, so
+            // this must stay O(1) per row rather than re-scanning history
+            // for every visible item.
+            let memberScoreData = null, groupScoreData = null;
+            if (CONFIG.TRENDING_BORDER_ENABLED) {
+                memberScoreData = Storage.getMemberScoreMap();
+                groupScoreData = Storage.getGroupScoreMap();
+            }
+
             for (let i = startIndex; i < endIndex; i++) {
                 const itemData = this.currentListData[i];
                 const btn = document.createElement('div');
@@ -5774,6 +5892,17 @@
                 btn.className = `${CONFIG.UI_PREFIX}-item ${i === this.activeIndex ? 'active-focus' : ''}`;
                 btn.style.transform = `translate3d(0, ${i * itemHeight}px, 0)`;
                 btn.dataset.index = i;
+
+                if (CONFIG.TRENDING_BORDER_ENABLED) {
+                    const scoreData = itemData.type === 'member' ? memberScoreData : groupScoreData;
+                    const scoreId = itemData.type === 'member' ? `${itemData.group}|${itemData.member}` : itemData.group;
+                    const score = scoreData.map.get(scoreId) || 0;
+                    const ratio = scoreData.max > 0 ? Math.min(1, score / scoreData.max) : 0;
+                    if (ratio > 0) {
+                        btn.style.setProperty(`--${CONFIG.UI_PREFIX}-trending-tint`, `rgba(${Utils.hexToRgb(CONFIG.TRENDING_BORDER_ACCENT_HEX)}, ${ratio.toFixed(3)})`);
+                    }
+                }
+
                 const isInCart = this.isMultiSelectMode &&
                     itemData.type === 'member' &&
                     this.cart.some(c => c.g === itemData.group && c.n === itemData.member);
@@ -6086,6 +6215,19 @@
             if (this.overlay) this.overlay.remove();
             this.overlay = document.createElement('div');
             this.overlay.id = `${CONFIG.UI_PREFIX}-overlay`;
+
+            // Tab is disabled entirely for now rather than per-element
+            // tabindex="-1" — the panel rebuilds huge numbers of elements
+            // constantly (virtualized lists), so tagging each one individually
+            // would need re-application on every render pass. A single
+            // capture-phase listener on the overlay root is simpler, catches
+            // every element (existing or future) with zero maintenance, and
+            // is meant to be temporary: a dedicated keyboard-nav scheme is
+            // planned, at which point this gets replaced rather than layered
+            // under it.
+            this.overlay.addEventListener('keydown', (e) => {
+                if (e.key === 'Tab') e.preventDefault();
+            }, true);
 
             document.body.style.overflow = 'hidden';
             const layoutWrapper = document.createElement('div');
