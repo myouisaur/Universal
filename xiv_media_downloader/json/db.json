@@ -1775,9 +1775,6 @@
     "Ririka",
     "Rona"
   ],
-  "111111111Test": [
-    "test123"
-  ],
   "_xiv_links": {
     "member::aespa::Karina": [
       {
@@ -2479,7 +2476,6 @@
     "member::sns::Yana Cosplay": "Giana Navarra",
     "group::Hearts2Hearts": "h2h",
     "member::sns::Czanthrea Carpio": "zanti\nkleo",
-    "member::sns::Bianca Yao": "Biancake",
-    "group::111111111Test": "asdf"
+    "member::sns::Bianca Yao": "Biancake"
   }
 }
