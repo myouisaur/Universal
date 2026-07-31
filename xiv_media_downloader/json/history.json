@@ -6065,6 +6065,8 @@
   {"g": "Billlie"       , "n": "Sheon"                 , "t": 1785444176261},
   {"g": "Billlie"       , "n": "Sheon"                 , "t": 1785444176261},
   {"g": "Billlie"       , "n": "Sheon"                 , "t": 1785444181866},
+  {"g": "Billlie"       , "n": "Sheon"                 , "t": 1785444181866},
+  {"g": "Billlie"       , "n": "Sheon"                 , "t": 1785444186321},
   {"g": "Billlie"       , "n": "Sheon"                 , "t": 1785444186321},
   {"g": "sns"           , "n": "Shaina Reblora"        , "t": 1785469085335},
   {"g": "BLACKPINK"     , "n": "Jennie"                , "t": 1785470095523},
@@ -6089,5 +6091,7 @@
   {"g": "sns"           , "n": "Chippu"                , "t": 1785471071032},
   {"g": "IVE"           , "n": "Wonyoung"              , "t": 1785472227219},
   {"g": "TWICE"         , "n": "Nayeon"                , "t": 1785472369606},
-  {"g": "NewJeans"      , "n": "Minji"                 , "t": 1785477198509}
+  {"g": "NewJeans"      , "n": "Minji"                 , "t": 1785477198509},
+  {"g": "NewJeans"      , "n": "Minji"                 , "t": 1785477198509},
+  {"g": "aespa"         , "n": "Karina"                , "t": 1785478021216}
 ]
