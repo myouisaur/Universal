@@ -2,7 +2,7 @@
 // @name         [Universal] Xiv Media Downloader
 // @namespace    https://github.com/myouisaur/Universal
 // @icon         data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23FF4081'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 11h3l-4 4-4-4h3V8h2v5z'/%3E%3C/svg%3E
-// @version      29.21
+// @version      30.5
 // @description  Organizes, tracks, and saves categorized media files through a centralized overlay.
 // @author       Xiv
 // @match        *://*/*
@@ -35,6 +35,20 @@
     // CONFIGURATION
     // =========================================================
     const CONFIG = {
+        // Branding
+        // Single source of truth for the script's accent color. Every other
+        // accent reference (CSS var --tm-primary, trending-tint rgba calc,
+        // etc.) derives from this value — change it here only.
+        MAIN_ACCENT_HEX: '#ff4081',
+        // Active/selected keeps the original plain accent tint; hover is a
+        // distinctly weaker (lower-opacity) version of the same color, so
+        // the two read as clearly different intensities rather than
+        // blending into the same look against the panel's dark background.
+        // Shared by the main list and link rows so both stay visually
+        // identical.
+        ITEM_HOVER_TINT_OPACITY: 0.06,
+        ITEM_ACTIVE_TINT_OPACITY: 0.14,
+
         // Naming & Execution
         NAMING_FORMAT: '{group}-{member}-{random}.{ext}',
         CUSTOM_NAMING_FORMAT: '{custom}-{random}.{ext}',
@@ -53,6 +67,49 @@
         UI_PREFIX: 'xiv-media-dl',
         STORAGE_PREFIX: 'xiv_media_dl',
         STORAGE_KEY: 'xiv_media_dl_history',
+
+        // Search Box Copy
+        // Shown while the search box has focus vs. while it's blurred
+        // (e.g. after arrow-key list navigation moved focus off it).
+        SEARCH_PLACEHOLDER_FOCUSED: 'Search idols or groups...',
+        SEARCH_PLACEHOLDER_UNFOCUSED: 'Press / to search...',
+
+        // Keyboard Shortcuts
+        // Every hotkey the panel responds to, centralized here — consumed
+        // by the document-level nav listener in render() and by the
+        // Comments accordion. Letter-based Alt combos are matched against
+        // the lowercased e.key. These are DEFAULTS — the actual effective
+        // binding for any KEY_* entry with a matching id in
+        // SHORTCUT_REGISTRY may be overridden per-user via the Shortcuts
+        // module and Settings > Keyboard Shortcuts; read it through
+        // Shortcuts.get('ID'), not CONFIG.KEY_ID directly, wherever a
+        // shortcut is checked. KEY_EDIT is reused across two contexts on
+        // purpose — it's mutually exclusive by view (Manage Database edit
+        // only shows for groups/members, link edit only shows for links)
+        // and the handler guards it to whichever view is active.
+        KEY_FOCUS_SEARCH: '/',              // Refocus the search box from anywhere
+        KEY_BACK: 'Backspace',              // Trigger the back button wherever it's visible
+        KEY_BACK_FORCE_MODIFIER: 'ctrlKey', // Held with Backspace to override an active text field
+        KEY_LIST_UP: 'ArrowUp',             // Move the highlight up (main list or link rows)
+        KEY_LIST_DOWN: 'ArrowDown',         // Move the highlight down (main list or link rows)
+        KEY_ACTIVATE: 'Enter',              // Select the highlighted item / open the highlighted link
+        KEY_DELETE_ITEM: 'Delete',          // Delete the highlighted link, or Manage Database list item
+        KEY_TOGGLE_COMMENTS: 't',           // Alt+T — expand/focus/collapse the Comments accordion
+        KEY_ADD_LINK: 'a',                  // Alt+A — open the Add Link form
+        KEY_EDIT: 'e',                      // Alt+E — edit the highlighted link, or Manage Database list item
+        KEY_STANDARD_SAVE: 's',             // Alt+S — click the Standard Save button
+        KEY_CUSTOM_SAVE: 'c',               // Alt+C — click the Custom Save button
+        KEY_HISTORY_TOGGLE: 'h',            // Alt+H — toggle Recent/Raw History view (Recent panel)
+        KEY_FEATURED_TOGGLE: 'f',           // Alt+F — expand/collapse Featured Member (Trending panel)
+        KEY_MULTISELECT_TOGGLE: 'm',        // Alt+M — toggle Select Multiple Members
+        KEY_TRENDING_VIEW_TOGGLE: 'q',      // Alt+Q — flip Trending panel's Group/Member switch
+        KEY_SETTINGS: 'z',                  // Alt+Z — open Settings
+        KEY_FORCE_SYNC: 'x',                // Alt+X — trigger Force Manual Sync
+        KEY_REROLL: 'r',                    // Alt+R — reroll the Featured Member (Trending panel)
+        KEY_MANAGE_TOGGLE: 'w',             // Alt+W — toggle Manage Database mode
+        KEY_GROUP_LINKS: 'v',               // Alt+V — view the current group's links (header button)
+        KEY_ITEM_LINKS: 'l',                // Alt+L — view links for the highlighted list item
+        KEY_GROUP_BADGE: 'g',                // Alt+G — activate the highlighted member's group badge
 
         // Z-Index Layering
         FAB_Z_INDEX: 999990,
@@ -95,7 +152,6 @@
         // opacity among member rows, independent of the highest group).
         // Score 0 => fully transparent, matching the original default look.
         TRENDING_BORDER_ENABLED: true,
-        TRENDING_BORDER_ACCENT_HEX: '#ff4d82',
 
         // List Rendering / Virtualization
         VIRTUAL_ITEM_HEIGHT: 50,
@@ -120,6 +176,14 @@
         LINK_TITLE_DOMAIN_ALIASES: {
             'x': 'twitter'
         },
+
+        // Link Cleanup Exceptions
+        // Hostnames (lowercase, without "www.") for which a pasted link URL
+        // is kept exactly as posted — no stripping of query strings,
+        // fragments, or trailing slashes. Needed for sites where the query
+        // string IS the actual content being linked to (e.g. a search-
+        // results page), rather than disposable tracking params.
+        LINK_CLEANUP_EXCEPTION_DOMAINS: ['balbums.st'],
 
         // Featured Member — Weighted Lottery
         FEATURED_ENABLED: true,
@@ -159,7 +223,137 @@
         dice: "M7,3 H17 A4,4 0 0 1 21,7 V17 A4,4 0 0 1 17,21 H7 A4,4 0 0 1 3,17 V7 A4,4 0 0 1 7,3 Z M6.4,8 A1.6,1.6 0 1,0 9.6,8 A1.6,1.6 0 1,0 6.4,8 Z M10.4,12 A1.6,1.6 0 1,0 13.6,12 A1.6,1.6 0 1,0 10.4,12 Z M14.4,16 A1.6,1.6 0 1,0 17.6,16 A1.6,1.6 0 1,0 14.4,16 Z",
         paste: "M19 3h-4.18C14.4 1.84 13.3 1 12 1c-1.3 0-2.4.84-2.82 2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 0c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zm7 16H5V5h2v3h10V5h2v14z",
         ticket: "M20 12v-2c0-1.11-.89-2-2-2H6c-1.11 0-2 .89-2 2v2c1.11 0 2 .89 2 2s-.89 2-2 2v2c0 1.11.89 2 2 2h12c1.11 0 2-.89 2-2v-2c-1.11 0-2-.89-2-2s.89-2 2-2zm-9 6.5h-1v-1h1v1zm0-2.5h-1v-2h1v2zm0-3h-1v-2h1v2zm0-3h-1v-2h1v2z",
-        chevronDown: "M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6z"
+        lock: "M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z",
+        unlock: "M12 17c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm6-9h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6h1.9c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2z",
+        chevronDown: "M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6z",
+        reset: "M12 5V2L8 6l4 4V7c3.31 0 6 2.69 6 6 0 2.97-2.17 5.43-5 5.91v2.02c3.95-.49 7-3.85 7-7.93 0-4.42-3.58-8-8-8zm-6 8c0-1.65.67-3.15 1.76-4.24L6.34 7.34C4.9 8.79 4 10.79 4 13c0 4.08 3.05 7.44 7 7.93v-2.02c-2.83-.48-5-2.94-5-5.91z"
+    };
+
+    // =========================================================
+    // KEYBOARD SHORTCUT REGISTRY & RUNTIME OVERRIDES
+    // =========================================================
+    // Every rebindable hotkey (the Alt+<letter> combos) is listed here with
+    // the panel/view context(s) it's active in. Structural keys (Backspace,
+    // Enter, Arrow keys, '/') aren't rebindable — they're core interaction
+    // primitives (see CONFIG's Keyboard Shortcuts section), not named
+    // shortcuts, and rebinding them would undermine the "arrow keys always
+    // move the highlight" contract the rest of the UI relies on.
+    //
+    // `context` drives conflict detection in Settings: two shortcuts that
+    // share a context can never be bound to the same key at once (checked
+    // in Shortcuts.findConflict). EDIT legitimately spans two contexts
+    // (Manage Database in 'main', link editing in 'links') since it's the
+    // same physical Alt+E key doing two mutually-exclusive-by-view jobs —
+    // it still needs to avoid colliding with anything active in either one.
+    //
+    // `category` is purely presentational — it groups the Settings >
+    // Keyboard Shortcuts list into sub-sections so it doesn't read as one
+    // undifferentiated wall of rows.
+    const SHORTCUT_REGISTRY = [
+        { id: 'HISTORY_TOGGLE',       label: 'Toggle Recent / Raw History',                context: ['recent'],         category: 'Recent Panel' },
+        { id: 'FEATURED_TOGGLE',      label: 'Expand/Collapse Featured Member',            context: ['trending'],       category: 'Trending Panel' },
+        { id: 'TRENDING_VIEW_TOGGLE', label: "Flip Trending's Group/Member Switch",        context: ['trending'],       category: 'Trending Panel' },
+        { id: 'REROLL',               label: 'Reroll Featured Member',                     context: ['trending'],       category: 'Trending Panel' },
+        { id: 'STANDARD_SAVE',        label: 'Standard Save',                              context: ['main'],           category: 'Main Panel' },
+        { id: 'CUSTOM_SAVE',          label: 'Custom Save',                                context: ['main'],           category: 'Main Panel' },
+        { id: 'MULTISELECT_TOGGLE',   label: 'Select Multiple Members',                    context: ['main'],           category: 'Main Panel' },
+        { id: 'SETTINGS',             label: 'Open Settings',                              context: ['main'],           category: 'Main Panel' },
+        { id: 'FORCE_SYNC',           label: 'Force Manual Sync',                          context: ['main'],           category: 'Main Panel' },
+        { id: 'MANAGE_TOGGLE',        label: 'Manage Database Mode',                       context: ['main'],           category: 'Main Panel' },
+        { id: 'GROUP_LINKS',          label: "View Group's Links (header button)",         context: ['main'],           category: 'Main Panel' },
+        { id: 'ITEM_LINKS',           label: 'View Links for Highlighted Item',            context: ['main'],           category: 'Main Panel' },
+        { id: 'GROUP_BADGE',          label: "Activate Highlighted Member's Group Badge",  context: ['main'],           category: 'Main Panel' },
+        { id: 'TOGGLE_COMMENTS',      label: 'Toggle Comments',                            context: ['links'],          category: 'Links View' },
+        { id: 'ADD_LINK',             label: 'Add New Link',                               context: ['links'],          category: 'Links View' },
+        { id: 'EDIT',                 label: 'Edit (Link or Manage Database Item)',        context: ['main', 'links'],  category: 'Shared' },
+    ];
+
+    const Shortcuts = {
+        _overrides: {},
+        _storageKey: null,
+
+        init() {
+            this._storageKey = `${CONFIG.STORAGE_PREFIX}_shortcut_overrides`;
+            try {
+                const raw = GM_getValue(this._storageKey, '{}');
+                const parsed = JSON.parse(raw);
+                this._overrides = (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) ? parsed : {};
+            } catch (e) {
+                console.warn(`[${CONFIG.UI_PREFIX}][Shortcuts] Corrupt stored overrides, resetting.`, e);
+                this._overrides = {};
+            }
+            // Drop anything that no longer maps to a real shortcut or isn't
+            // a valid single-character binding — storage can be corrupted
+            // or stale after an update, and a bad value here should never
+            // crash the keydown handler that reads it.
+            let changed = false;
+            for (const id of Object.keys(this._overrides)) {
+                const entry = SHORTCUT_REGISTRY.find(s => s.id === id);
+                const val = this._overrides[id];
+                if (!entry || typeof val !== 'string' || !/^[a-z0-9]$/i.test(val)) {
+                    delete this._overrides[id];
+                    changed = true;
+                }
+            }
+            if (changed) this._persist();
+        },
+
+        _persist() {
+            try {
+                GM_setValue(this._storageKey, JSON.stringify(this._overrides));
+            } catch (e) {
+                console.warn(`[${CONFIG.UI_PREFIX}][Shortcuts] Failed to persist overrides.`, e);
+            }
+        },
+
+        getDefault(id) {
+            return CONFIG[`KEY_${id}`];
+        },
+
+        get(id) {
+            const override = this._overrides[id];
+            return (typeof override === 'string' && override) ? override : this.getDefault(id);
+        },
+
+        isOverridden(id) {
+            return typeof this._overrides[id] === 'string';
+        },
+
+        // Returns the id of the shortcut currently bound to `key` within
+        // any of `context`, other than `excludeId` — or null if none.
+        findConflict(key, context, excludeId) {
+            for (const entry of SHORTCUT_REGISTRY) {
+                if (entry.id === excludeId) continue;
+                const sharesContext = entry.context.some(c => context.includes(c));
+                if (sharesContext && this.get(entry.id).toLowerCase() === key) return entry.id;
+            }
+            return null;
+        },
+
+        // Never mutates state on failure — a blocked rebind leaves the
+        // previous binding untouched, per the "block, don't override"
+        // conflict policy.
+        set(id, key) {
+            const entry = SHORTCUT_REGISTRY.find(s => s.id === id);
+            if (!entry) return { ok: false };
+            const normalized = (key || '').toLowerCase();
+            if (!/^[a-z0-9]$/.test(normalized)) return { ok: false, invalid: true };
+            const conflictId = this.findConflict(normalized, entry.context, id);
+            if (conflictId) return { ok: false, conflictId };
+            this._overrides[id] = normalized;
+            this._persist();
+            return { ok: true };
+        },
+
+        reset(id) {
+            delete this._overrides[id];
+            this._persist();
+        },
+
+        resetAll() {
+            this._overrides = {};
+            this._persist();
+        },
     };
 
     // =========================================================
@@ -195,6 +389,30 @@
             return result;
         },
 
+        // Darkens (negative percent) or lightens (positive percent) a
+        // '#rrggbb' color by scaling each channel toward black/white,
+        // memoized per hex+percent pair. Used for hover/active shades that
+        // need to be a genuinely different shade of the accent, not just a
+        // lower-opacity tint of it (that's what hexToRgb + rgba() is for).
+        _shadeColorCache: new Map(),
+        shadeColor(hex, percent) {
+            const cacheKey = `${hex}|${percent}`;
+            if (this._shadeColorCache.has(cacheKey)) return this._shadeColorCache.get(cacheKey);
+            const match = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex || '');
+            if (!match) {
+                this._shadeColorCache.set(cacheKey, hex);
+                return hex;
+            }
+            const clamp = (v) => Math.max(0, Math.min(255, Math.round(v)));
+            const shade = (channel) => {
+                const scaled = percent < 0 ? channel * (1 + percent / 100) : channel + (255 - channel) * (percent / 100);
+                return clamp(scaled).toString(16).padStart(2, '0');
+            };
+            const result = `#${shade(parseInt(match[1], 16))}${shade(parseInt(match[2], 16))}${shade(parseInt(match[3], 16))}`;
+            this._shadeColorCache.set(cacheKey, result);
+            return result;
+        },
+
         // Pulls the base domain label out of a URL for Link Title
         // auto-suggestion, e.g. "https://www.instagram.com/*/" -> "instagram".
         // Returns '' for anything unparseable rather than throwing, since
@@ -206,6 +424,39 @@
                 if (host.startsWith('www.')) host = host.slice(4);
                 const label = host.split('.')[0];
                 return label || '';
+            } catch (e) {
+                return '';
+            }
+        },
+
+        // Full lowercased hostname (www. stripped), e.g.
+        // "https://www.balbums.st/search" -> "balbums.st". Used to match
+        // against CONFIG.LINK_CLEANUP_EXCEPTION_DOMAINS — unlike
+        // extractDomainName() (which returns just the label "balbums" for
+        // title-matching), exception matching needs the full registrable
+        // domain including its TLD.
+        extractHostname(url) {
+            try {
+                const parsed = new URL(url);
+                let host = parsed.hostname.toLowerCase();
+                if (host.startsWith('www.')) host = host.slice(4);
+                return host;
+            } catch (e) {
+                return '';
+            }
+        },
+
+        // Pulls the first path segment out of a URL for Notes auto-
+        // suggestion, e.g. "https://www.youtube.com/@LESSERAFIM_official/
+        // featured" -> "@LESSERAFIM_official", or
+        // "https://www.tiktok.com/@saji_hitori6" -> "@saji_hitori6".
+        // Returns '' for a root-only URL or anything unparseable, since
+        // this only ever feeds an optional autofill.
+        extractFirstPathSegment(url) {
+            try {
+                const parsed = new URL(url);
+                const segment = parsed.pathname.split('/').filter(Boolean)[0];
+                return segment ? decodeURIComponent(segment) : '';
             } catch (e) {
                 return '';
             }
@@ -498,7 +749,7 @@
 
         async init() {
             this.isLoading = true;
-            if (UI.overlay) UI.updateListData(UI.searchInput ? UI.searchInput.value.toLowerCase().trim() : '');
+            if (UI.overlay) UI.updateListData(UI.searchInput ? UI.searchInput.value.toLowerCase().trim() : '', { preserveScroll: true, selectFirst: false });
 
             this.setupCrossTabSync();
 
@@ -525,7 +776,7 @@
                 }
             }
             if (UI.overlay) {
-                UI.updateListData(UI.searchInput ? UI.searchInput.value.toLowerCase().trim() : '');
+                UI.updateListData(UI.searchInput ? UI.searchInput.value.toLowerCase().trim() : '', { preserveScroll: true, selectFirst: false });
                 // The Featured card now renders by default before this data exists
                 // (previously it only ever opened after the user clicked the
                 // dice button, by which point loading had long finished), so
@@ -1985,7 +2236,7 @@
         overlay: null,
         toastContainer: null,
         currentView: 'groups', // 'groups', 'members', 'config', 'diagnostics', 'links'
-        isCrudMode: false,
+        isManageMode: false,
         isMultiSelectMode: false,
         cart: [],
 
@@ -1996,6 +2247,10 @@
 
         selectedGroup: null,
         activeIndex: -1,
+        // Bound reference to the document-level nav listener below, kept so
+        // it can be removed on close instead of leaking a new one onto
+        // `document` every time the panel is reopened.
+        _navKeydownHandler: null,
         deleteBtnTemplate: null,
         editItemBtnTemplate: null,
         syncInterval: null,
@@ -2013,6 +2268,11 @@
         currentLinkTitle: null,
         isLinkFormActive: false,
         editLinkIndex: null,
+        // Arrow-key highlight index into currentLinksData (mirrors
+        // activeIndex for the main list) and the sorted+indexed link array
+        // it points into, refreshed every renderLinks() call.
+        activeLinkIndex: -1,
+        currentLinksData: [],
 
         linksWrapper: null,
         linksListInner: null,
@@ -2038,7 +2298,7 @@
         listInner: null,
         footer: null,
         footerMainRow: null,
-        crudBarContainer: null,
+        manageBarContainer: null,
 
         configContainer: null,
         configInputs: {},
@@ -2050,8 +2310,8 @@
         _previousGroupsSearch: null,
 
         searchInput: null,
-        crudInput: null,
-        crudBtn: null,
+        manageInput: null,
+        manageBtn: null,
         headerTitle: null,
         headerBackBtn: null,
 
@@ -2059,8 +2319,17 @@
         editBtn: null,
         syncBtn: null,
         configBtn: null,
+        _tokenLockBtn: null,
+        _shortcutListEl: null,
+        // True while a shortcut row is listening for its next keypress to
+        // rebind — the central nav handler bails out entirely while this is
+        // true so a normal shortcut can't fire for the same keypress being
+        // captured for a new binding.
+        _isCapturingShortcut: false,
         stdSaveBtn: null,
         customBtn: null,
+        historyToggleBtn: null,
+        _trendingViewToggleCheckbox: null,
 
         cachedContainerHeight: 400,
         linksCachedHeight: 400,
@@ -2109,8 +2378,8 @@
         injectStyles() {
             GM_addStyle(`
                 :root {
-                    --tm-primary: #ff4081;
-                    --tm-primary-hover: #e91e63;
+                    --tm-primary: ${CONFIG.MAIN_ACCENT_HEX};
+                    --tm-primary-hover: ${Utils.shadeColor(CONFIG.MAIN_ACCENT_HEX, -15)};
                     --tm-bg-base: #0d0d0d;
                     --tm-bg-panel: #0a0a0a;
                     --tm-bg-input: #161616;
@@ -2395,7 +2664,7 @@
                 .${CONFIG.UI_PREFIX}-icon-btn svg { width: 1.1rem; height: 1.1rem; fill: var(--tm-text-main); transition: fill 0.2s; }
                 /* Shared "active" look for any icon button — accent border +
                    accent icon, background stays as-is. Used consistently by
-                   the CRUD edit toggle and the Featured trigger button alike. */
+                   the Manage Database toggle and the Featured trigger button alike. */
                 .${CONFIG.UI_PREFIX}-icon-btn-active { border-color: var(--tm-primary); }
                 .${CONFIG.UI_PREFIX}-icon-btn-active svg { fill: var(--tm-primary); }
 
@@ -2505,13 +2774,15 @@
                     display: flex; justify-content: space-between; align-items: center;
                     box-sizing: border-box; will-change: transform;
                 }
-                .${CONFIG.UI_PREFIX}-item:hover,
-                .${CONFIG.UI_PREFIX}-item.active-focus {
+                .${CONFIG.UI_PREFIX}-item:hover {
                     /* No border-color change here on purpose — the border
                        always reflects trending score (see --xiv-trending-tint
                        above), including while hovered/selected. Selection
                        feedback comes entirely from the background tint. */
-                    background: rgba(${Utils.hexToRgb(CONFIG.TRENDING_BORDER_ACCENT_HEX)}, 0.14);
+                    background: rgba(${Utils.hexToRgb(CONFIG.MAIN_ACCENT_HEX)}, ${CONFIG.ITEM_HOVER_TINT_OPACITY});
+                }
+                .${CONFIG.UI_PREFIX}-item.active-focus {
+                    background: rgba(${Utils.hexToRgb(CONFIG.MAIN_ACCENT_HEX)}, ${CONFIG.ITEM_ACTIVE_TINT_OPACITY});
                 }
 
                 .${CONFIG.UI_PREFIX}-badge {
@@ -2648,7 +2919,7 @@
                 .${CONFIG.UI_PREFIX}-featured-name {
                     display: block; width: 100%; margin-top: 0.2rem;
                     padding-right: 2.6rem; box-sizing: border-box;
-                    font-size: clamp(0.7rem, 1.4vw, 0.9rem); font-weight: 700; color: var(--tm-accent, #ff4d82);
+                    font-size: clamp(0.7rem, 1.4vw, 0.9rem); font-weight: 700; color: var(--tm-primary);
                     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
                 }
                 /* Clickability is signaled by cursor + opacity shift, never
@@ -2679,7 +2950,7 @@
                     background: var(--tm-border-light); margin-top: 0.55rem;
                 }
                 .${CONFIG.UI_PREFIX}-featured-progress-fill {
-                    height: 100%; width: 100%; border-radius: 0.2rem; background: var(--tm-accent, #ff4d82);
+                    height: 100%; width: 100%; border-radius: 0.2rem; background: var(--tm-primary);
                 }
                 .${CONFIG.UI_PREFIX}-featured-empty { font-size: 0.85rem; color: var(--tm-text-dim); text-align: center; padding: 0.4rem 0; }
 
@@ -2759,12 +3030,38 @@
                 .${CONFIG.UI_PREFIX}-input-paste-btn:hover,
                 .${CONFIG.UI_PREFIX}-input-paste-btn:focus { background: var(--tm-bg-hover-subtle); color: var(--tm-text-main); outline: none; }
 
-                /* ── CRUD Bar ─────────────────────────────────────────────── */
-                .${CONFIG.UI_PREFIX}-crud-bar       { display: none; gap: 0.5rem; margin-bottom: 1rem; flex-shrink: 0; transition: opacity 0.2s; }
-                .${CONFIG.UI_PREFIX}-crud-input     { flex-grow: 1; background: var(--tm-bg-input); border: 1px solid var(--tm-border-light); border-radius: 0.6rem; padding: 0.7rem 0.8rem; color: var(--tm-text-main); font-size: 0.9rem; outline: none; transition: border-color 0.2s; }
-                .${CONFIG.UI_PREFIX}-crud-input:focus { border-color: var(--tm-text-dark); }
-                .${CONFIG.UI_PREFIX}-crud-add-btn   { background: #222; color: var(--tm-text-main); border: 1px solid var(--tm-border-light); border-radius: 0.6rem; padding: 0.7rem 1rem; font-size: 0.85rem; cursor: pointer; white-space: nowrap; transition: background 0.2s, border-color 0.2s; }
-                .${CONFIG.UI_PREFIX}-crud-add-btn:hover:not(:disabled) { background: var(--tm-border-light); border-color: var(--tm-border-focus); }
+                /* Token lock — shares the same corner slot as clear/paste,
+                   but is mutually exclusive with both via the wrapper's
+                   "locked" state: while locked, editing is blocked anyway,
+                   so clear/paste are hidden and this is the only icon
+                   shown. */
+                .${CONFIG.UI_PREFIX}-input-clear-wrapper.${CONFIG.UI_PREFIX}-locked .${CONFIG.UI_PREFIX}-input-clear-btn,
+                .${CONFIG.UI_PREFIX}-input-clear-wrapper.${CONFIG.UI_PREFIX}-locked .${CONFIG.UI_PREFIX}-input-paste-btn {
+                    display: none;
+                }
+                .${CONFIG.UI_PREFIX}-input-lock-btn {
+                    position: absolute;
+                    right: 0.4rem; top: 50%; transform: translateY(-50%);
+                    width: 1.5rem; height: 1.5rem; display: none; align-items: center; justify-content: center;
+                    background: transparent; border: none; padding: 0;
+                    border-radius: 50%; color: var(--tm-text-dim);
+                    cursor: pointer;
+                    transition: background 0.15s, color 0.15s;
+                }
+                .${CONFIG.UI_PREFIX}-input-clear-wrapper.${CONFIG.UI_PREFIX}-locked .${CONFIG.UI_PREFIX}-input-lock-btn { display: flex; }
+                .${CONFIG.UI_PREFIX}-input-lock-btn svg { width: 0.95rem; height: 0.95rem; fill: currentColor; }
+                .${CONFIG.UI_PREFIX}-input-lock-btn:hover,
+                .${CONFIG.UI_PREFIX}-input-lock-btn:focus { background: var(--tm-bg-hover-subtle); color: var(--tm-primary); outline: none; }
+                .${CONFIG.UI_PREFIX}-settings-input:read-only {
+                    color: var(--tm-text-muted); cursor: default;
+                }
+
+                /* ── Manage Bar ─────────────────────────────────────────────── */
+                .${CONFIG.UI_PREFIX}-manage-bar       { display: none; gap: 0.5rem; margin-bottom: 1rem; flex-shrink: 0; transition: opacity 0.2s; }
+                .${CONFIG.UI_PREFIX}-manage-input     { flex-grow: 1; background: var(--tm-bg-input); border: 1px solid var(--tm-border-light); border-radius: 0.6rem; padding: 0.7rem 0.8rem; color: var(--tm-text-main); font-size: 0.9rem; outline: none; transition: border-color 0.2s; }
+                .${CONFIG.UI_PREFIX}-manage-input:focus { border-color: var(--tm-text-dark); }
+                .${CONFIG.UI_PREFIX}-manage-add-btn   { background: #222; color: var(--tm-text-main); border: 1px solid var(--tm-border-light); border-radius: 0.6rem; padding: 0.7rem 1rem; font-size: 0.85rem; cursor: pointer; white-space: nowrap; transition: background 0.2s, border-color 0.2s; }
+                .${CONFIG.UI_PREFIX}-manage-add-btn:hover:not(:disabled) { background: var(--tm-border-light); border-color: var(--tm-border-focus); }
                 .${CONFIG.UI_PREFIX}-edit-item-btn, .${CONFIG.UI_PREFIX}-delete-btn { background: transparent; border: none; cursor: pointer; padding: 0.3rem; display: flex; align-items: center; justify-content: center; border-radius: 0.4rem; transition: background 0.2s; }
                 .${CONFIG.UI_PREFIX}-edit-item-btn svg, .${CONFIG.UI_PREFIX}-delete-btn svg { width: 1.1rem; height: 1.1rem; transition: fill 0.2s; }
                 .${CONFIG.UI_PREFIX}-edit-item-btn svg         { fill: var(--tm-text-muted); }
@@ -2773,12 +3070,45 @@
                 .${CONFIG.UI_PREFIX}-delete-btn svg            { fill: var(--tm-danger); }
                 .${CONFIG.UI_PREFIX}-delete-btn:hover          { background: rgba(229,115,115,0.15); }
 
-                /* ── Config Panel ─────────────────────────────────────────── */
+                /* ── Settings Panel ───────────────────────────────────────── */
                 .${CONFIG.UI_PREFIX}-config-wrapper { display: none; flex-direction: column; height: 100%; overflow: hidden; }
-                .${CONFIG.UI_PREFIX}-config-body    { flex-grow: 1; overflow-y: auto; padding-right: 0.5rem; display: flex; flex-direction: column; gap: 0.8rem; }
+                .${CONFIG.UI_PREFIX}-config-body    { flex-grow: 1; overflow-y: auto; overflow-x: hidden; padding-right: 0.5rem; display: flex; flex-direction: column; }
                 .${CONFIG.UI_PREFIX}-config-body::-webkit-scrollbar       { width: 6px; }
                 .${CONFIG.UI_PREFIX}-config-body::-webkit-scrollbar-thumb { background: var(--tm-border-light); border-radius: 10px; }
                 .${CONFIG.UI_PREFIX}-config-footer  { flex-shrink: 0; padding-top: 1rem; margin-top: 0.5rem; border-top: 1px solid var(--tm-border); display: flex; }
+
+                /* One section-header style used everywhere in Settings —
+                   this is the fix for the reported inconsistency (Token's
+                   label used to look nothing like Backup/Maintenance's
+                   headers, despite all three being the same kind of thing).
+                   Every settings section is wrapped in
+                   .settings-section-group, which owns the spacing/divider
+                   between sections so nothing needs one-off margins. */
+                .${CONFIG.UI_PREFIX}-settings-section-group {
+                    display: flex; flex-direction: column; gap: 0.7rem;
+                    padding-bottom: 1rem; margin-bottom: 1rem;
+                    border-bottom: 1px solid var(--tm-border);
+                }
+                .${CONFIG.UI_PREFIX}-settings-section-group:last-child {
+                    padding-bottom: 0; margin-bottom: 0; border-bottom: none;
+                }
+                .${CONFIG.UI_PREFIX}-settings-section-header {
+                    display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;
+                }
+                .${CONFIG.UI_PREFIX}-settings-section {
+                    display: flex; align-items: center; gap: 0.4rem;
+                    font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em;
+                    color: var(--tm-text-dim); text-transform: uppercase;
+                    min-width: 0;
+                }
+                .${CONFIG.UI_PREFIX}-settings-section-action {
+                    background: transparent; border: none; padding: 0;
+                    font-size: 0.7rem; font-weight: 600; color: var(--tm-text-dim);
+                    text-decoration: underline; text-underline-offset: 2px;
+                    cursor: pointer; flex-shrink: 0;
+                }
+                .${CONFIG.UI_PREFIX}-settings-section-action:hover { color: var(--tm-primary); }
+
                 .${CONFIG.UI_PREFIX}-settings-field { display: flex; flex-direction: column; gap: 0.3rem; }
                 .${CONFIG.UI_PREFIX}-settings-field label { font-size: 0.8rem; color: var(--tm-text-muted); font-weight: 500; text-align: left; }
                 .${CONFIG.UI_PREFIX}-settings-input { background: var(--tm-bg-input); border: 1px solid var(--tm-border-light); border-radius: 0.6rem; padding: 0.7rem 0.8rem; color: var(--tm-text-main); font-size: 0.9rem; outline: none; transition: border-color 0.2s, background 0.2s; }
@@ -2786,13 +3116,55 @@
                 .${CONFIG.UI_PREFIX}-settings-save-btn    { width: 100%; background: var(--tm-primary); color: var(--tm-text-main); border: none; border-radius: 0.6rem; padding: 0.8rem; font-size: 0.95rem; font-weight: 600; cursor: pointer; transition: background 0.2s; }
                 .${CONFIG.UI_PREFIX}-settings-utility-btn { width: 100%; background: transparent; color: var(--tm-text-main); border: 1px solid var(--tm-border-light); border-radius: 0.6rem; padding: 0.7rem; font-size: 0.9rem; font-weight: 500; cursor: pointer; transition: background 0.2s, border-color 0.2s; }
                 .${CONFIG.UI_PREFIX}-settings-utility-btn:hover { background: var(--tm-bg-hover-subtle); border-color: var(--tm-text-dark); }
-                .${CONFIG.UI_PREFIX}-settings-section {
-                    display: flex; align-items: center; gap: 0.4rem;
-                    font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em;
-                    color: var(--tm-text-dim); text-transform: uppercase;
-                    margin: 0.6rem 0 0.5rem;
+
+                /* ── Keyboard Shortcuts list ──────────────────────────────── */
+                .${CONFIG.UI_PREFIX}-shortcut-list { display: flex; flex-direction: column; gap: 0.35rem; }
+                .${CONFIG.UI_PREFIX}-shortcut-category {
+                    font-size: 0.68rem; font-weight: 600; letter-spacing: 0.03em;
+                    color: var(--tm-text-dark); text-transform: uppercase;
+                    margin-top: 0.5rem;
                 }
-                .${CONFIG.UI_PREFIX}-settings-section--bottom { margin-top: auto; }
+                .${CONFIG.UI_PREFIX}-shortcut-category:first-child { margin-top: 0; }
+                .${CONFIG.UI_PREFIX}-shortcut-row {
+                    display: flex; align-items: center; justify-content: space-between; gap: 0.6rem;
+                    background: var(--tm-bg-input); border: 1px solid transparent;
+                    border-radius: 0.5rem; padding: 0.5rem 0.6rem;
+                    transition: border-color 0.15s;
+                }
+                .${CONFIG.UI_PREFIX}-shortcut-row.${CONFIG.UI_PREFIX}-shortcut-row-error { border-color: var(--tm-danger); }
+                .${CONFIG.UI_PREFIX}-shortcut-label {
+                    font-size: 0.82rem; color: var(--tm-text-main);
+                    flex: 1 1 auto; min-width: 0; overflow-wrap: break-word;
+                }
+                .${CONFIG.UI_PREFIX}-shortcut-controls { display: flex; align-items: center; gap: 0.3rem; flex-shrink: 0; }
+                .${CONFIG.UI_PREFIX}-shortcut-keybind {
+                    font-family: inherit; font-size: 0.75rem; font-weight: 600;
+                    color: var(--tm-text-main); background: var(--tm-bg-elevated);
+                    border: 1px solid var(--tm-border-light); border-radius: 0.4rem;
+                    padding: 0.3rem 0.6rem; cursor: pointer; white-space: nowrap;
+                    min-width: 5.5rem; text-align: center;
+                    transition: border-color 0.15s, background 0.15s, color 0.15s;
+                }
+                .${CONFIG.UI_PREFIX}-shortcut-keybind:hover { border-color: var(--tm-primary); }
+                .${CONFIG.UI_PREFIX}-shortcut-keybind:focus { outline: none; border-color: var(--tm-primary); }
+                .${CONFIG.UI_PREFIX}-shortcut-keybind.${CONFIG.UI_PREFIX}-listening {
+                    border-color: var(--tm-primary); color: var(--tm-primary);
+                    background: rgba(${Utils.hexToRgb(CONFIG.MAIN_ACCENT_HEX)}, 0.14);
+                }
+                .${CONFIG.UI_PREFIX}-shortcut-reset-btn {
+                    width: 1.6rem; height: 1.6rem; display: flex; align-items: center; justify-content: center;
+                    background: transparent; border: none; border-radius: 50%;
+                    color: var(--tm-text-dim); cursor: pointer; flex-shrink: 0;
+                    transition: background 0.15s, color 0.15s;
+                }
+                .${CONFIG.UI_PREFIX}-shortcut-reset-btn:disabled { opacity: 0; pointer-events: none; }
+                .${CONFIG.UI_PREFIX}-shortcut-reset-btn:hover { background: var(--tm-bg-hover-subtle); color: var(--tm-primary); }
+                .${CONFIG.UI_PREFIX}-shortcut-reset-btn svg { width: 0.85rem; height: 0.85rem; fill: currentColor; }
+                .${CONFIG.UI_PREFIX}-shortcut-error-msg {
+                    font-size: 0.72rem; color: var(--tm-danger); padding: 0 0.2rem;
+                    display: none;
+                }
+                .${CONFIG.UI_PREFIX}-shortcut-error-msg.${CONFIG.UI_PREFIX}-visible { display: block; }
 
                 /* ── Info Tooltip ─────────────────────────────────────────── */
                 .${CONFIG.UI_PREFIX}-tooltip-wrapper { position: relative; display: inline-flex; }
@@ -2875,7 +3247,7 @@
                    is the one "has content" signal for this control, not a
                    static label like the group/ticket badges. */
                 .${CONFIG.UI_PREFIX}-comments-header-filled {
-                    border-color: var(--tm-primary); background: rgba(255, 64, 129, 0.12);
+                    border-color: var(--tm-primary); background: rgba(${Utils.hexToRgb(CONFIG.MAIN_ACCENT_HEX)}, 0.12);
                 }
                 .${CONFIG.UI_PREFIX}-comments-label { font-size: 0.9rem; font-weight: 500; flex: 1; }
                 .${CONFIG.UI_PREFIX}-comments-chevron {
@@ -2948,7 +3320,13 @@
                     box-sizing: border-box; will-change: transform;
                 }
                 .${CONFIG.UI_PREFIX}-link-item:hover {
-                    background: var(--tm-bg-hover); border-color: var(--tm-border-focus);
+                    /* Identical to .${CONFIG.UI_PREFIX}-item's hover rule on
+                       purpose — one shared "hover" look across every list in
+                       the panel, always derived from MAIN_ACCENT_HEX. */
+                    background: rgba(${Utils.hexToRgb(CONFIG.MAIN_ACCENT_HEX)}, ${CONFIG.ITEM_HOVER_TINT_OPACITY});
+                }
+                .${CONFIG.UI_PREFIX}-link-item.active-focus {
+                    background: rgba(${Utils.hexToRgb(CONFIG.MAIN_ACCENT_HEX)}, ${CONFIG.ITEM_ACTIVE_TINT_OPACITY});
                 }
                 .${CONFIG.UI_PREFIX}-link-text {
                     flex-grow: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -2974,7 +3352,7 @@
                     display: none; flex-direction: column; gap: 0.8rem; flex-grow: 1;
                 }
                 /* The clear-button wrapper defaults to flex-grow:1 for its
-                   original horizontal contexts (search/CRUD bars). Inside this
+                   original horizontal contexts (search/Manage Database bars). Inside this
                    vertical form, that made each field stretch to fill available
                    column height, spreading Title/URL/Save far apart. Scoped
                    override: natural height only, fields stack tightly instead. */
@@ -2988,15 +3366,15 @@
                 .${CONFIG.UI_PREFIX}-queue-pill {
                     display: none; width: 100%;
                     align-items: center; justify-content: center; gap: 0.45rem;
-                    background: rgba(255, 64, 129, 0.12); color: var(--tm-primary);
-                    border: 1px solid rgba(255, 64, 129, 0.35); border-radius: 0.7rem;
+                    background: rgba(${Utils.hexToRgb(CONFIG.MAIN_ACCENT_HEX)}, 0.12); color: var(--tm-primary);
+                    border: 1px solid rgba(${Utils.hexToRgb(CONFIG.MAIN_ACCENT_HEX)}, 0.35); border-radius: 0.7rem;
                     padding: 0.55rem 1rem; font-size: 0.82rem; font-weight: 600; font-family: inherit;
                     cursor: pointer; white-space: nowrap; flex-shrink: 0;
                     margin-top: 0.5rem; opacity: 0; pointer-events: none;
                     transition: opacity 0.22s ease, background 0.2s ease;
                 }
                 .${CONFIG.UI_PREFIX}-queue-pill svg { width: 0.95rem; height: 0.95rem; fill: var(--tm-primary); flex-shrink: 0; }
-                .${CONFIG.UI_PREFIX}-queue-pill:hover { background: rgba(255, 64, 129, 0.22); border-color: rgba(255, 64, 129, 0.6); }
+                .${CONFIG.UI_PREFIX}-queue-pill:hover { background: rgba(${Utils.hexToRgb(CONFIG.MAIN_ACCENT_HEX)}, 0.22); border-color: rgba(${Utils.hexToRgb(CONFIG.MAIN_ACCENT_HEX)}, 0.6); }
                 .${CONFIG.UI_PREFIX}-queue-pill.visible { display: flex; opacity: 1; pointer-events: auto; }
                 .${CONFIG.UI_PREFIX}-layout:not(.${CONFIG.UI_PREFIX}-carousel) .${CONFIG.UI_PREFIX}-queue-pill { display: none !important; }
 
@@ -3029,7 +3407,11 @@
                     position: fixed !important; top: 50% !important; left: 50% !important;
                     transform: translate(-50%, -50%) !important;
                     overflow: visible; width: min(92vw, 26rem); max-width: min(92vw, 26rem);
-                    min-width: 0; height: clamp(60vh, 76vh, 86vh); max-height: clamp(60vh, 76vh, 86vh);
+                    /* Matches .main-container/.side's clamp exactly (60vh,
+                       78vh, 88vh) — this used to drift slightly (76vh/86vh),
+                       which is the entire reason carousel panels were a bit
+                       shorter than default-mode panels. */
+                    min-width: 0; height: clamp(60vh, 78vh, 88vh); max-height: clamp(60vh, 78vh, 88vh);
                     gap: 0; align-items: stretch;
                 }
                 .${CONFIG.UI_PREFIX}-layout.${CONFIG.UI_PREFIX}-carousel .${CONFIG.UI_PREFIX}-carousel-arrow { display: flex; }
@@ -3059,7 +3441,7 @@
                     width: 100% !important; padding: 1.5rem !important; margin: 0 !important;
                 }
 
-                .${CONFIG.UI_PREFIX}-item-selected { border-color: var(--tm-primary) !important; background: rgba(255, 64, 129, 0.12) !important; }
+                .${CONFIG.UI_PREFIX}-item-selected { border-color: var(--tm-primary) !important; background: rgba(${Utils.hexToRgb(CONFIG.MAIN_ACCENT_HEX)}, 0.12) !important; }
                 .${CONFIG.UI_PREFIX}-cart-check { color: var(--tm-primary); font-weight: 700; font-size: 0.95rem; flex-shrink: 0; line-height: 1; }
 
                 .${CONFIG.UI_PREFIX}-layout.${CONFIG.UI_PREFIX}-carousel .${CONFIG.UI_PREFIX}-carousel-track > .${CONFIG.UI_PREFIX}-main-container { padding: 0 !important; }
@@ -3076,6 +3458,20 @@
             const ids = ['recent', 'main', 'trending'];
             if (this.isMultiSelectMode) ids.unshift('queue');
             return ids;
+        },
+
+        // Every panel-scoped keyboard shortcut lives inside one specific
+        // panel (search/list/links/save in 'main', history toggle in
+        // 'recent', Featured/reroll/group-member-toggle in 'trending').
+        // In the default (non-carousel) layout all panels are visible at
+        // once, so this is always true; in carousel mode only one panel is
+        // visible at a time, so it's true only while that exact panel is
+        // the one currently showing.
+        _isPanelVisible(panelId) {
+            return !this._carousel.isActive || this._carousel.currentId === panelId;
+        },
+        _isMainPanelVisible() {
+            return this._isPanelVisible('main');
         },
 
         _carouselCurrentIndex() {
@@ -3752,7 +4148,7 @@
                     const score = scoreData.map.get(scoreId) || 0;
                     const ratio = scoreData.max > 0 ? Math.min(1, score / scoreData.max) : 0;
                     if (ratio > 0) {
-                        btn.style.setProperty(`--${CONFIG.UI_PREFIX}-trending-tint`, `rgba(${Utils.hexToRgb(CONFIG.TRENDING_BORDER_ACCENT_HEX)}, ${ratio.toFixed(3)})`);
+                        btn.style.setProperty(`--${CONFIG.UI_PREFIX}-trending-tint`, `rgba(${Utils.hexToRgb(CONFIG.MAIN_ACCENT_HEX)}, ${ratio.toFixed(3)})`);
                     }
                 }
 
@@ -3874,6 +4270,7 @@
             Utils.makeFocusable(toggleBtn);
             toggleBtn.title = "View Raw History";
             toggleBtn.appendChild(this._createSVG(ICONS.history));
+            this.historyToggleBtn = toggleBtn;
             toggleBtn.onclick = () => {
                 this.recentPanelMode = this.recentPanelMode === 'recent' ? 'history' : 'recent';
                 this.historySelected.clear();
@@ -4032,12 +4429,12 @@
 
         _createFeaturedTriggerBtn() {
             const btn = document.createElement('div');
-            btn.className = `${CONFIG.UI_PREFIX}-icon-btn ${CONFIG.UI_PREFIX}-icon-btn-active`;
+            btn.className = `${CONFIG.UI_PREFIX}-icon-btn`;
             btn.appendChild(this._createSVG(ICONS.dice, '0 0 24 24', 'evenodd'));
             btn.title = "Featured Member";
             btn.setAttribute('tabindex', '0');
             btn.setAttribute('role', 'button');
-            btn.setAttribute('aria-expanded', 'true');
+            btn.setAttribute('aria-expanded', 'false');
             btn.setAttribute('aria-label', 'Show featured member');
             const trigger = (e) => {
                 e.stopPropagation();
@@ -4293,9 +4690,9 @@
             panel.appendChild(header);
             if (type === 'trending' && CONFIG.FEATURED_ENABLED) {
                 panel.appendChild(this._createFeaturedSection());
-                // Shown by default now — previously required pressing the
-                // dice button first. The button itself still toggles it.
-                this._featuredSectionEl.classList.add(`${CONFIG.UI_PREFIX}-featured-section-open`);
+                // Collapsed by default — the trigger button (or Alt+F)
+                // expands it. Content is still pre-rendered so it's ready
+                // the instant it's opened.
                 this._renderFeaturedCardContent();
             }
             if (type === 'trending') {
@@ -4419,6 +4816,7 @@
             checkbox.addEventListener('change', () => {
                 switchMode(checkbox.checked ? 'group' : 'member');
             });
+            this._trendingViewToggleCheckbox = checkbox;
             return switchLabel;
         },
 
@@ -4485,6 +4883,7 @@
             this._previousLinksSearch = this.searchInput ? this.searchInput.value : '';
             this.currentView = 'links';
             this.isLinkFormActive = false;
+            this.activeLinkIndex = -1;
             this._loadCommentsForCurrentTarget();
             this.updateVisibility();
             this.renderLinks();
@@ -4511,10 +4910,11 @@
         refreshDatabaseView() {
             if (!this.overlay) return;
             if (this.currentView === 'groups' || this.currentView === 'members') {
-                // preserveScroll: true — this fires from a background poll,
-                // not a user action, so the list must refresh in place
-                // without yanking the user's scroll position back to top.
-                this.updateListData(this.searchInput ? this.searchInput.value.toLowerCase().trim() : '', { preserveScroll: true });
+                // preserveScroll + selectFirst: false — this fires from a
+                // background poll, not a user action, so it must refresh the
+                // list in place without yanking the scroll position OR the
+                // user's current highlighted item back to the top.
+                this.updateListData(this.searchInput ? this.searchInput.value.toLowerCase().trim() : '', { preserveScroll: true, selectFirst: false });
             } else if (this.currentView === 'links') {
                 this.renderLinks();
             }
@@ -4766,20 +5166,39 @@
             const createSettingsField = (labelTxt, inputType, inputId, defaultVal, placeholder) => {
                 const field = document.createElement('div');
                 field.className = `${CONFIG.UI_PREFIX}-settings-field`;
-                const label = document.createElement('label');
-                label.textContent = labelTxt;
                 const input = document.createElement('input');
                 input.type = inputType;
                 input.className = `${CONFIG.UI_PREFIX}-settings-input`;
                 input.placeholder = placeholder || '';
                 input.value = GM_getValue(inputId, defaultVal);
-                field.appendChild(label);
-                field.appendChild(Utils.attachClearButton(input));
-                return { fieldWrapper: field, inputElement: input };
+                const clearWrapper = Utils.attachClearButton(input);
+                field.appendChild(clearWrapper);
+                return { fieldWrapper: field, inputElement: input, clearWrapper };
             };
+
+            // --- Credentials ---
+            const credentialsGroup = this._createSettingsSectionGroup(
+                'Credentials', 'Your GitHub Personal Access Token, used to sync data to your GitHub repo.'
+            );
             const token = createSettingsField('Token', 'password', `${CONFIG.STORAGE_PREFIX}_github_token`, '', 'github_pat_...');
 
             this.configInputs = { token: token.inputElement };
+
+            // Token lock — a saved, working token starts locked to prevent
+            // accidental edits; an empty (or not-yet-validated) token starts
+            // unlocked. The icon toggles either direction on click.
+            const tokenLockBtn = document.createElement('button');
+            tokenLockBtn.type = 'button';
+            tokenLockBtn.className = `${CONFIG.UI_PREFIX}-input-lock-btn`;
+            tokenLockBtn.tabIndex = -1;
+            token.clearWrapper.appendChild(tokenLockBtn);
+            this._tokenLockBtn = tokenLockBtn;
+            tokenLockBtn.onclick = (e) => {
+                e.stopPropagation();
+                this._setTokenLocked(!this.configInputs.token.readOnly, { focus: true });
+            };
+            this._setTokenLocked(token.inputElement.value.trim() !== '' && CloudAPI.isValid());
+
             const saveConfigBtn = document.createElement('button');
             saveConfigBtn.className = `${CONFIG.UI_PREFIX}-settings-save-btn`;
             saveConfigBtn.textContent = 'Save Configuration';
@@ -4787,6 +5206,7 @@
                 GM_setValue(`${CONFIG.STORAGE_PREFIX}_github_token`, this.configInputs.token.value.trim());
                 this.initialConfigState = this.currentConfigState;
                 CloudAPI.loadConfig();
+                this._setTokenLocked(this.configInputs.token.value.trim() !== '' && CloudAPI.isValid());
                 this.showToast('Configurations saved. Re-synchronizing environments...');
                 this.currentView = 'groups';
                 if (CloudAPI.isValid()) {
@@ -4804,13 +5224,34 @@
                 if (e.key === 'Enter') { e.preventDefault(); saveConfigBtn.click(); }
             });
 
-            configBody.appendChild(token.fieldWrapper);
+            credentialsGroup.appendChild(token.fieldWrapper);
+            configBody.appendChild(credentialsGroup);
 
-            const backupSectionLabel = document.createElement('div');
-            backupSectionLabel.className = `${CONFIG.UI_PREFIX}-settings-section`;
-            backupSectionLabel.appendChild(document.createTextNode('Backup'));
-            backupSectionLabel.appendChild(Utils.createInfoTooltip('A local file backup of your database and history — independent of GitHub.'));
-            configBody.appendChild(backupSectionLabel);
+            // --- Keyboard Shortcuts ---
+            const resetAllShortcutsBtn = document.createElement('button');
+            resetAllShortcutsBtn.type = 'button';
+            resetAllShortcutsBtn.className = `${CONFIG.UI_PREFIX}-settings-section-action`;
+            resetAllShortcutsBtn.textContent = 'Reset All';
+            resetAllShortcutsBtn.onclick = () => {
+                if (!confirm('Reset all keyboard shortcuts to their defaults?')) return;
+                Shortcuts.resetAll();
+                this._renderShortcutList();
+            };
+            const shortcutsGroup = this._createSettingsSectionGroup(
+                'Keyboard Shortcuts',
+                'Click a key combo, then press a new key to rebind it. Escape cancels.',
+                resetAllShortcutsBtn
+            );
+            this._shortcutListEl = document.createElement('div');
+            this._shortcutListEl.className = `${CONFIG.UI_PREFIX}-shortcut-list`;
+            shortcutsGroup.appendChild(this._shortcutListEl);
+            this._renderShortcutList();
+            configBody.appendChild(shortcutsGroup);
+
+            // --- Backup ---
+            const backupGroup = this._createSettingsSectionGroup(
+                'Backup', 'A local file backup of your database and history — independent of GitHub.'
+            );
 
             const backupRow = document.createElement('div');
             backupRow.style.display = 'flex';
@@ -4841,13 +5282,14 @@
             backupRow.appendChild(exportBtn);
             backupRow.appendChild(importBtn);
             backupRow.appendChild(importFileInput);
-            configBody.appendChild(backupRow);
+            backupGroup.appendChild(backupRow);
+            configBody.appendChild(backupGroup);
 
-            const maintenanceSectionLabel = document.createElement('div');
-            maintenanceSectionLabel.className = `${CONFIG.UI_PREFIX}-settings-section ${CONFIG.UI_PREFIX}-settings-section--bottom`;
-            maintenanceSectionLabel.appendChild(document.createTextNode('Maintenance'));
-            maintenanceSectionLabel.appendChild(Utils.createInfoTooltip('Clear Local History wipes only this device\'s local copy — GitHub is untouched, and the next automatic sync repopulates it.'));
-            configBody.appendChild(maintenanceSectionLabel);
+            // --- Maintenance ---
+            const maintenanceGroup = this._createSettingsSectionGroup(
+                'Maintenance',
+                'Clear Local History wipes only this device\'s local copy — GitHub is untouched, and the next automatic sync repopulates it.'
+            );
 
             const clearHistoryBtn = document.createElement('button');
             clearHistoryBtn.className = `${CONFIG.UI_PREFIX}-settings-utility-btn`;
@@ -4858,7 +5300,7 @@
                 this.refreshSidePanels();
                 this.showToast('Local history cleared.');
             };
-            configBody.appendChild(clearHistoryBtn);
+            maintenanceGroup.appendChild(clearHistoryBtn);
 
             const diagnosticsBtn = document.createElement('button');
             diagnosticsBtn.className = `${CONFIG.UI_PREFIX}-settings-utility-btn`;
@@ -4869,7 +5311,8 @@
                 this._populateDiagnostics();
                 this.updateVisibility();
             };
-            configBody.appendChild(diagnosticsBtn);
+            maintenanceGroup.appendChild(diagnosticsBtn);
+            configBody.appendChild(maintenanceGroup);
 
             configFooter.appendChild(saveConfigBtn);
 
@@ -4931,7 +5374,7 @@
             this.linkSaveBtn.textContent = 'Save Link';
             this.linkSaveBtn.onclick = () => {
                 if (!CloudAPI.isValid()) {
-                    this.showToast('Configure Cloud Engine credentials first to save links.', 'error');
+                    this.showToast('Configure your credentials in Settings first to save links.', 'error');
                     return;
                 }
                 const u = this.linkUrlInput.value.trim();
@@ -5002,7 +5445,13 @@
 
             this.searchInput = document.createElement('input');
             this.searchInput.className = `${CONFIG.UI_PREFIX}-search-input`;
-            this.searchInput.placeholder = "Search idols or groups...";
+            this.searchInput.placeholder = CONFIG.SEARCH_PLACEHOLDER_FOCUSED;
+            this.searchInput.addEventListener('focus', () => {
+                this.searchInput.placeholder = CONFIG.SEARCH_PLACEHOLDER_FOCUSED;
+            });
+            this.searchInput.addEventListener('blur', () => {
+                this.searchInput.placeholder = CONFIG.SEARCH_PLACEHOLDER_UNFOCUSED;
+            });
 
             this.multiSelectBtn = document.createElement('div');
             this.multiSelectBtn.className = `${CONFIG.UI_PREFIX}-icon-btn`;
@@ -5036,10 +5485,10 @@
             this.editBtn.className = `${CONFIG.UI_PREFIX}-icon-btn`;
             Utils.makeFocusable(this.editBtn);
             this.editBtn.appendChild(this._createSVG(ICONS.edit));
-            this.editBtn.title = "Toggle CRUD Editing";
+            this.editBtn.title = "Manage Database";
             this.editBtn.onclick = () => {
                 if (!CloudAPI.isValid()) {
-                    this.showToast('Configure Cloud Engine credentials first to enable CRUD.', 'error');
+                    this.showToast('Configure your credentials in Settings first to enable Manage Database mode.', 'error');
                     if (this.currentView !== 'config') {
                         this.currentView = 'config';
                         this.initialConfigState = this.currentConfigState;
@@ -5047,9 +5496,12 @@
                     this.updateVisibility();
                     return;
                 }
-                this.isCrudMode = !this.isCrudMode;
+                this.isManageMode = !this.isManageMode;
                 this.updateVisibility();
                 this.renderVirtualList();
+                if (this.isManageMode && this.manageInput) {
+                    requestAnimationFrame(() => this.manageInput.focus());
+                }
             };
 
             this.searchContainer.appendChild(Utils.attachClearButton(this.searchInput));
@@ -5057,17 +5509,23 @@
             this.searchContainer.appendChild(this.editBtn);
             panel.appendChild(this.searchContainer);
 
-            // --- CRUD Bar ---
-            this.crudBarContainer = document.createElement('div');
-            this.crudBarContainer.className = `${CONFIG.UI_PREFIX}-crud-bar`;
-            this.crudInput = document.createElement('input');
-            this.crudInput.className = `${CONFIG.UI_PREFIX}-crud-input`;
+            // --- Manage Bar ---
+            this.manageBarContainer = document.createElement('div');
+            this.manageBarContainer.className = `${CONFIG.UI_PREFIX}-manage-bar`;
+            this.manageInput = document.createElement('input');
+            this.manageInput.className = `${CONFIG.UI_PREFIX}-manage-input`;
+            this.manageInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    this.manageBtn.click();
+                }
+            });
 
-            this.crudBtn = document.createElement('button');
-            this.crudBtn.className = `${CONFIG.UI_PREFIX}-crud-add-btn`;
-            this.crudBtn.onclick = () => {
-                if (this.crudBtn.disabled) return;
-                const val = this.crudInput.value.trim();
+            this.manageBtn = document.createElement('button');
+            this.manageBtn.className = `${CONFIG.UI_PREFIX}-manage-add-btn`;
+            this.manageBtn.onclick = () => {
+                if (this.manageBtn.disabled) return;
+                const val = this.manageInput.value.trim();
                 if (!val) return;
 
                 let success = false;
@@ -5078,16 +5536,16 @@
                 }
 
                 if (success) {
-                    this.crudInput.value = '';
+                    this.manageInput.value = '';
                     this.updateListData(this.searchInput.value.toLowerCase().trim());
                     this.triggerCloudSync();
                 } else {
                     this.showToast('Element empty or already exists.', 'error');
                 }
             };
-            this.crudBarContainer.appendChild(Utils.attachClearButton(this.crudInput));
-            this.crudBarContainer.appendChild(this.crudBtn);
-            panel.appendChild(this.crudBarContainer);
+            this.manageBarContainer.appendChild(Utils.attachClearButton(this.manageInput));
+            this.manageBarContainer.appendChild(this.manageBtn);
+            panel.appendChild(this.manageBarContainer);
 
             // --- List View Wrapper Architecture ---
             this.mainListWrapper = document.createElement('div');
@@ -5123,23 +5581,7 @@
                 if (delBtn) {
                     e.stopPropagation();
                     const index = parseInt(delBtn.dataset.index, 10);
-                    const itemData = this.currentListData[index];
-
-                    if (itemData.type === 'group') {
-                        if (confirm(`Confirm complete destruction of group data and profiles connected to: "${itemData.group}"?`)) {
-                            if (Database.deleteGroup(itemData.group)) {
-                                this.updateListData(this.searchInput.value.toLowerCase().trim());
-                                this.triggerCloudSync();
-                            }
-                        }
-                    } else if (itemData.type === 'member') {
-                        if (confirm(`Confirm target detachment and deletion of profile structural reference: "${itemData.member}"?`)) {
-                             if (Database.deleteMember(itemData.group, itemData.member)) {
-                                this.updateListData(this.searchInput.value.toLowerCase().trim());
-                                this.triggerCloudSync();
-                            }
-                        }
-                    }
+                    this._deleteListItem(this.currentListData[index]);
                     return;
                 }
 
@@ -5147,31 +5589,7 @@
                 if (editBtn) {
                     e.stopPropagation();
                     const index = parseInt(editBtn.dataset.index, 10);
-                    const itemData = this.currentListData[index];
-
-                    if (itemData.type === 'group') {
-                        const newName = prompt(`Rename group "${itemData.group}":`, itemData.group);
-                        if (newName && newName.trim() !== itemData.group) {
-                            if (Database.renameGroup(itemData.group, newName)) {
-                                Storage.renameGroupHistory(itemData.group, newName.trim());
-                                this.updateListData(this.searchInput.value.toLowerCase().trim());
-                                this.triggerCloudSync();
-                            } else {
-                                this.showToast('Invalid name or group already exists.', 'error');
-                            }
-                        }
-                    } else if (itemData.type === 'member') {
-                        const newName = prompt(`Rename member "${itemData.member}":`, itemData.member);
-                        if (newName && newName.trim() !== itemData.member) {
-                            if (Database.renameMember(itemData.group, itemData.member, newName)) {
-                                Storage.renameMemberHistory(itemData.group, itemData.member, newName.trim());
-                                this.updateListData(this.searchInput.value.toLowerCase().trim());
-                                this.triggerCloudSync();
-                            } else {
-                                this.showToast('Invalid name or member already exists.', 'error');
-                            }
-                        }
-                    }
+                    this._editListItem(this.currentListData[index]);
                     return;
                 }
 
@@ -5183,24 +5601,10 @@
                 }
             });
 
-            this.searchInput.addEventListener('keydown', (e) => {
-                if (this.currentView === 'config' || this.currentView === 'links') return;
-                if (this.currentListData.length === 0) return;
-
-                if (e.key === 'ArrowDown') {
-                    e.preventDefault();
-                    this.activeIndex = Math.min(this.activeIndex + 1, this.currentListData.length - 1);
-                    this.adjustScrollToActive();
-                } else if (e.key === 'ArrowUp') {
-                    e.preventDefault();
-                    this.activeIndex = Math.max(0, this.activeIndex - 1);
-                    this.adjustScrollToActive();
-                } else if (e.key === 'Enter') {
-                    e.preventDefault();
-                    const activeItem = this.currentListData[this.activeIndex];
-                    if (activeItem) this.handleItemClick(activeItem);
-                }
-            });
+            // Arrow-key/Enter list navigation for the search box is now
+            // handled uniformly by the central document-level nav listener
+            // (see render()'s _navKeydownHandler) — no dedicated listener
+            // needed here anymore.
             this.searchInput.oninput = Utils.debounce((e) => {
                 this.updateListData(e.target.value.toLowerCase().trim(), { jumpToMain: true });
             }, 150);
@@ -5226,7 +5630,7 @@
             this.syncBtn.title = "Force Manual Sync";
             this.syncBtn.onclick = () => {
                 if (!CloudAPI.isValid()) {
-                    this.showToast('Configure Cloud Engine credentials first.', 'error');
+                    this.showToast('Configure your credentials in Settings first.', 'error');
                     return;
                 }
                 this.syncBtn.classList.add(`${CONFIG.UI_PREFIX}-spin`);
@@ -5249,7 +5653,7 @@
             Utils.makeFocusable(this.configBtn);
             this.configBtn.style.position = 'relative';
             this.configBtn.appendChild(this._createSVG(ICONS.config));
-            this.configBtn.title = "Cloud Engine Config";
+            this.configBtn.title = "Settings";
             this.configBtn.onclick = () => {
                 if (this.currentView === 'config') {
                     if (this.hasUnsavedChanges() && !confirm("You have unsaved changes. Discard them?")) return;
@@ -5360,7 +5764,7 @@
             if (this.searchContainer) this.searchContainer.style.display = 'none';
             if (this.mainListWrapper) this.mainListWrapper.style.display = 'none';
             if (this.footer) this.footer.style.display = 'none';
-            if (this.crudBarContainer) this.crudBarContainer.style.display = 'none';
+            if (this.manageBarContainer) this.manageBarContainer.style.display = 'none';
             if (this.linksWrapper) this.linksWrapper.style.display = 'none';
             if (this._commentsAccordionEl) this._commentsAccordionEl.style.display = 'none';
             if (this.linkFormContainer) this.linkFormContainer.style.display = 'none';
@@ -5374,12 +5778,16 @@
                 this.diagnosticsContainer.style.display = 'flex';
             } else if (this.currentView === 'config') {
                 this.headerTitle.replaceChildren();
-                this.headerTitle.textContent = 'Cloud Engine Config';
+                this.headerTitle.textContent = 'Settings';
                 this.headerBackBtn.style.display = 'flex';
                 this.configContainer.style.display = 'flex';
-                requestAnimationFrame(() => {
-                    if (this.configInputs && this.configInputs.token) this.configInputs.token.focus();
-                });
+                if (this.configInputs && this.configInputs.token) {
+                    const tokenVal = this.configInputs.token.value.trim();
+                    this._setTokenLocked(tokenVal !== '' && CloudAPI.isValid());
+                    if (!tokenVal) {
+                        requestAnimationFrame(() => this.configInputs.token.focus());
+                    }
+                }
             } else if (this.currentView === 'links') {
                 this.headerBackBtn.style.display = 'flex';
                 if (this.isLinkFormActive) {
@@ -5425,13 +5833,13 @@
                     if (this.headerGroupLinksBtn) this.headerGroupLinksBtn.style.display = 'flex';
                 }
 
-                if (this.isCrudMode) {
-                    this.crudBarContainer.style.display = 'flex';
-                    this.crudInput.placeholder = this.currentView === 'groups' ? 'Enter new group name...' : 'Enter new member name...';
-                    this.crudBtn.textContent = this.currentView === 'groups' ? 'Add Group' : 'Add Member';
+                if (this.isManageMode) {
+                    this.manageBarContainer.style.display = 'flex';
+                    this.manageInput.placeholder = this.currentView === 'groups' ? 'Enter new group name...' : 'Enter new member name...';
+                    this.manageBtn.textContent = this.currentView === 'groups' ? 'Add Group' : 'Add Member';
                     if (this.editBtn) this.editBtn.classList.add(`${CONFIG.UI_PREFIX}-icon-btn-active`);
                 } else {
-                    this.crudBarContainer.style.display = 'none';
+                    this.manageBarContainer.style.display = 'none';
                     if (this.editBtn) this.editBtn.classList.remove(`${CONFIG.UI_PREFIX}-icon-btn-active`);
                 }
             }
@@ -5459,14 +5867,34 @@
                 return;
             }
 
-            const normalizedUrl = Utils.stripTrailingSlash(Utils.stripQueryAndFragment(rawValue));
+            // Sites on the exception list (e.g. a search-results page whose
+            // query string IS the content) are kept exactly as pasted —
+            // every other domain still gets its query/fragment/trailing
+            // slash stripped as before.
+            const hostname = Utils.extractHostname(rawValue);
+            const isCleanupExempt = hostname && CONFIG.LINK_CLEANUP_EXCEPTION_DOMAINS.includes(hostname);
+            const normalizedUrl = isCleanupExempt
+                ? rawValue
+                : Utils.stripTrailingSlash(Utils.stripQueryAndFragment(rawValue));
             if (normalizedUrl !== this.linkUrlInput.value) {
                 this.linkUrlInput.value = normalizedUrl;
                 this.linkUrlInput.dispatchEvent(new Event('input', { bubbles: true }));
             }
 
+            // Auto-suggest Notes from the URL's first path segment (e.g. a
+            // social handle like "@username") — only while Notes is still
+            // blank, so a later paste/edit never clobbers something the
+            // user already typed in themselves.
+            if (!this.linkNotesInput.value.trim()) {
+                const firstSegment = Utils.extractFirstPathSegment(normalizedUrl);
+                if (firstSegment) {
+                    this.linkNotesInput.value = firstSegment;
+                    this.linkNotesInput.dispatchEvent(new Event('input', { bubbles: true }));
+                }
+            }
+
             const domain = Utils.extractDomainName(normalizedUrl);
-            if (!domain) return;
+            if (!domain) { this.linkTextInput.focus(); return; }
 
             const aliasedDomain = CONFIG.LINK_TITLE_DOMAIN_ALIASES[domain.toLowerCase()] || domain;
             const knownTitles = Database.getAllLinkTitles();
@@ -5704,6 +6132,8 @@
             const rawLinks = Database.getLinks(this.currentLinkTargetId);
 
             if (rawLinks.length === 0) {
+                this.currentLinksData = [];
+                this.activeLinkIndex = -1;
                 this.linksListInner.style.height = '100%';
                 this.linksListInner.textContent = '';
                 const empty = document.createElement('div');
@@ -5721,6 +6151,14 @@
             const sortedLinks = rawLinks
                 .map((link, originalIndex) => ({ ...link, _originalIndex: originalIndex }))
                 .sort((a, b) => a.t.localeCompare(b.t, undefined, { sensitivity: 'base' }));
+            this.currentLinksData = sortedLinks;
+
+            // Preserve the current keyboard highlight across re-renders
+            // (e.g. after a background sync) instead of forcing it back to
+            // the top — only clamp if the list shrank out from under it.
+            if (this.activeLinkIndex >= sortedLinks.length) {
+                this.activeLinkIndex = sortedLinks.length > 0 ? sortedLinks.length - 1 : -1;
+            }
 
             // Same fixed-slot virtualization as the main list: only the
             // rows currently in (or near) the visible viewport are actually
@@ -5742,8 +6180,9 @@
                 const idx = link._originalIndex;
 
                 const row = document.createElement('div');
-                row.className = `${CONFIG.UI_PREFIX}-link-item`;
+                row.className = `${CONFIG.UI_PREFIX}-link-item ${i === this.activeLinkIndex ? 'active-focus' : ''}`;
                 row.style.transform = `translate3d(0, ${i * itemHeight}px, 0)`;
+                row.dataset.linkIndex = i;
 
                 const linkText = document.createElement('a');
                 linkText.className = `${CONFIG.UI_PREFIX}-link-text`;
@@ -5761,16 +6200,7 @@
                 editBtn.appendChild(this._createSVG(ICONS.edit));
                 editBtn.onclick = (e) => {
                     e.stopPropagation();
-                    this.editLinkIndex = idx;
-                    this.isLinkFormActive = true;
-                    this.linkUrlInput.value = link.u;
-                    this.linkTextInput.value = link.t;
-                    this.linkNotesInput.value = link.n || '';
-                    this.linkUrlInput.dispatchEvent(new Event('input', { bubbles: true }));
-                    this.linkTextInput.dispatchEvent(new Event('input', { bubbles: true }));
-                    this.linkNotesInput.dispatchEvent(new Event('input', { bubbles: true }));
-                    this.refreshLinkTitleSuggestions();
-                    this.updateVisibility();
+                    this._startEditLink(idx, link);
                 };
 
                 const delBtn = document.createElement('button');
@@ -5778,12 +6208,7 @@
                 delBtn.appendChild(this._createSVG(ICONS.trash));
                 delBtn.onclick = (e) => {
                     e.stopPropagation();
-                    if (confirm(`Delete link: ${link.t}?`)) {
-                        Database.deleteLink(this.currentLinkTargetId, idx);
-                        this.triggerCloudSync();
-                        this.renderLinks();
-                        this.refreshLinkTitleSuggestions();
-                    }
+                    this._confirmDeleteLink(idx, link);
                 };
 
                 actions.appendChild(editBtn);
@@ -5796,7 +6221,74 @@
             this.linksListInner.appendChild(fragment);
         },
 
-        updateListData(searchVal, { jumpToMain = false, preserveScroll = false } = {}) {
+        // Shared by the row's edit icon (mouse) and the Alt+E keyboard
+        // shortcut so both paths stay in sync with zero duplicated logic.
+        _startEditLink(idx, link) {
+            this.editLinkIndex = idx;
+            this.isLinkFormActive = true;
+            this.linkUrlInput.value = link.u;
+            this.linkTextInput.value = link.t;
+            this.linkNotesInput.value = link.n || '';
+            this.linkUrlInput.dispatchEvent(new Event('input', { bubbles: true }));
+            this.linkTextInput.dispatchEvent(new Event('input', { bubbles: true }));
+            this.linkNotesInput.dispatchEvent(new Event('input', { bubbles: true }));
+            this.refreshLinkTitleSuggestions();
+            this.updateVisibility();
+        },
+
+        // Shared by the row's delete icon (mouse) and the Delete-key
+        // keyboard shortcut so both paths stay in sync with zero duplicated
+        // logic.
+        _confirmDeleteLink(idx, link) {
+            if (!confirm(`Delete link: ${link.t}?`)) return;
+            Database.deleteLink(this.currentLinkTargetId, idx);
+            this.triggerCloudSync();
+            this.renderLinks();
+            this.refreshLinkTitleSuggestions();
+        },
+
+        // Mirrors adjustScrollToActive() for the links list's own scroll
+        // container and index.
+        adjustLinksScrollToActive() {
+            if (this.activeLinkIndex < 0) return;
+            const itemHeight = CONFIG.VIRTUAL_ITEM_HEIGHT;
+            const itemTop = this.activeLinkIndex * itemHeight;
+            const itemBottom = itemTop + itemHeight;
+
+            const scrollTop = this.linksContainer.scrollTop;
+            const containerHeight = this.linksCachedHeight || 400;
+
+            if (itemTop < scrollTop) {
+                this.linksContainer.scrollTop = itemTop;
+            } else if (itemBottom > scrollTop + containerHeight) {
+                this.linksContainer.scrollTop = itemBottom - containerHeight;
+            }
+
+            this.renderLinks();
+        },
+
+        // Drives the Comments toggle shortcut: expand+focus from collapsed,
+        // focus if expanded-but-unfocused, collapse if expanded-and-focused.
+        _handleCommentsHotkey() {
+            if (!this._commentsAccordionEl || !this._commentsTextareaEl || !this._commentsHeaderEl) return;
+            const openClass = `${CONFIG.UI_PREFIX}-comments-open`;
+            const isOpen = this._commentsAccordionEl.classList.contains(openClass);
+            const isTextareaFocused = document.activeElement === this._commentsTextareaEl;
+
+            if (!isOpen) {
+                this._commentsAccordionEl.classList.add(openClass);
+                this._commentsHeaderEl.setAttribute('aria-expanded', 'true');
+                this._commentsTextareaEl.focus();
+            } else if (!isTextareaFocused) {
+                this._commentsTextareaEl.focus();
+            } else {
+                this._commentsAccordionEl.classList.remove(openClass);
+                this._commentsHeaderEl.setAttribute('aria-expanded', 'false');
+                this._commentsTextareaEl.blur();
+            }
+        },
+
+        updateListData(searchVal, { jumpToMain = false, preserveScroll = false, selectFirst = true } = {}) {
             this.currentListData = [];
             const isSearch = searchVal.length > 0;
 
@@ -5832,7 +6324,13 @@
                 }
             }
 
-            this.activeIndex = this.currentListData.length > 0 ? 0 : -1;
+            if (selectFirst) {
+                this.activeIndex = this.currentListData.length > 0 ? 0 : -1;
+            } else if (this.activeIndex >= this.currentListData.length) {
+                // List shrank (or is now empty) — clamp to the new last
+                // item instead of leaving a stale, out-of-range index.
+                this.activeIndex = this.currentListData.length > 0 ? this.currentListData.length - 1 : -1;
+            }
             if (!preserveScroll) this.listContainer.scrollTop = 0;
             this.updateVisibility();
             this.renderVirtualList();
@@ -5899,7 +6397,7 @@
                     const score = scoreData.map.get(scoreId) || 0;
                     const ratio = scoreData.max > 0 ? Math.min(1, score / scoreData.max) : 0;
                     if (ratio > 0) {
-                        btn.style.setProperty(`--${CONFIG.UI_PREFIX}-trending-tint`, `rgba(${Utils.hexToRgb(CONFIG.TRENDING_BORDER_ACCENT_HEX)}, ${ratio.toFixed(3)})`);
+                        btn.style.setProperty(`--${CONFIG.UI_PREFIX}-trending-tint`, `rgba(${Utils.hexToRgb(CONFIG.MAIN_ACCENT_HEX)}, ${ratio.toFixed(3)})`);
                     }
                 }
 
@@ -5934,11 +6432,7 @@
                         badgeSpan.title = `View ${itemData.group}`;
                         badgeSpan.onclick = (e) => {
                             e.stopPropagation();
-                            this.selectedGroup = itemData.group;
-                            this.currentView = 'members';
-                            this._previousGroupsSearch = this.searchInput ? this.searchInput.value : '';
-                            if (this.searchInput) this.searchInput.value = '';
-                            this.updateListData('');
+                            this._activateMemberGroupBadge(itemData);
                         };
                     }
 
@@ -5982,7 +6476,7 @@
                 };
                 rightWrapper.appendChild(globeBtn);
 
-                if (this.isCrudMode) {
+                if (this.isManageMode) {
                     if (this.editItemBtnTemplate) {
                         const editBtn = this.editItemBtnTemplate.cloneNode(true);
                         editBtn.dataset.index = i;
@@ -6017,6 +6511,241 @@
             }
 
             this.renderVirtualList();
+        },
+
+        // Shared by the row's delete icon (mouse) and the Delete-key
+        // keyboard shortcut (while Manage Database mode is on) so both paths stay in
+        // sync with zero duplicated logic.
+        _deleteListItem(itemData) {
+            if (!itemData) return;
+            if (itemData.type === 'group') {
+                if (confirm(`Confirm complete destruction of group data and profiles connected to: "${itemData.group}"?`)) {
+                    if (Database.deleteGroup(itemData.group)) {
+                        this.updateListData(this.searchInput.value.toLowerCase().trim());
+                        this.triggerCloudSync();
+                    }
+                }
+            } else if (itemData.type === 'member') {
+                if (confirm(`Confirm target detachment and deletion of profile structural reference: "${itemData.member}"?`)) {
+                     if (Database.deleteMember(itemData.group, itemData.member)) {
+                        this.updateListData(this.searchInput.value.toLowerCase().trim());
+                        this.triggerCloudSync();
+                    }
+                }
+            }
+        },
+
+        // Shared by the row's edit icon (mouse) and the Alt+E keyboard
+        // shortcut (while Manage Database mode is on) so both paths stay in sync with
+        // zero duplicated logic.
+        _editListItem(itemData) {
+            if (!itemData) return;
+            if (itemData.type === 'group') {
+                const newName = prompt(`Rename group "${itemData.group}":`, itemData.group);
+                if (newName && newName.trim() !== itemData.group) {
+                    if (Database.renameGroup(itemData.group, newName)) {
+                        Storage.renameGroupHistory(itemData.group, newName.trim());
+                        this.updateListData(this.searchInput.value.toLowerCase().trim());
+                        this.triggerCloudSync();
+                    } else {
+                        this.showToast('Invalid name or group already exists.', 'error');
+                    }
+                }
+            } else if (itemData.type === 'member') {
+                const newName = prompt(`Rename member "${itemData.member}":`, itemData.member);
+                if (newName && newName.trim() !== itemData.member) {
+                    if (Database.renameMember(itemData.group, itemData.member, newName)) {
+                        Storage.renameMemberHistory(itemData.group, itemData.member, newName.trim());
+                        this.updateListData(this.searchInput.value.toLowerCase().trim());
+                        this.triggerCloudSync();
+                    } else {
+                        this.showToast('Invalid name or member already exists.', 'error');
+                    }
+                }
+            }
+        },
+
+        // Shared by a member row's group badge (mouse click) and the Alt+G
+        // keyboard shortcut — jumps into that member's group. Only ever
+        // called for member rows shown while browsing the top-level groups
+        // list (the only place the badge is actionable).
+        _activateMemberGroupBadge(itemData) {
+            if (!itemData || itemData.type !== 'member') return;
+            this.selectedGroup = itemData.group;
+            this.currentView = 'members';
+            this._previousGroupsSearch = this.searchInput ? this.searchInput.value : '';
+            if (this.searchInput) this.searchInput.value = '';
+            this.updateListData('');
+        },
+
+        // Locks (readOnly) or unlocks the Settings token field and syncs the
+        // lock/unlock icon + corner-slot visibility to match. Locking
+        // prevents accidental edits to a saved, working token; the icon is
+        // the only way back in to change it.
+        _setTokenLocked(locked, { focus = false } = {}) {
+            if (!this.configInputs || !this.configInputs.token) return;
+            const input = this.configInputs.token;
+            input.readOnly = locked;
+            if (input.parentElement) {
+                input.parentElement.classList.toggle(`${CONFIG.UI_PREFIX}-locked`, locked);
+            }
+            if (this._tokenLockBtn) {
+                this._tokenLockBtn.replaceChildren(this._createSVG(locked ? ICONS.lock : ICONS.unlock));
+                this._tokenLockBtn.title = locked ? 'Unlock to edit' : 'Lock';
+            }
+            if (focus) requestAnimationFrame(() => input.focus());
+        },
+
+        // Builds one uniform Settings section: an uppercase header (with
+        // optional tooltip and a right-aligned action like "Reset All"),
+        // wrapped in a group that owns the spacing/divider to the next
+        // section. This is the single header style used everywhere in
+        // Settings — the whole point of the redesign was to stop Token's
+        // label from looking like a different UI than Backup/Maintenance.
+        _createSettingsSectionGroup(title, tooltipText, actionEl) {
+            const group = document.createElement('div');
+            group.className = `${CONFIG.UI_PREFIX}-settings-section-group`;
+
+            const header = document.createElement('div');
+            header.className = `${CONFIG.UI_PREFIX}-settings-section-header`;
+
+            const label = document.createElement('div');
+            label.className = `${CONFIG.UI_PREFIX}-settings-section`;
+            label.appendChild(document.createTextNode(title));
+            if (tooltipText) label.appendChild(Utils.createInfoTooltip(tooltipText));
+            header.appendChild(label);
+            if (actionEl) header.appendChild(actionEl);
+
+            group.appendChild(header);
+            return group;
+        },
+
+        _formatShortcutKey(key) {
+            return `Alt + ${(key || '').toUpperCase()}`;
+        },
+
+        // Rebuilds the entire Keyboard Shortcuts list from SHORTCUT_REGISTRY
+        // + current Shortcuts state, grouped by category with a sub-header
+        // per group. Called after any change (rebind, per-row reset, reset
+        // all) — cheap enough at 16 rows that a full rebuild is simpler
+        // than patching individual rows.
+        _renderShortcutList() {
+            if (!this._shortcutListEl) return;
+            this._shortcutListEl.replaceChildren();
+
+            let lastCategory = null;
+            for (const entry of SHORTCUT_REGISTRY) {
+                if (entry.category !== lastCategory) {
+                    lastCategory = entry.category;
+                    const categoryLabel = document.createElement('div');
+                    categoryLabel.className = `${CONFIG.UI_PREFIX}-shortcut-category`;
+                    categoryLabel.textContent = entry.category;
+                    this._shortcutListEl.appendChild(categoryLabel);
+                }
+                this._shortcutListEl.appendChild(this._createShortcutRow(entry));
+            }
+        },
+
+        _createShortcutRow(entry) {
+            const wrapper = document.createElement('div');
+
+            const row = document.createElement('div');
+            row.className = `${CONFIG.UI_PREFIX}-shortcut-row`;
+
+            const label = document.createElement('div');
+            label.className = `${CONFIG.UI_PREFIX}-shortcut-label`;
+            label.textContent = entry.label;
+
+            const controls = document.createElement('div');
+            controls.className = `${CONFIG.UI_PREFIX}-shortcut-controls`;
+
+            const keybindBtn = document.createElement('button');
+            keybindBtn.type = 'button';
+            keybindBtn.className = `${CONFIG.UI_PREFIX}-shortcut-keybind`;
+            keybindBtn.textContent = this._formatShortcutKey(Shortcuts.get(entry.id));
+            keybindBtn.title = 'Click, then press a key to rebind';
+
+            const resetBtn = document.createElement('button');
+            resetBtn.type = 'button';
+            resetBtn.className = `${CONFIG.UI_PREFIX}-shortcut-reset-btn`;
+            resetBtn.title = 'Reset to default';
+            resetBtn.appendChild(this._createSVG(ICONS.reset));
+            resetBtn.disabled = !Shortcuts.isOverridden(entry.id);
+            resetBtn.onclick = () => {
+                Shortcuts.reset(entry.id);
+                this._renderShortcutList();
+            };
+
+            const errorMsg = document.createElement('div');
+            errorMsg.className = `${CONFIG.UI_PREFIX}-shortcut-error-msg`;
+
+            keybindBtn.onclick = () => this._startShortcutCapture(entry, keybindBtn, row, errorMsg);
+
+            controls.appendChild(resetBtn);
+            controls.appendChild(keybindBtn);
+            row.appendChild(label);
+            row.appendChild(controls);
+            wrapper.appendChild(row);
+            wrapper.appendChild(errorMsg);
+            return wrapper;
+        },
+
+        // Puts one shortcut row into "listening" mode: the next keypress
+        // either becomes its new binding (if valid and non-conflicting) or
+        // is rejected in place with an inline error — the previous binding
+        // is never touched on failure, per the "block, don't override"
+        // conflict policy. Escape cancels without changing anything.
+        _startShortcutCapture(entry, keybindBtn, rowEl, errorMsgEl) {
+            if (this._isCapturingShortcut) return;
+            this._isCapturingShortcut = true;
+            keybindBtn.textContent = 'Press a key…';
+            keybindBtn.classList.add(`${CONFIG.UI_PREFIX}-listening`);
+            rowEl.classList.remove(`${CONFIG.UI_PREFIX}-shortcut-row-error`);
+            errorMsgEl.classList.remove(`${CONFIG.UI_PREFIX}-visible`);
+            errorMsgEl.textContent = '';
+
+            const restoreLabel = () => {
+                keybindBtn.textContent = this._formatShortcutKey(Shortcuts.get(entry.id));
+                keybindBtn.classList.remove(`${CONFIG.UI_PREFIX}-listening`);
+            };
+            const cleanup = () => {
+                this._isCapturingShortcut = false;
+                document.removeEventListener('keydown', captureHandler, true);
+            };
+
+            const captureHandler = (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+
+                if (e.key === 'Escape') {
+                    cleanup();
+                    restoreLabel();
+                    return;
+                }
+                // Only a single printable letter/digit is accepted, matching
+                // the Alt+<letter> pattern every rebindable shortcut uses —
+                // anything else (modifier keys alone, arrows, Tab, etc.)
+                // just keeps listening.
+                if (!/^[a-z0-9]$/i.test(e.key)) return;
+
+                cleanup();
+                const result = Shortcuts.set(entry.id, e.key);
+
+                if (result.ok) {
+                    this._renderShortcutList();
+                    return;
+                }
+
+                restoreLabel();
+                const conflictEntry = SHORTCUT_REGISTRY.find(s => s.id === result.conflictId);
+                errorMsgEl.textContent = result.invalid
+                    ? "That key can't be used for a shortcut."
+                    : `Alt+${e.key.toUpperCase()} is already used by "${conflictEntry ? conflictEntry.label : 'another shortcut'}".`;
+                errorMsgEl.classList.add(`${CONFIG.UI_PREFIX}-visible`);
+                rowEl.classList.add(`${CONFIG.UI_PREFIX}-shortcut-row-error`);
+            };
+
+            document.addEventListener('keydown', captureHandler, true);
         },
 
         handleItemClick(itemData) {
@@ -6201,13 +6930,13 @@
             }
 
             if (text) this.showToast(text, type);
-            if (this.crudInput && this.crudBtn) {
+            if (this.manageInput && this.manageBtn) {
                 const isSyncing = (status === 'syncing');
-                this.crudInput.disabled = isSyncing;
-                this.crudBtn.disabled = isSyncing;
-                this.crudInput.style.opacity = isSyncing ? '0.5' : '1';
-                this.crudBtn.style.opacity = isSyncing ? '0.5' : '1';
-                this.crudBtn.style.cursor = isSyncing ? 'wait' : 'pointer';
+                this.manageInput.disabled = isSyncing;
+                this.manageBtn.disabled = isSyncing;
+                this.manageInput.style.opacity = isSyncing ? '0.5' : '1';
+                this.manageBtn.style.opacity = isSyncing ? '0.5' : '1';
+                this.manageBtn.style.cursor = isSyncing ? 'wait' : 'pointer';
             }
         },
 
@@ -6225,9 +6954,317 @@
             // is meant to be temporary: a dedicated keyboard-nav scheme is
             // planned, at which point this gets replaced rather than layered
             // under it.
+            //
+            // Exception: the add/edit link form is a genuine multi-field
+            // form (URL → Title → Notes → Save), so Tab is left alone while
+            // it's open instead of trapping the user in the first field.
             this.overlay.addEventListener('keydown', (e) => {
-                if (e.key === 'Tab') e.preventDefault();
+                if (e.key === 'Tab' && !this.isLinkFormActive) e.preventDefault();
             }, true);
+
+            // Keyboard shortcuts ('/' to refocus search, Backspace for back,
+            // ArrowUp/Down/Enter to drive the highlighted item, Delete +
+            // the links-view Alt+ shortcuts) live on `document` rather than
+            // the overlay: blurring the search box moves focus to <body>,
+            // which sits OUTSIDE the overlay's subtree, so an overlay-scoped
+            // listener would never see the resulting keydown events. Handler
+            // is stored so it can be detached in closeMenu() instead of
+            // stacking a new one on every reopen.
+            if (this._navKeydownHandler) document.removeEventListener('keydown', this._navKeydownHandler, true);
+
+            this._navKeydownHandler = (e) => {
+                if (!this.overlay) return;
+                if (this._isCapturingShortcut) return;
+
+                const focusedEl = document.activeElement;
+                // Any real text field — used to gate '/' and Backspace,
+                // which would otherwise interfere with normal typing/
+                // editing in whichever field is focused.
+                const isAnyTextField = focusedEl &&
+                    (focusedEl.tagName === 'INPUT' || focusedEl.tagName === 'TEXTAREA');
+                // Every other shortcut (Alt+ combos, Arrow-key list nav,
+                // Delete, Enter-to-select) works the same regardless of
+                // which textbox — if any — currently has focus: search box,
+                // Manage Database input, link form fields, all of it. The one
+                // exception is the comments textarea, since it's the single
+                // genuinely multi-line field in the panel where ArrowUp/
+                // ArrowDown has real, expected meaning (moving between
+                // lines of typed text) — that one still gets to keep native
+                // behavior.
+                const isMultilineTextField = focusedEl === this._commentsTextareaEl;
+
+                // --- Recent panel shortcuts ---
+                if (e.altKey && e.key.toLowerCase() === Shortcuts.get('HISTORY_TOGGLE') &&
+                    this._isPanelVisible('recent')) {
+                    e.preventDefault();
+                    if (this.historyToggleBtn) this.historyToggleBtn.click();
+                    return;
+                }
+
+                // --- Trending panel shortcuts ---
+                if (e.altKey && this._isPanelVisible('trending')) {
+                    if (e.key.toLowerCase() === Shortcuts.get('FEATURED_TOGGLE')) {
+                        e.preventDefault();
+                        if (this._featuredTriggerBtnEl) this._featuredTriggerBtnEl.click();
+                        return;
+                    }
+                    if (e.key.toLowerCase() === Shortcuts.get('TRENDING_VIEW_TOGGLE')) {
+                        e.preventDefault();
+                        if (this._trendingViewToggleCheckbox) {
+                            this._trendingViewToggleCheckbox.checked = !this._trendingViewToggleCheckbox.checked;
+                            this._trendingViewToggleCheckbox.dispatchEvent(new Event('change', { bubbles: true }));
+                        }
+                        return;
+                    }
+                    if (e.key.toLowerCase() === Shortcuts.get('REROLL')) {
+                        // Only meaningful while the Featured card is actually
+                        // open — it's collapsed by default and the reroll
+                        // button doesn't exist/isn't visible until then.
+                        const openClass = `${CONFIG.UI_PREFIX}-featured-section-open`;
+                        const isOpen = this._featuredSectionEl &&
+                            this._featuredSectionEl.classList.contains(openClass);
+                        const rerollBtn = isOpen && this._featuredCardEl
+                            ? this._featuredCardEl.querySelector(`.${CONFIG.UI_PREFIX}-featured-reroll-btn`)
+                            : null;
+                        if (rerollBtn && rerollBtn.getAttribute('aria-disabled') !== 'true') {
+                            e.preventDefault();
+                            rerollBtn.click();
+                        }
+                        return;
+                    }
+                }
+
+                // --- Everything else below lives inside the 'main' panel
+                // (search box, list, links, save/settings/sync/Manage Database controls).
+                // If carousel mode is currently showing 'recent' or
+                // 'trending' instead, none of it is visible/relevant, so
+                // bail before any of it can fire on an unseen panel.
+                if (!this._isMainPanelVisible()) return;
+
+                if (e.key === CONFIG.KEY_FOCUS_SEARCH && !isAnyTextField) {
+                    e.preventDefault();
+                    if (this.searchInput) this.searchInput.focus();
+                    return;
+                }
+
+                // Backspace-as-back — works wherever the back button is
+                // currently visible. A real text field swallows a plain
+                // Backspace (normal character deletion); holding Ctrl
+                // overrides that and forces navigation back regardless.
+                if (e.key === CONFIG.KEY_BACK) {
+                    if (isAnyTextField && !e[CONFIG.KEY_BACK_FORCE_MODIFIER]) return;
+                    if (!this.headerBackBtn || this.headerBackBtn.style.display === 'none') return;
+                    e.preventDefault();
+                    this.headerBackBtn.click();
+                    return;
+                }
+
+                // Standard/Custom Save, Select Multiple, Cloud Config, Force
+                // Sync, Manage Database toggle — every one of these buttons lives in the
+                // searchContainer/footer, which is only ever shown for the
+                // groups/members browsing view (hidden during links/config/
+                // diagnostics), so guard on that rather than firing
+                // unconditionally and clicking a button the user can't
+                // currently see.
+                if (e.altKey &&
+                    (this.currentView === 'groups' || this.currentView === 'members')) {
+                    if (e.key.toLowerCase() === Shortcuts.get('STANDARD_SAVE')) {
+                        e.preventDefault();
+                        if (this.stdSaveBtn && !this.stdSaveBtn.disabled) this.stdSaveBtn.click();
+                        return;
+                    }
+                    if (e.key.toLowerCase() === Shortcuts.get('CUSTOM_SAVE')) {
+                        e.preventDefault();
+                        if (this.customBtn && !this.customBtn.disabled) this.customBtn.click();
+                        return;
+                    }
+                    if (e.key.toLowerCase() === Shortcuts.get('MULTISELECT_TOGGLE')) {
+                        e.preventDefault();
+                        if (this.multiSelectBtn) this.multiSelectBtn.click();
+                        return;
+                    }
+                    if (e.key.toLowerCase() === Shortcuts.get('SETTINGS')) {
+                        e.preventDefault();
+                        if (this.configBtn) this.configBtn.click();
+                        return;
+                    }
+                    if (e.key.toLowerCase() === Shortcuts.get('FORCE_SYNC')) {
+                        e.preventDefault();
+                        if (this.syncBtn) this.syncBtn.click();
+                        return;
+                    }
+                    if (e.key.toLowerCase() === Shortcuts.get('MANAGE_TOGGLE')) {
+                        e.preventDefault();
+                        if (this.editBtn) this.editBtn.click();
+                        return;
+                    }
+                    // View Links (header button, beside the back button) —
+                    // only exists while drilled into a group's member list.
+                    if (e.key.toLowerCase() === Shortcuts.get('GROUP_LINKS') && this.currentView === 'members') {
+                        e.preventDefault();
+                        if (this.headerGroupLinksBtn) this.headerGroupLinksBtn.click();
+                        return;
+                    }
+                    // View Links for the currently highlighted list item —
+                    // the same target its own row globe icon would open.
+                    if (e.key.toLowerCase() === Shortcuts.get('ITEM_LINKS')) {
+                        const itemData = this.currentListData[this.activeIndex];
+                        if (itemData) {
+                            e.preventDefault();
+                            const linkId = itemData.type === 'group'
+                                ? `group::${itemData.group}`
+                                : `member::${itemData.group}::${itemData.member}`;
+                            this._enterLinksView(linkId, itemData.type === 'group' ? itemData.group : itemData.member);
+                        }
+                        return;
+                    }
+                    // Activates the highlighted member's group badge — only
+                    // meaningful for a member row while browsing the
+                    // top-level groups list (the only place the badge is
+                    // actionable at all; see _activateMemberGroupBadge()).
+                    if (e.key.toLowerCase() === Shortcuts.get('GROUP_BADGE')) {
+                        const itemData = this.currentListData[this.activeIndex];
+                        if (itemData && itemData.type === 'member' && this.currentView === 'groups') {
+                            e.preventDefault();
+                            this._activateMemberGroupBadge(itemData);
+                        }
+                        return;
+                    }
+                    // Edit the highlighted list item — only while Manage Database mode
+                    // is on (the row's edit icon only exists then either).
+                    if (e.key.toLowerCase() === Shortcuts.get('EDIT') && this.isManageMode) {
+                        const itemData = this.currentListData[this.activeIndex];
+                        if (itemData) {
+                            e.preventDefault();
+                            this._editListItem(itemData);
+                        }
+                        return;
+                    }
+                }
+
+                // The Comments toggle shortcut deliberately bypasses the
+                // general text-field gate below — it must still work while
+                // the comments textarea itself is focused (that's how it
+                // collapses again), just not while some *other* field is
+                // being typed into.
+                const isBlockingTextField = isAnyTextField && focusedEl !== this._commentsTextareaEl;
+                if (e.altKey && e.key.toLowerCase() === Shortcuts.get('TOGGLE_COMMENTS') &&
+                    this.currentView === 'links' && !this.isLinkFormActive &&
+                    !isBlockingTextField) {
+                    e.preventDefault();
+                    this._handleCommentsHotkey();
+                    return;
+                }
+
+                if (e.altKey && this.currentView === 'links' && !this.isLinkFormActive) {
+                    if (e.key.toLowerCase() === Shortcuts.get('ADD_LINK')) {
+                        e.preventDefault();
+                        if (this.headerAddLinkBtn) this.headerAddLinkBtn.click();
+                        return;
+                    }
+                    if (e.key.toLowerCase() === Shortcuts.get('EDIT')) {
+                        const link = this.currentLinksData[this.activeLinkIndex];
+                        if (!link) return;
+                        e.preventDefault();
+                        this._startEditLink(link._originalIndex, link);
+                        return;
+                    }
+                }
+
+                // Delete removes the currently highlighted link, or (while
+                // Manage Database mode is on) the currently highlighted list item —
+                // works from any textbox (search, Manage Database input, link form
+                // fields), same as everything else here. Only the comments
+                // textarea is still protected, since Delete there is real
+                // text editing.
+                if (e.key === CONFIG.KEY_DELETE_ITEM) {
+                    if (isMultilineTextField) return;
+                    if (this.currentView === 'links' && !this.isLinkFormActive) {
+                        const link = this.currentLinksData[this.activeLinkIndex];
+                        if (!link) return;
+                        e.preventDefault();
+                        this._confirmDeleteLink(link._originalIndex, link);
+                        return;
+                    }
+                    if (this.isManageMode && (this.currentView === 'groups' || this.currentView === 'members')) {
+                        const itemData = this.currentListData[this.activeIndex];
+                        if (!itemData) return;
+                        e.preventDefault();
+                        this._deleteListItem(itemData);
+                        return;
+                    }
+                    return;
+                }
+
+                if (e.key !== CONFIG.KEY_LIST_DOWN && e.key !== CONFIG.KEY_LIST_UP && e.key !== CONFIG.KEY_ACTIVATE) return;
+                if (isMultilineTextField) return; // comments textarea keeps native line-navigation
+
+                // Link-row navigation — a separate data source/container
+                // from the main groups/members list below.
+                if (this.currentView === 'links' && !this.isLinkFormActive) {
+                    if (e.key === CONFIG.KEY_ACTIVATE) {
+                        // Don't hijack Enter from a legitimately focused
+                        // button (back button, Comments header, a row's own
+                        // edit/delete icons) — only claim it once nothing
+                        // but the list itself holds focus.
+                        if (focusedEl && focusedEl !== document.body) return;
+                        const link = this.currentLinksData[this.activeLinkIndex];
+                        if (!link) return;
+                        e.preventDefault();
+                        const url = link.u.startsWith('http') ? link.u : `https://${link.u}`;
+                        window.open(url, '_blank', 'noopener,noreferrer');
+                        return;
+                    }
+
+                    e.preventDefault();
+                    if (focusedEl && focusedEl !== document.body) focusedEl.blur();
+                    if (this.currentLinksData.length === 0) return;
+
+                    if (e.key === CONFIG.KEY_LIST_DOWN) {
+                        this.activeLinkIndex = Math.min(this.activeLinkIndex + 1, this.currentLinksData.length - 1);
+                    } else {
+                        this.activeLinkIndex = Math.max(0, this.activeLinkIndex - 1);
+                    }
+                    this.adjustLinksScrollToActive();
+                    return;
+                }
+
+                if (e.key === CONFIG.KEY_ACTIVATE) {
+                    // Don't hijack Enter from a legitimately focused BUTTON
+                    // (back button, Comments accordion, a link row's edit/
+                    // delete icons, etc.) — those own their own Enter/Space
+                    // activation. The Manage Database input also keeps its own Enter
+                    // (submits Add) via its dedicated listener. Every other
+                    // text field, including the search box, selects the
+                    // highlighted item like it always has.
+                    if (focusedEl === this.manageInput) return;
+                    if (focusedEl && focusedEl !== document.body && !isAnyTextField) return;
+                    if (this.currentView !== 'groups' && this.currentView !== 'members') return;
+                    if (this.currentListData.length === 0) return;
+                    e.preventDefault();
+                    const activeItem = this.currentListData[this.activeIndex];
+                    if (activeItem) this.handleItemClick(activeItem);
+                    return;
+                }
+
+                // ArrowUp/ArrowDown exist solely to move the highlighted list
+                // item — never let them land or linger on an unrelated
+                // button, accordion header, or link row the way Tab does.
+                e.preventDefault();
+                if (focusedEl && focusedEl !== document.body) focusedEl.blur();
+                if (this.currentView !== 'groups' && this.currentView !== 'members') return;
+                if (this.currentListData.length === 0) return;
+
+                if (e.key === CONFIG.KEY_LIST_DOWN) {
+                    this.activeIndex = Math.min(this.activeIndex + 1, this.currentListData.length - 1);
+                } else {
+                    this.activeIndex = Math.max(0, this.activeIndex - 1);
+                }
+                this.adjustScrollToActive();
+            };
+
+            document.addEventListener('keydown', this._navKeydownHandler, true);
+
 
             document.body.style.overflow = 'hidden';
             const layoutWrapper = document.createElement('div');
@@ -6456,7 +7493,7 @@
 
             this.overlay.appendChild(layoutWrapper);
             document.body.appendChild(this.overlay);
-            this.updateListData('');
+            this.updateListData('', { selectFirst: false });
             this.refreshSidePanels();
 
             this._carouselInit();
@@ -6478,7 +7515,7 @@
 
             this.activeIndex = -1;
             this.currentView = 'groups';
-            this.isCrudMode = false;
+            this.isManageMode = false;
             this.isMultiSelectMode = false;
             this.cart = [];
             this.historySelected.clear();
@@ -6513,6 +7550,11 @@
                 this.overlay.remove();
                 this.overlay = null;
                 document.body.style.overflow = '';
+
+                if (this._navKeydownHandler) {
+                    document.removeEventListener('keydown', this._navKeydownHandler, true);
+                    this._navKeydownHandler = null;
+                }
 
                 if (this.resizeObserver) {
                     this.resizeObserver.disconnect();
@@ -6552,6 +7594,7 @@
 
             CloudAPI.loadConfig();
             Storage.init(this.isSilentMode);
+            Shortcuts.init();
 
             if (this.isSilentMode) {
                 Logger.info('Initialized Silent Cloud Worker v24.6');
@@ -6608,16 +7651,6 @@
                         e.preventDefault();
                         if (e.key === 'ArrowLeft') UI._carouselPrev();
                         else                       UI._carouselNext();
-                        return;
-                    }
-                    if (e.altKey && e.key.toLowerCase() === 's') {
-                        e.preventDefault();
-                        if (UI.stdSaveBtn && !UI.stdSaveBtn.disabled) UI.stdSaveBtn.click();
-                        return;
-                    }
-                    if (e.altKey && e.key.toLowerCase() === 'c') {
-                        e.preventDefault();
-                        if (UI.customBtn && !UI.customBtn.disabled) UI.customBtn.click();
                         return;
                     }
                 }
