@@ -2,7 +2,7 @@
 // @name         [Universal] Xiv Media Downloader
 // @namespace    https://github.com/myouisaur/Universal
 // @icon         data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23FF4081'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 11h3l-4 4-4-4h3V8h2v5z'/%3E%3C/svg%3E
-// @version      30.5
+// @version      30.8
 // @description  Organizes, tracks, and saves categorized media files through a centralized overlay.
 // @author       Xiv
 // @match        *://*/*
@@ -155,6 +155,18 @@
 
         // List Rendering / Virtualization
         VIRTUAL_ITEM_HEIGHT: 50,
+        // Subtracted from the item-height-snapped scroll container height
+        // (see the ResizeObserver in bootstrap()). Without this, the
+        // visible height can land EXACTLY flush with the next row's top
+        // border (e.g. 9 rows * 50px = 450px container height, next row's
+        // top edge also at 450px) — at that exact shared boundary, sub-
+        // pixel/device-pixel rounding can let a hairline sliver of that
+        // border bleed through the clip, which is far more likely to
+        // surface inside a GPU-compositing layer (e.g. the carousel's
+        // swipe-transition layer) than in normal single-layer rendering.
+        // A couple of pixels of margin means the boundary never sits
+        // exactly on a row edge in the first place.
+        VIRTUAL_LIST_CLIP_SAFETY_PX: 2,
 
         // Toasts & Auto-Close
         MAX_ACTIVE_TOASTS: 3,
@@ -175,6 +187,20 @@
         // that don't match their commonly-used name.
         LINK_TITLE_DOMAIN_ALIASES: {
             'x': 'twitter'
+        },
+
+        // Generic Link Titles
+        // When Title is manually set (typed or picked from the suggestion
+        // dropdown) to one of these words — typically because the pasted
+        // URL's domain wasn't recognized, so Title was left blank — Notes
+        // auto-fills from the URL instead of just the first path segment.
+        // 'domain' -> just the hostname, e.g. Title "Website" + Notes
+        // "testsite123.gg". 'full' -> the full URL minus protocol, e.g.
+        // Title "Links" + Notes "testsite123.gg/johndoe". Only fires while
+        // Notes is still blank.
+        GENERIC_LINK_TITLES: {
+            'website': 'domain',
+            'links': 'full'
         },
 
         // Link Cleanup Exceptions
@@ -487,6 +513,12 @@
         // email paste.
         isEmailAddress(value) {
             return /^[^\s@:/]+@[^\s@]+\.[^\s@]+$/.test(value);
+        },
+
+        // Drops a leading "http://"/"https://" for display purposes, e.g.
+        // "https://testsite123.gg/johndoe" -> "testsite123.gg/johndoe".
+        stripProtocol(url) {
+            return url.replace(/^https?:\/\//i, '');
         },
         debounce(fn, delay) {
             let timeoutId;
@@ -5415,6 +5447,7 @@
             this.linkFormContainer.appendChild(titleWrapper);
 
             this.linkTextInput.addEventListener('input', () => this._renderLinkTitleSuggestions(this.linkTextInput.value));
+            this.linkTextInput.addEventListener('input', () => this._autofillNotesForGenericTitle());
             this.linkTextInput.addEventListener('focus', () => this._renderLinkTitleSuggestions(this.linkTextInput.value));
             this.linkTextInput.addEventListener('blur', () => this._hideLinkTitleSuggestions());
             this.linkTextInput.addEventListener('keydown', (e) => {
@@ -5881,18 +5914,6 @@
                 this.linkUrlInput.dispatchEvent(new Event('input', { bubbles: true }));
             }
 
-            // Auto-suggest Notes from the URL's first path segment (e.g. a
-            // social handle like "@username") — only while Notes is still
-            // blank, so a later paste/edit never clobbers something the
-            // user already typed in themselves.
-            if (!this.linkNotesInput.value.trim()) {
-                const firstSegment = Utils.extractFirstPathSegment(normalizedUrl);
-                if (firstSegment) {
-                    this.linkNotesInput.value = firstSegment;
-                    this.linkNotesInput.dispatchEvent(new Event('input', { bubbles: true }));
-                }
-            }
-
             const domain = Utils.extractDomainName(normalizedUrl);
             if (!domain) { this.linkTextInput.focus(); return; }
 
@@ -5903,10 +5924,60 @@
             if (match) {
                 this.linkTextInput.value = match;
                 this.linkTextInput.dispatchEvent(new Event('input', { bubbles: true }));
+
+                // Auto-suggest Notes from the URL's first path segment
+                // (e.g. a social handle like "@username") — only for a
+                // recognized domain, and only while Notes is still blank,
+                // so a later paste/edit never clobbers something the user
+                // already typed in themselves. For an unrecognized domain,
+                // Notes is deliberately left blank here instead — see
+                // _autofillNotesForGenericTitle(), which fills it with the
+                // full URL once the user sets Title to "Links"/"Website".
+                if (!this.linkNotesInput.value.trim()) {
+                    const firstSegment = Utils.extractFirstPathSegment(normalizedUrl);
+                    if (firstSegment) {
+                        this.linkNotesInput.value = firstSegment;
+                        this.linkNotesInput.dispatchEvent(new Event('input', { bubbles: true }));
+                    }
+                }
+
                 this.linkNotesInput.focus();
             } else {
                 this.linkTextInput.focus();
             }
+        },
+
+        // When Title is set to a generic word (typed, or picked from the
+        // suggestion dropdown) — typically because the pasted URL's domain
+        // wasn't recognized, leaving Title blank — auto-fill Notes from the
+        // URL. "Website" gets just the domain (e.g. "testsite123.gg");
+        // "Links" gets the full URL minus protocol (e.g.
+        // "testsite123.gg/johndoe") — see CONFIG.GENERIC_LINK_TITLES for
+        // which word maps to which. Only ever touches Notes while it's
+        // still blank, so it never clobbers something the user already
+        // typed in themselves.
+        _autofillNotesForGenericTitle() {
+            if (!this.linkTextInput || !this.linkUrlInput || !this.linkNotesInput) return;
+            if (this.linkNotesInput.value.trim()) return;
+
+            const titleVal = this.linkTextInput.value.trim().toLowerCase();
+            const mode = CONFIG.GENERIC_LINK_TITLES[titleVal];
+            if (!mode) return;
+
+            const urlVal = this.linkUrlInput.value.trim();
+            if (!urlVal) return;
+
+            let noteValue;
+            if (mode === 'domain') {
+                const urlWithProtocol = urlVal.startsWith('http') ? urlVal : `https://${urlVal}`;
+                noteValue = Utils.extractHostname(urlWithProtocol);
+            } else {
+                noteValue = Utils.stripProtocol(urlVal);
+            }
+            if (!noteValue) return;
+
+            this.linkNotesInput.value = noteValue;
+            this.linkNotesInput.dispatchEvent(new Event('input', { bubbles: true }));
         },
 
         // Converts a bare pasted email address into a full mailto: link
@@ -7297,7 +7368,8 @@
 
                     for (let entry of entries) {
                         const h = entry.contentRect.height;
-                        const snappedHeight = Math.floor(h / CONFIG.VIRTUAL_ITEM_HEIGHT) * CONFIG.VIRTUAL_ITEM_HEIGHT;
+                        const rawSnapped = Math.floor(h / CONFIG.VIRTUAL_ITEM_HEIGHT) * CONFIG.VIRTUAL_ITEM_HEIGHT;
+                        const snappedHeight = rawSnapped - CONFIG.VIRTUAL_LIST_CLIP_SAFETY_PX;
                         const finalHeight = Math.max(CONFIG.VIRTUAL_ITEM_HEIGHT, snappedHeight);
                         if (entry.target === this.mainListWrapper) {
                             this.listContainer.style.height = `${finalHeight}px`;
