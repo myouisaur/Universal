@@ -2,7 +2,7 @@
 // @name         [Universal] Xiv Media Downloader
 // @namespace    https://github.com/myouisaur/Universal
 // @icon         data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23FF4081'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 11h3l-4 4-4-4h3V8h2v5z'/%3E%3C/svg%3E
-// @version      30.9
+// @version      31.0
 // @description  Organizes, tracks, and saves categorized media files through a centralized overlay.
 // @author       Xiv
 // @match        *://*/*
@@ -117,6 +117,7 @@
 
         // History Retention & Cloud Sync Timing
         SAVE_DEBOUNCE_MS: 1000,
+        DUPLICATE_SAVE_GUARD_MS: 1500,       // Rejects a second record for the same group+name if it arrives within this window of the first (accidental double-fire protection)
         CLOUD_SAVE_QUIET_WINDOW_MS: 10000,
         CLOUD_HISTORY_THROTTLE_MS: 30000,
         CLOUD_DB_THROTTLE_MS: 30000,
@@ -1718,7 +1719,28 @@
                             mergedMap.set(backfillId(item), item);
                         });
 
-                        const newCache = Array.from(mergedMap.values()).sort((a, b) => a.t - b.t);
+                        // Second pass: collapse entries that are the same real
+                        // event (same timestamp+group+name) but ended up with
+                        // two different ids — e.g. a legacy entry that got
+                        // independently backfilled on two different devices
+                        // before either had synced the other's generated id.
+                        // The id-based Map above can't catch this since the
+                        // ids genuinely differ; this pass catches it by
+                        // content instead. Two truly separate saves of the
+                        // same idol always carry different timestamps, so
+                        // this can't falsely merge legitimate re-saves.
+                        const byContent = new Map();
+                        mergedMap.forEach(item => {
+                            const contentKey = `${item.t}|${item.g}|${item.n}`;
+                            const existing = byContent.get(contentKey);
+                            // Keep whichever copy has a non-legacy id, preferring
+                            // the first one seen if both (or neither) qualify.
+                            if (!existing || (String(existing.id).startsWith('legacy-') && !String(item.id).startsWith('legacy-'))) {
+                                byContent.set(contentKey, item);
+                            }
+                        });
+
+                        const newCache = Array.from(byContent.values()).sort((a, b) => a.t - b.t);
                         const isChanged = newCache.length !== this._cache.length ||
                             (newCache.length > 0 && this._cache.length > 0 && newCache[newCache.length - 1].t !== this._cache[this._cache.length - 1].t);
 
@@ -1799,6 +1821,21 @@
             return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
         },
 
+        // Guards against the same click/event accidentally firing a record
+        // call twice in immediate succession (e.g. a duplicate onload/onerror
+        // callback for one download). Deliberately narrow — CONFIG.
+        // DUPLICATE_SAVE_GUARD_MS is a couple of seconds, so it can never
+        // suppress two genuine, separately-triggered saves of the same idol
+        // done minutes or hours apart.
+        _isDuplicateSaveAttempt(entry) {
+            const guardWindow = CONFIG.DUPLICATE_SAVE_GUARD_MS;
+            return this._cache.some(existing =>
+                existing.g === entry.g &&
+                existing.n === entry.n &&
+                Math.abs(existing.t - entry.t) < guardWindow
+            );
+        },
+
         // Both record* entry points funnel through this so a save can never
         // interleave with a concurrent fetchCloudBackground()/saveCloud()
         // cycle running on this same device (see _queueTask/_withLock).
@@ -1810,7 +1847,16 @@
         _appendHistoryEntries(entries) {
             return this._queueTask(() => this._withLock(async () => {
                 this.syncFromStorage();
-                entries.forEach(entry => this._cache.push(entry));
+                const newEntries = entries.filter(entry => {
+                    if (this._isDuplicateSaveAttempt(entry)) {
+                        Logger.warn(`Rejected duplicate save attempt for ${entry.n} (${entry.g}) — same item recorded within the last ${CONFIG.DUPLICATE_SAVE_GUARD_MS}ms.`);
+                        return false;
+                    }
+                    return true;
+                });
+                if (newEntries.length === 0) return;
+
+                newEntries.forEach(entry => this._cache.push(entry));
                 this._markLocalWrite();
                 this.clean();
                 GM_setValue(CONFIG.STORAGE_KEY, JSON.stringify(this._cache));
