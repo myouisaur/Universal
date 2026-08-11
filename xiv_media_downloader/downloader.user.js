@@ -2,7 +2,7 @@
 // @name         [Universal] Xiv Media Downloader
 // @namespace    https://github.com/myouisaur/Universal
 // @icon         data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23FF4081'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 11h3l-4 4-4-4h3V8h2v5z'/%3E%3C/svg%3E
-// @version      30.8
+// @version      30.9
 // @description  Organizes, tracks, and saves categorized media files through a centralized overlay.
 // @author       Xiv
 // @match        *://*/*
@@ -1616,7 +1616,11 @@
         setupDirtyListener() {
             if (typeof GM_addValueChangeListener === 'function') {
                 GM_addValueChangeListener(`${CONFIG.UI_PREFIX}_sync_dirty`, (key, oldValue, newValue, remote) => {
-                    if (newValue === true && document.visibilityState === 'visible') {
+                    // Only react to the flag changing in ANOTHER tab. The tab that
+                    // sets the flag itself already triggers its own saveCloud()
+                    // call at the point of the edit — reacting here too would fire
+                    // a second, redundant push racing the first.
+                    if (remote && newValue === true && document.visibilityState === 'visible') {
                         setTimeout(() => this.saveCloud(), 200);
                     }
                 });
@@ -1795,43 +1799,44 @@
             return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
         },
 
-        recordSuccess(group, name) {
-            if (!group || !name) return;
-            try {
+        // Both record* entry points funnel through this so a save can never
+        // interleave with a concurrent fetchCloudBackground()/saveCloud()
+        // cycle running on this same device (see _queueTask/_withLock).
+        // _markLocalWrite() is called INSIDE the lock, immediately after the
+        // cache write, so any merge that was waiting on the mutex sees the
+        // guard already active the instant it gets its turn — closing the
+        // race that previously let a fresh save get overwritten or
+        // re-written as a second, differently-id'd entry.
+        _appendHistoryEntries(entries) {
+            return this._queueTask(() => this._withLock(async () => {
                 this.syncFromStorage();
-                this._cache.push({ g: group, n: name, t: Date.now(), id: this._generateHistoryId() });
+                entries.forEach(entry => this._cache.push(entry));
+                this._markLocalWrite();
                 this.clean();
                 GM_setValue(CONFIG.STORAGE_KEY, JSON.stringify(this._cache));
-
                 GM_setValue(`${CONFIG.UI_PREFIX}_sync_dirty`, true);
+
                 if (UI.overlay) {
                     UI.refreshSidePanels();
                     UI.refreshDatabaseView();
                 }
-            } catch (e) {
-                Logger.error('Fast local sync write failed', e);
-            }
+            }));
+        },
+
+        recordSuccess(group, name) {
+            if (!group || !name) return;
+            this._appendHistoryEntries([{ g: group, n: name, t: Date.now(), id: this._generateHistoryId() }])
+                .then(() => setTimeout(() => this.saveCloud().catch(e => Logger.warn(`Post-save cloud sync failed: ${e.message}`)), 200))
+                .catch(e => Logger.error('Local history write failed', e));
         },
 
         recordBatchSuccess(cartArray) {
             if (!cartArray || cartArray.length === 0) return;
-            try {
-                this.syncFromStorage();
-                const now = Date.now();
-                cartArray.forEach(item => {
-                    this._cache.push({ g: item.g, n: item.n, t: now, id: this._generateHistoryId() });
-                });
-                this.clean();
-                GM_setValue(CONFIG.STORAGE_KEY, JSON.stringify(this._cache));
-
-                GM_setValue(`${CONFIG.UI_PREFIX}_sync_dirty`, true);
-                if (UI.overlay) {
-                    UI.refreshSidePanels();
-                    UI.refreshDatabaseView();
-                }
-            } catch (e) {
-                Logger.error('Fast local batch sync write failed', e);
-            }
+            const now = Date.now();
+            const entries = cartArray.map(item => ({ g: item.g, n: item.n, t: now, id: this._generateHistoryId() }));
+            this._appendHistoryEntries(entries)
+                .then(() => setTimeout(() => this.saveCloud().catch(e => Logger.warn(`Post-batch-save cloud sync failed: ${e.message}`)), 200))
+                .catch(e => Logger.error('Local batch history write failed', e));
         },
 
         renameGroupHistory(oldName, newName) {
