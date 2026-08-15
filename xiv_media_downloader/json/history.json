@@ -7100,5 +7100,11 @@
   {"g": "TWICE"         , "n": "Nayeon"                , "t": 1786826458142},
   {"g": "NewJeans"      , "n": "Danielle"              , "t": 1786826480434},
   {"g": "LE SSERAFIM"   , "n": "Eunchae"               , "t": 1786826495108},
-  {"g": "Red Velvet"    , "n": "Seulgi"                , "t": 1786826499956}
+  {"g": "Red Velvet"    , "n": "Seulgi"                , "t": 1786826499956},
+  {"g": "LE SSERAFIM"   , "n": "Yunjin"                , "t": 1786826506911},
+  {"g": "GIDLE"         , "n": "Soyeon"                , "t": 1786826546526},
+  {"g": "GIDLE"         , "n": "Miyeon"                , "t": 1786826546526},
+  {"g": "GIDLE"         , "n": "Yuqi"                  , "t": 1786826546526},
+  {"g": "GIDLE"         , "n": "Shuhua"                , "t": 1786826546526},
+  {"g": "GIDLE"         , "n": "Minnie"                , "t": 1786826546526}
 ]
