@@ -2,7 +2,7 @@
 // @name         [Universal] Xiv Media Downloader
 // @namespace    https://github.com/myouisaur/Universal
 // @icon         data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23FF4081'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 11h3l-4 4-4-4h3V8h2v5z'/%3E%3C/svg%3E
-// @version      31.0
+// @version      33.0
 // @description  Organizes, tracks, and saves categorized media files through a centralized overlay.
 // @author       Xiv
 // @match        *://*/*
@@ -14,6 +14,7 @@
 // @grant        GM_getValue
 // @grant        GM_deleteValue
 // @grant        GM_addValueChangeListener
+// @grant        GM_removeValueChangeListener
 // @grant        window.close
 // @connect      raw.githubusercontent.com
 // @connect      xiv-media-proxy.myouisaur.workers.dev
@@ -138,6 +139,46 @@
         // (new name) under the old dedupe key, doubling the row in Recent
         // and Trending. Manual "Force Sync" bypasses this.
         HISTORY_LOCAL_WRITE_GUARD_MS: 15000,
+
+        // Cross-Tab Ticket Lock (TicketLock / HistoryLock / DialogBroker)
+        // Bakery-algorithm-style mutual exclusion: a tab only proceeds once
+        // it can verify, from the shared ticket table, that it holds the
+        // lowest live ticket. Waiting tabs react to
+        // GM_addValueChangeListener instead of guessing with fixed delays,
+        // so correctness does not depend on timing and does not degrade as
+        // tab count grows — more tabs mean more change notifications, not
+        // more collisions.
+        TICKET_STALE_MS: 4000,            // a held ticket with no heartbeat for this long is treated as an abandoned/crashed tab and evicted
+        TICKET_HEARTBEAT_MS: 1500,        // how often a held ticket refreshes its timestamp to prove the holder is still alive
+        TICKET_FALLBACK_POLL_MS: 250,     // safety-net re-check interval used alongside GM_addValueChangeListener (also covers managers without it)
+        TICKET_ACQUIRE_TIMEOUT_MS: 20000, // circuit breaker: force execution if a fair turn never comes, preventing a permanent stall
+
+        // Native Save Dialog Broker (Downloader / DialogBroker)
+        // Browsers only allow ONE native "Save As" dialog on screen at a
+        // time — across the ENTIRE browser, not per tab. Without a
+        // cross-tab broker, two tabs can each believe they're clear to
+        // open a prompted GM_download at once; the browser silently drops
+        // the second with no onload/onerror ever firing. The broker
+        // ensures only one tab holds the dialog slot at a time.
+        DIALOG_TICKET_KEY: 'xiv_media_dl_dialog_tickets',
+
+        // Cross-Tab History Mutex (Storage / HistoryLock)
+        HISTORY_TICKET_KEY: 'xiv_media_dl_history_tickets',
+
+        // Pending Save Ledger (Downloader / SaveLedger)
+        // A record is written the instant a save is queued and cleared
+        // only on confirmed success or definitive failure — so a save can
+        // never disappear without a trace, even if its native dialog is
+        // dropped by the browser or the tab closes mid-download.
+        PENDING_SAVE_KEY: 'xiv_media_dl_pending_saves',
+        PENDING_SAVE_STALE_MS: 180000, // longer than SAVE_QUEUE_STALL_TIMEOUT_MS; anything still pending after this on startup could not have resolved normally and is surfaced to the user
+
+        // Save Queue (Downloader / SaveQueue)
+        // Serializes save attempts WITHIN a single tab (browsers only
+        // allow one native "Save As" dialog on screen at a time). Combined
+        // with DialogBroker for cross-tab serialization and SaveLedger for
+        // loss-proof tracking.
+        SAVE_QUEUE_STALL_TIMEOUT_MS: 120000, // circuit breaker: assume a save is stalled/orphaned and advance the queue after this long
 
         // Trending Score (Storage.getTrendingStats/getGroupTrendingStats)
         TRENDING_SCOPE_DAYS: 99999,
@@ -1482,6 +1523,178 @@
     };
 
     // =========================================================
+    // CROSS-TAB TICKET LOCK FACTORY
+    // =========================================================
+    // Bakery-algorithm-style mutual exclusion across tabs. Unlike a blind
+    // polling lock, correctness here does NOT depend on timing — a tab only
+    // proceeds when it can verify, from the shared ticket table, that it
+    // holds the lowest live ticket. Waiting tabs react to
+    // GM_addValueChangeListener instead of guessing with fixed delays, so
+    // contention from more tabs produces more change notifications, not
+    // more collisions. A stale-ticket eviction (heartbeat + TICKET_STALE_MS)
+    // prevents a crashed or closed tab from permanently blocking the queue.
+    // Used for both the shared history mutex and the native save-dialog
+    // broker — see HistoryLock and DialogBroker below.
+    function createTicketLock(storageKey, label) {
+        const tabId = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+        let heartbeatTimer = null;
+
+        function readTickets() {
+            try {
+                const parsed = JSON.parse(GM_getValue(storageKey, '{}'));
+                return (parsed && typeof parsed === 'object') ? parsed : {};
+            } catch (e) {
+                Logger.warn(`${label}: corrupted ticket table, resetting.`);
+                return {};
+            }
+        }
+
+        function writeTickets(tickets) {
+            try {
+                GM_setValue(storageKey, JSON.stringify(tickets));
+            } catch (e) {
+                Logger.error(`${label}: failed to write ticket table`, e);
+            }
+        }
+
+        // Removes tickets whose holder has stopped heartbeating — a crashed
+        // tab, a closed browser, or a tab suspended by the OS. Returns
+        // whether anything was actually pruned, so callers only write back
+        // when the table changed.
+        function pruneStale(tickets) {
+            const now = Date.now();
+            let changed = false;
+            Object.keys(tickets).forEach(id => {
+                if (now - tickets[id].time > CONFIG.TICKET_STALE_MS) {
+                    delete tickets[id];
+                    changed = true;
+                }
+            });
+            return changed;
+        }
+
+        // Bakery algorithm: lowest ticket number goes first; ties (which
+        // can only happen if two tabs read the table in the same instant)
+        // are broken deterministically by tabId so exactly one tab wins.
+        function hasLowestTicket(tickets) {
+            const mine = tickets[tabId];
+            if (!mine) return false;
+            return Object.keys(tickets).every(id => {
+                if (id === tabId) return true;
+                const other = tickets[id];
+                if (other.num !== mine.num) return other.num > mine.num;
+                return id > tabId;
+            });
+        }
+
+        // Resolves on the next ticket-table change (event-driven) or after
+        // a bounded fallback delay, whichever comes first. The fallback
+        // covers userscript managers without GM_addValueChangeListener
+        // support and same-tab writes some managers don't echo back.
+        function waitForChange(timeoutMs) {
+            return new Promise(resolve => {
+                let settled = false;
+                let listenerHandle = null;
+                let fallbackTimer = null;
+
+                const done = () => {
+                    if (settled) return;
+                    settled = true;
+                    if (listenerHandle !== null && typeof GM_removeValueChangeListener === 'function') {
+                        try { GM_removeValueChangeListener(listenerHandle); } catch (e) {}
+                    }
+                    if (fallbackTimer) clearTimeout(fallbackTimer);
+                    resolve();
+                };
+
+                if (typeof GM_addValueChangeListener === 'function') {
+                    try {
+                        listenerHandle = GM_addValueChangeListener(storageKey, done);
+                    } catch (e) {
+                        listenerHandle = null;
+                    }
+                }
+                fallbackTimer = setTimeout(done, timeoutMs);
+            });
+        }
+
+        async function acquire() {
+            const startedAt = Date.now();
+            let tickets = readTickets();
+            pruneStale(tickets);
+            const myNum = 1 + Object.values(tickets).reduce((max, t) => Math.max(max, t.num), 0);
+            tickets[tabId] = { num: myNum, time: Date.now() };
+            writeTickets(tickets);
+
+            while (true) {
+                tickets = readTickets();
+                let changed = pruneStale(tickets);
+                if (!tickets[tabId]) {
+                    // Our own ticket got evicted as stale (e.g. this tab was
+                    // suspended by the browser for a while) — re-register
+                    // with the same number and keep waiting our turn.
+                    tickets[tabId] = { num: myNum, time: Date.now() };
+                    changed = true;
+                }
+                if (changed) writeTickets(tickets);
+
+                if (hasLowestTicket(tickets)) return;
+
+                if (Date.now() - startedAt > CONFIG.TICKET_ACQUIRE_TIMEOUT_MS) {
+                    Logger.warn(`${label}: fair-turn timeout after ${CONFIG.TICKET_ACQUIRE_TIMEOUT_MS}ms — forcing execution to prevent a permanent stall.`);
+                    return;
+                }
+
+                await waitForChange(CONFIG.TICKET_FALLBACK_POLL_MS * 4);
+            }
+        }
+
+        function release() {
+            if (heartbeatTimer) {
+                clearInterval(heartbeatTimer);
+                heartbeatTimer = null;
+            }
+            const tickets = readTickets();
+            if (tickets[tabId]) {
+                delete tickets[tabId];
+                writeTickets(tickets);
+            }
+        }
+
+        // Proves to other waiting tabs that this holder is still alive, so
+        // a long-running critical section is never mistaken for a crashed
+        // tab and evicted mid-use.
+        function startHeartbeat() {
+            heartbeatTimer = setInterval(() => {
+                const tickets = readTickets();
+                if (tickets[tabId]) {
+                    tickets[tabId].time = Date.now();
+                    writeTickets(tickets);
+                }
+            }, CONFIG.TICKET_HEARTBEAT_MS);
+        }
+
+        async function withLock(callback) {
+            await acquire();
+            startHeartbeat();
+            try {
+                return await callback();
+            } finally {
+                release();
+            }
+        }
+
+        return { withLock };
+    }
+
+    // Guards the shared history array (Storage) across every open tab.
+    const HistoryLock = createTicketLock(CONFIG.HISTORY_TICKET_KEY, 'HistoryLock');
+
+    // Guards the single native "Save As" dialog slot the browser allows
+    // across ALL tabs — see Downloader._executeGMDownload.
+    const DialogBroker = createTicketLock(CONFIG.DIALOG_TICKET_KEY, 'DialogBroker');
+
+    // =========================================================
     // STORAGE & TRACKING MODULE
     // =========================================================
     const Storage = {
@@ -1543,44 +1756,6 @@
                 Logger.error('Storage task queue exception', e);
             });
             return this._taskQueue;
-        },
-
-        async _withLock(callback) {
-            const lockKey = `${CONFIG.UI_PREFIX}_global_mutex`;
-            const myId = Math.random().toString(36).substring(2, 10);
-            let attempts = 0;
-
-            while (attempts < 200) {
-                const lockStr = GM_getValue(lockKey, null);
-                let currentLock = null;
-                try { currentLock = lockStr ? JSON.parse(lockStr) : null; } catch(e) {}
-
-                const now = Date.now();
-                if (!currentLock || (now - currentLock.time > 3000)) {
-                    GM_setValue(lockKey, JSON.stringify({ id: myId, time: now }));
-                    await new Promise(r => setTimeout(r, 20));
-
-                    const verifyStr = GM_getValue(lockKey, null);
-                    let verifyLock = null;
-                    try { verifyLock = verifyStr ? JSON.parse(verifyStr) : null; } catch(e) {}
-
-                    if (verifyLock && verifyLock.id === myId) {
-                        try {
-                            return await callback();
-                        } finally {
-                            await new Promise(r => setTimeout(r, 75));
-                            GM_setValue(lockKey, null);
-                        }
-                    }
-                }
-
-                const jitter = Math.floor(Math.random() * 40) + 20;
-                await new Promise(r => setTimeout(r, jitter));
-                attempts++;
-            }
-
-            Logger.warn('Global mutex timeout. Forcing execution to prevent stall.');
-            return await callback();
         },
 
         syncFromStorage() {
@@ -1686,7 +1861,7 @@
                         return;
                     }
 
-                    await this._queueTask(() => this._withLock(async () => {
+                    await this._queueTask(() => HistoryLock.withLock(async () => {
                         // Re-check inside the lock: a rename/delete may have landed
                         // while this fetch was in flight.
                         if (this._isWithinLocalWriteGuard()) {
@@ -1762,7 +1937,7 @@
             const syncLockKey = `${CONFIG.UI_PREFIX}_cloud_sync_lock`;
             let shouldUpload = false;
 
-            await this._withLock(async () => {
+            await HistoryLock.withLock(async () => {
                 if (Date.now() - GM_getValue(syncLockKey, 0) < 5000) {
                     GM_setValue(`${CONFIG.UI_PREFIX}_sync_dirty`, true);
                     shouldUpload = false;
@@ -1780,10 +1955,10 @@
 
                 while (pushing && loops < 3) {
                     loops++;
-                    await this._queueTask(() => this._withLock(async () => {
+                    await this._queueTask(() => HistoryLock.withLock(async () => {
                         this.syncFromStorage();
                     }));
-                    await this._withLock(async () => {
+                    await HistoryLock.withLock(async () => {
                         GM_setValue(`${CONFIG.UI_PREFIX}_sync_dirty`, false);
                     });
                     await CloudAPI.put(CONFIG.GITHUB_HISTORY_PATH, this._cache);
@@ -1791,7 +1966,7 @@
 
                     GM_setValue(`${CONFIG.UI_PREFIX}_last_sync_time`, Date.now());
                     if (UI.overlay) UI.updateSyncTimeUI();
-                    await this._withLock(async () => {
+                    await HistoryLock.withLock(async () => {
                         if (!GM_getValue(`${CONFIG.UI_PREFIX}_sync_dirty`, false)) {
                             pushing = false;
                         } else {
@@ -1800,10 +1975,10 @@
                     });
                 }
 
-                await this._withLock(async () => { GM_setValue(syncLockKey, 0); });
+                await HistoryLock.withLock(async () => { GM_setValue(syncLockKey, 0); });
                 return 'synced';
             } catch (e) {
-                await this._withLock(async () => {
+                await HistoryLock.withLock(async () => {
                     GM_setValue(syncLockKey, 0);
                     GM_setValue(`${CONFIG.UI_PREFIX}_sync_dirty`, true);
                 });
@@ -1838,14 +2013,23 @@
 
         // Both record* entry points funnel through this so a save can never
         // interleave with a concurrent fetchCloudBackground()/saveCloud()
-        // cycle running on this same device (see _queueTask/_withLock).
+        // cycle running on this same device (see _queueTask/HistoryLock).
         // _markLocalWrite() is called INSIDE the lock, immediately after the
         // cache write, so any merge that was waiting on the mutex sees the
         // guard already active the instant it gets its turn — closing the
         // race that previously let a fresh save get overwritten or
         // re-written as a second, differently-id'd entry.
+        _readFreshStorage() {
+            try {
+                return JSON.parse(GM_getValue(CONFIG.STORAGE_KEY, '[]'));
+            } catch (e) {
+                Logger.warn('Corrupted storage data during merge read, falling back to in-memory cache.');
+                return this._cache;
+            }
+        },
+
         _appendHistoryEntries(entries) {
-            return this._queueTask(() => this._withLock(async () => {
+            return this._queueTask(() => HistoryLock.withLock(async () => {
                 this.syncFromStorage();
                 const newEntries = entries.filter(entry => {
                     if (this._isDuplicateSaveAttempt(entry)) {
@@ -1856,7 +2040,18 @@
                 });
                 if (newEntries.length === 0) return;
 
-                newEntries.forEach(entry => this._cache.push(entry));
+                // Defense-in-depth: re-read storage fresh right at write
+                // time and merge by id instead of writing whatever _cache
+                // happened to hold. Even though HistoryLock now provides a
+                // fair, event-driven mutex (see createTicketLock), this
+                // turns any edge-case overlap into a safe union instead of
+                // a silent overwrite — an entry can never vanish just
+                // because another tab wrote last.
+                const freshCache = this._readFreshStorage();
+                const knownIds = new Set(freshCache.map(e => e.id));
+                const toAppend = newEntries.filter(e => !knownIds.has(e.id));
+                this._cache = freshCache.concat(toAppend);
+
                 this._markLocalWrite();
                 this.clean();
                 GM_setValue(CONFIG.STORAGE_KEY, JSON.stringify(this._cache));
@@ -1886,7 +2081,7 @@
         },
 
         renameGroupHistory(oldName, newName) {
-            this._queueTask(() => this._withLock(async () => {
+            this._queueTask(() => HistoryLock.withLock(async () => {
                 this.syncFromStorage();
                 let changed = false;
                 this._cache.forEach(item => {
@@ -1905,7 +2100,7 @@
         },
 
         renameMemberHistory(groupName, oldName, newName) {
-            this._queueTask(() => this._withLock(async () => {
+            this._queueTask(() => HistoryLock.withLock(async () => {
                 this.syncFromStorage();
                 let changed = false;
                 this._cache.forEach(item => {
@@ -1927,7 +2122,7 @@
         deleteRawHistory(idsSet) {
             if (!idsSet || idsSet.size === 0) return;
             const idsClone = new Set(idsSet);
-            this._queueTask(() => this._withLock(async () => {
+            this._queueTask(() => HistoryLock.withLock(async () => {
                 this.syncFromStorage();
                 const originalLength = this._cache.length;
                 this._cache = this._cache.filter(item => !idsClone.has(`${item.t}-${item.g}-${item.n}`));
@@ -2033,6 +2228,148 @@
     };
 
     // =========================================================
+    // PENDING SAVE LEDGER
+    // =========================================================
+    // Independent of GM_download's onload ever firing. A record is written
+    // the instant a save is queued and cleared only on confirmed success or
+    // definitive failure (see UI.finishDownloadToast) — so a save can never
+    // vanish without a trace, even if the browser silently drops a native
+    // Save-As dialog or the tab closes mid-download. Anything still pending
+    // at next startup could not have resolved normally and is surfaced to
+    // the user via sweepStale().
+    const SaveLedger = {
+        _readAll() {
+            try {
+                const parsed = JSON.parse(GM_getValue(CONFIG.PENDING_SAVE_KEY, '{}'));
+                return (parsed && typeof parsed === 'object') ? parsed : {};
+            } catch (e) {
+                Logger.warn('SaveLedger: corrupted pending-save table, resetting.');
+                return {};
+            }
+        },
+
+        _writeAll(entries) {
+            try {
+                GM_setValue(CONFIG.PENDING_SAVE_KEY, JSON.stringify(entries));
+            } catch (e) {
+                Logger.error('SaveLedger: failed to write pending-save table', e);
+            }
+        },
+
+        open(displayName) {
+            const id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+            const entries = this._readAll();
+            entries[id] = { name: displayName, time: Date.now() };
+            this._writeAll(entries);
+            return id;
+        },
+
+        resolve(id) {
+            if (!id) return;
+            const entries = this._readAll();
+            if (entries[id]) {
+                delete entries[id];
+                this._writeAll(entries);
+            }
+        },
+
+        // Called once at startup. Anything left over from a previous
+        // session (crashed tab, dropped dialog, browser closed mid-save)
+        // older than PENDING_SAVE_STALE_MS could not have resolved
+        // normally — log it and surface it instead of letting it sit
+        // invisibly forever.
+        sweepStale() {
+            const entries = this._readAll();
+            const now = Date.now();
+            const stale = [];
+            let changed = false;
+
+            Object.keys(entries).forEach(id => {
+                if (now - entries[id].time > CONFIG.PENDING_SAVE_STALE_MS) {
+                    stale.push(entries[id]);
+                    delete entries[id];
+                    changed = true;
+                }
+            });
+
+            if (changed) this._writeAll(entries);
+            if (stale.length > 0) {
+                Logger.warn(`SaveLedger: ${stale.length} save(s) never confirmed and may be missing from history: ${stale.map(s => s.name).join(', ')}`);
+                UI.notifyLostSaves(stale);
+            }
+        }
+    };
+
+    // =========================================================
+    // SAVE QUEUE MODULE
+    // =========================================================
+    // Browsers only allow ONE native "Save As" dialog on screen at a
+    // time. Without serialization, triggering a second save before the
+    // first dialog resolves can be silently dropped by the browser —
+    // no onload, no onerror, nothing. This module captures every save
+    // attempt the instant it's requested and processes them strictly
+    // one at a time, so a save either completes/fails visibly or is
+    // still sitting in the queue — it can never just vanish.
+    const SaveQueue = {
+        _queue: [],
+        _processing: false,
+        _idCounter: 0,
+
+        // Number of saves ahead of a newly-enqueued one (already-running
+        // task counts as one). Used to show queue position in the toast.
+        get pendingCount() {
+            return this._queue.length + (this._processing ? 1 : 0);
+        },
+
+        // taskFn must return a Promise that settles once the save has
+        // definitively succeeded or failed (never left hanging).
+        enqueue(taskFn) {
+            return new Promise((resolve, reject) => {
+                this._queue.push({ id: ++this._idCounter, taskFn, resolve, reject });
+                this._processNext();
+            });
+        },
+
+        _processNext() {
+            if (this._processing || this._queue.length === 0) return;
+            this._processing = true;
+            const job = this._queue.shift();
+            this._runJob(job);
+        },
+
+        async _runJob(job) {
+            let advanced = false;
+            const advance = () => {
+                if (advanced) return;
+                advanced = true;
+                this._processing = false;
+                this._processNext();
+            };
+
+            // Circuit breaker: if a save never calls back (e.g. a dropped
+            // native dialog the browser never resolves), don't stall every
+            // save behind it forever — log it and let the queue continue.
+            const stallTimer = setTimeout(() => {
+                Logger.warn(`SaveQueue: save #${job.id} exceeded ${CONFIG.SAVE_QUEUE_STALL_TIMEOUT_MS}ms without resolving — assuming stalled, advancing queue.`);
+                advance();
+            }, CONFIG.SAVE_QUEUE_STALL_TIMEOUT_MS);
+
+            try {
+                const result = await job.taskFn();
+                clearTimeout(stallTimer);
+                job.resolve(result);
+            } catch (e) {
+                clearTimeout(stallTimer);
+                Logger.error(`SaveQueue: save #${job.id} threw`, e);
+                job.reject(e);
+            } finally {
+                clearTimeout(stallTimer);
+                advance();
+            }
+        }
+    };
+
+    // =========================================================
     // DOWNLOADER MODULE
     // =========================================================
     const Downloader = {
@@ -2129,10 +2466,56 @@
             this.triggerDownload(window.location.href, fileName, null, null, CONFIG.PROMPT_ON_IDOL_SAVE, false, cart);
         },
 
+        // Public entry point. Every save (Standard, Custom, idol, batch)
+        // funnels through here, and every one of them is routed through
+        // SaveQueue — browsers only allow one native "Save As" dialog at a
+        // time, so overlapping triggers are serialized instead of raced.
+        // The toast is created immediately, so the click is visibly
+        // acknowledged even while queued behind an earlier save.
         triggerDownload(url, name, groupContext, nameContext, promptUser = true, skipCloudSync = false, cartContext = null, onSuccess = null) {
             const displayFileName = name.includes('/') ? name.substring(name.lastIndexOf('/') + 1) : name;
             const toastObj = UI.createDownloadToast(displayFileName);
+            const queuePosition = SaveQueue.pendingCount;
 
+            if (toastObj && queuePosition > 0) {
+                UI.updateDownloadToast(toastObj, 0, 0, `Queued — ${queuePosition} save(s) ahead...`);
+            }
+
+            // Ledger entry is opened the instant the save is requested —
+            // before the queue, before any dialog. It's only ever cleared
+            // by UI.finishDownloadToast, so it survives regardless of which
+            // internal path (GM_download, fallback XHR, local buffer) the
+            // save eventually takes. Without a toast there's no reliable
+            // completion signal to key off of, so ledger tracking is
+            // skipped for that edge case (see the no-toast branch below).
+            if (toastObj) {
+                toastObj.ledgerId = SaveLedger.open(displayFileName);
+            }
+
+            const settle = { resolve: null };
+            if (toastObj) {
+                toastObj.onSettle = () => { if (settle.resolve) settle.resolve(); };
+            }
+
+            SaveQueue.enqueue(() => new Promise((resolve) => {
+                settle.resolve = resolve;
+
+                if (toastObj && queuePosition > 0) {
+                    UI.updateDownloadToast(toastObj, 0, 0, 'Initializing stream...');
+                }
+
+                this._runDownload(url, name, groupContext, nameContext, toastObj, promptUser, skipCloudSync, cartContext, onSuccess);
+
+                // No toast means no reliable completion signal to key off
+                // of (toastContainer missing). Fall back to a short delay
+                // so the queue isn't blocked indefinitely; SaveQueue's
+                // stall-timeout circuit breaker remains the ultimate
+                // safety net regardless.
+                if (!toastObj) setTimeout(resolve, 500);
+            })).catch(e => Logger.error('SaveQueue: unhandled download task error', e));
+        },
+
+        _runDownload(url, name, groupContext, nameContext, toastObj, promptUser, skipCloudSync, cartContext, onSuccess = null) {
             if (url.startsWith('file://')) {
                 this.bufferLocalFile(url, name, groupContext, nameContext, toastObj, promptUser, skipCloudSync, cartContext, onSuccess);
                 return;
@@ -2237,38 +2620,78 @@
             UI.startAutoCloseSequence(skipCloudSync);
         },
 
+        // A prompted save (saveAs: true) pops the browser's native "Save
+        // As" dialog, and browsers only allow ONE such dialog on screen at
+        // a time across the ENTIRE browser — not per tab. DialogBroker
+        // serializes that specific slot across every open tab so a second
+        // tab's dialog is never silently dropped by the browser. Unprompted
+        // saves never open a dialog, so they skip the broker entirely — no
+        // reason to serialize what was never going to conflict.
+        // Note: this only covers GM_download's own saveAs behavior. The
+        // anchor-click fallback path (fallbackDownload/_saveBlob) can still
+        // trigger the browser's own "ask where to save" prompt if the user
+        // has that setting enabled — that prompt isn't exposed to userscripts
+        // at all, so it can't be brokered the same way. SaveLedger still
+        // catches that case: an unconfirmed save is surfaced on next
+        // startup rather than silently lost.
         _executeGMDownload(url, name, groupContext, nameContext, toastObj, promptUser, skipCloudSync, cartContext, onSuccess = null) {
-            let hasStarted = false;
-            GM_download({
-                url: url,
-                name: name,
-                saveAs: promptUser,
-                onprogress: (e) => {
-                    hasStarted = true;
-                    UI.updateDownloadToast(toastObj, e.loaded, e.total);
-                },
-                onload: () => {
-                    hasStarted = true;
-                    if (cartContext && cartContext.length > 0) Storage.recordBatchSuccess(cartContext);
-                    else if (groupContext && nameContext) Storage.recordSuccess(groupContext, nameContext);
+            const runDownload = () => new Promise((resolveDialogSlot) => {
+                let hasStarted = false;
+                let slotReleased = false;
+                const releaseSlot = () => {
+                    if (slotReleased) return;
+                    slotReleased = true;
+                    resolveDialogSlot();
+                };
 
-                    if (typeof onSuccess === 'function') onSuccess();
-
-                    UI.finishDownloadToast(toastObj, 'success', 'Saved Successfully!');
-                    UI.startAutoCloseSequence(skipCloudSync);
-                },
-                onerror: () => {
-                    if (hasStarted) {
-                        UI.finishDownloadToast(toastObj, 'error', 'Download interrupted or blocked.');
-                    } else {
-                        UI.updateDownloadToast(toastObj, 0, 0, 'GM Engine blocked, triggering fallback override...');
-                        this.fallbackDownload(url, name, groupContext, nameContext, toastObj, promptUser, skipCloudSync, cartContext, onSuccess);
-                    }
-                },
-                ontimeout: () => {
-                    UI.finishDownloadToast(toastObj, 'error', 'Download timed out.');
+                if (promptUser) {
+                    UI.updateDownloadToast(toastObj, 0, 0, 'Opening save dialog...');
                 }
+
+                GM_download({
+                    url: url,
+                    name: name,
+                    saveAs: promptUser,
+                    onprogress: (e) => {
+                        hasStarted = true;
+                        UI.updateDownloadToast(toastObj, e.loaded, e.total);
+                    },
+                    onload: () => {
+                        hasStarted = true;
+                        if (cartContext && cartContext.length > 0) Storage.recordBatchSuccess(cartContext);
+                        else if (groupContext && nameContext) Storage.recordSuccess(groupContext, nameContext);
+
+                        if (typeof onSuccess === 'function') onSuccess();
+
+                        UI.finishDownloadToast(toastObj, 'success', 'Saved Successfully!');
+                        UI.startAutoCloseSequence(skipCloudSync);
+                        releaseSlot();
+                    },
+                    onerror: () => {
+                        if (hasStarted) {
+                            UI.finishDownloadToast(toastObj, 'error', 'Download interrupted or blocked.');
+                            releaseSlot();
+                        } else {
+                            UI.updateDownloadToast(toastObj, 0, 0, 'GM Engine blocked, triggering fallback override...');
+                            // Free the dialog slot for other tabs BEFORE
+                            // handing off — the fallback path doesn't use
+                            // GM_download's saveAs, so it doesn't need it.
+                            releaseSlot();
+                            this.fallbackDownload(url, name, groupContext, nameContext, toastObj, promptUser, skipCloudSync, cartContext, onSuccess);
+                        }
+                    },
+                    ontimeout: () => {
+                        UI.finishDownloadToast(toastObj, 'error', 'Download timed out.');
+                        releaseSlot();
+                    }
+                });
             });
+
+            if (promptUser) {
+                DialogBroker.withLock(runDownload).catch(e => Logger.error('DialogBroker: unexpected failure', e));
+            } else {
+                runDownload();
+            }
         },
 
         fallbackDownload(url, name, groupContext, nameContext, toastObj, promptUser, skipCloudSync, cartContext, onSuccess = null) {
@@ -3979,7 +4402,11 @@
             toast.style.animation = 'tmToastFadeIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards';
 
             this.toastContainer.appendChild(toast);
-            return { el: toast, fill: progFill, status: dlStatus };
+            // onSettle: optional hook invoked exactly once, the moment this
+            // download definitively finishes (success or error). Consumed
+            // by Downloader.triggerDownload to let SaveQueue know it's safe
+            // to advance to the next queued save. See finishDownloadToast.
+            return { el: toast, fill: progFill, status: dlStatus, onSettle: null };
         },
 
         updateDownloadToast(toastObj, loaded, total, customMessage) {
@@ -4001,6 +4428,23 @@
 
         finishDownloadToast(toastObj, type, message) {
             if (!toastObj || !toastObj.el) return;
+
+            // This is the single terminal point every save path (success
+            // or definitive failure) already passes through, so ledger
+            // resolution lives here instead of being threaded through every
+            // download function individually — one save can never finish
+            // without clearing its own pending-save record.
+            if (toastObj.ledgerId) {
+                SaveLedger.resolve(toastObj.ledgerId);
+                toastObj.ledgerId = null;
+            }
+
+            if (typeof toastObj.onSettle === 'function') {
+                const settle = toastObj.onSettle;
+                toastObj.onSettle = null;
+                settle(type);
+            }
+
             toastObj.el.classList.add(type);
             toastObj.fill.style.width = '100%';
 
@@ -4018,6 +4462,20 @@
                     }, 300);
                 }
             }, 3000);
+        },
+
+        // Surfaces saves that were requested but never confirmed by a
+        // previous session (see SaveLedger.sweepStale) — dropped native
+        // dialogs, crashed tabs, or a closed browser mid-download. These
+        // can't be silently retried (the original blob/URL context is
+        // gone), so the user is told plainly what may be missing.
+        notifyLostSaves(staleEntries) {
+            if (!this.toastContainer || !staleEntries || staleEntries.length === 0) return;
+            const names = staleEntries.map(e => e.name).filter(Boolean);
+            const summary = names.length <= 3
+                ? names.join(', ')
+                : `${names.slice(0, 3).join(', ')} and ${names.length - 3} more`;
+            this.showToast(`${staleEntries.length} save(s) from a previous session never confirmed (${summary}) — please check if they saved and re-save if needed.`, 'error');
         },
 
         showToast(message, type = 'info') {
@@ -7720,7 +8178,7 @@
             Shortcuts.init();
 
             if (this.isSilentMode) {
-                Logger.info('Initialized Silent Cloud Worker v24.6');
+                Logger.info('Initialized Silent Cloud Worker v33.0');
                 return;
             }
 
@@ -7730,6 +8188,7 @@
             this.bindEvents();
             Database.init();
             if (CONFIG.FEATURED_ENABLED) Featured.init();
+            SaveLedger.sweepStale();
 
             setInterval(() => {
                 if (document.visibilityState === 'visible' && !UI.overlay) {
@@ -7737,7 +8196,7 @@
                     Database.fetchCloudBackground();
                 }
             }, CONFIG.CLOUD_HISTORY_THROTTLE_MS);
-            Logger.info('Initialized Xiv Media Downloader v24.6');
+            Logger.info('Initialized Xiv Media Downloader v33.0');
         },
 
         isDirectMediaPage() {
