@@ -2,7 +2,7 @@
 // @name         [Universal] Xiv Media Downloader
 // @namespace    https://github.com/myouisaur/Universal
 // @icon         data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23FF4081'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 11h3l-4 4-4-4h3V8h2v5z'/%3E%3C/svg%3E
-// @version      33.1
+// @version      33.2
 // @description  Organizes, tracks, and saves categorized media files through a centralized overlay.
 // @author       Xiv
 // @match        *://*/*
@@ -68,6 +68,11 @@
         UI_PREFIX: 'xiv-media-dl',
         STORAGE_PREFIX: 'xiv_media_dl',
         STORAGE_KEY: 'xiv_media_dl_history',
+
+        // Text Encoding Repair
+        // Garbled text (UTF-8 bytes misread as Latin-1) is decoded back one
+        // layer per pass. The cap stops a pathological string from looping.
+        TEXT_REPAIR_MAX_PASSES: 16,
 
         // Search Box Copy
         // Shown while the search box has focus vs. while it's blurred
@@ -442,6 +447,71 @@
     };
 
     const Utils = {
+        // ── Text repair ──────────────────────────────────────────────
+        // An older Worker returned UTF-8 text decoded byte-by-byte, so
+        // Korean/Chinese/etc. came back garbled and was then re-saved
+        // garbled (and re-garbled on every round trip). These helpers undo
+        // that, so the cloud copy and the local copy always resolve to the
+        // same correct text no matter which Worker version is deployed.
+        // Clean text is never touched: it only changes when every character
+        // fits in one byte AND the bytes form valid UTF-8.
+        _utf8StrictDecoder: typeof TextDecoder === 'function' ? new TextDecoder('utf-8', { fatal: true }) : null,
+        _MOJIBAKE_HINT: /[\u0080-\u00FF]/,
+
+        _decodeLatin1AsUtf8(text) {
+            const bytes = new Uint8Array(text.length);
+            for (let i = 0; i < text.length; i++) {
+                const code = text.charCodeAt(i);
+                if (code > 0xFF) return null;
+                bytes[i] = code;
+            }
+            try {
+                return this._utf8StrictDecoder.decode(bytes);
+            } catch (e) {
+                return null;
+            }
+        },
+
+        repairText(text) {
+            if (typeof text !== 'string' || !this._utf8StrictDecoder) return text;
+            if (!this._MOJIBAKE_HINT.test(text)) return text;
+
+            let current = text;
+            for (let pass = 0; pass < CONFIG.TEXT_REPAIR_MAX_PASSES; pass++) {
+                const decoded = this._decodeLatin1AsUtf8(current);
+                if (decoded === null) break;
+                current = decoded;
+            }
+            return current;
+        },
+
+        repairDeep(value) {
+            if (typeof value === 'string') return this.repairText(value);
+            if (Array.isArray(value)) return value.map(item => this.repairDeep(item));
+            if (value && typeof value === 'object') return this._repairObject(value);
+            return value;
+        },
+
+        _repairObject(obj) {
+            const result = {};
+            const repairedKeys = [];
+
+            for (const [key, val] of Object.entries(obj)) {
+                if (key === '__proto__') continue;
+                const fixedKey = this.repairText(key);
+                if (fixedKey === key) result[key] = this.repairDeep(val);
+                else repairedKeys.push([fixedKey, val]);
+            }
+
+            // A key that was already clean wins over a repaired duplicate.
+            for (const [fixedKey, val] of repairedKeys) {
+                if (!Object.prototype.hasOwnProperty.call(result, fixedKey)) {
+                    result[fixedKey] = this.repairDeep(val);
+                }
+            }
+            return result;
+        },
+
         // Converts '#rrggbb' to an "r, g, b" string, memoized since it's
         // called once per visible row on every render. Falls back to the
         // pink accent's own RGB if given something unparseable, rather than
@@ -762,7 +832,7 @@
                             if (typeof data === 'string') {
                                 try { data = JSON.parse(data); } catch (e) { return reject(new Error('Invalid JSON format from proxy.')); }
                             }
-                            resolve(data);
+                            resolve(Utils.repairDeep(data));
                         } else if (res.status === 404) {
                             resolve(null);
                         } else {
@@ -963,6 +1033,7 @@
                             if (typeof responseData === 'string') {
                                 try { responseData = JSON.parse(responseData); } catch (e) { return reject(new Error('Invalid JSON format from URL')); }
                             }
+                            responseData = Utils.repairDeep(responseData);
                             this.setCache(responseData);
                             resolve(responseData);
                         } else {
@@ -1024,7 +1095,7 @@
         },
 
         processData(data) {
-            data = data || {};
+            data = Utils.repairDeep(data || {});
             this.metaLinks = data._xiv_links || {};
             this.metaComments = data._xiv_comments || {};
             const cleanData = { ...data };
@@ -1760,7 +1831,7 @@
 
         syncFromStorage() {
             try {
-                this._cache = JSON.parse(GM_getValue(CONFIG.STORAGE_KEY, '[]'));
+                this._cache = Utils.repairDeep(JSON.parse(GM_getValue(CONFIG.STORAGE_KEY, '[]')));
             } catch (e) {
                 Logger.warn('Corrupted storage data, resetting.');
                 this._cache = [];
@@ -1776,7 +1847,7 @@
                             return;
                         }
                         try {
-                            this._cache = JSON.parse(newValue || '[]');
+                            this._cache = Utils.repairDeep(JSON.parse(newValue || '[]'));
                             if (UI.overlay) {
                                 UI.refreshSidePanels();
                                 UI.updateSyncTimeUI();
@@ -2021,7 +2092,7 @@
         // re-written as a second, differently-id'd entry.
         _readFreshStorage() {
             try {
-                return JSON.parse(GM_getValue(CONFIG.STORAGE_KEY, '[]'));
+                return Utils.repairDeep(JSON.parse(GM_getValue(CONFIG.STORAGE_KEY, '[]')));
             } catch (e) {
                 Logger.warn('Corrupted storage data during merge read, falling back to in-memory cache.');
                 return this._cache;
