@@ -9244,6 +9244,8 @@
   {"g": "TWICE"         , "n": "Sana"                  , "t": 1793041318688},
   {"g": "QWER"          , "n": "Magenta"               , "t": 1793041369482},
   {"g": "FIFTY FIFTY"   , "n": "Athena"                , "t": 1793041448230},
+  {"g": "aespa"         , "n": "Winter"                , "t": 1793041849804},
+  {"g": "aespa"         , "n": "Ningning"              , "t": 1793041849804},
   {"g": "LE SSERAFIM"   , "n": "Chaewon"               , "t": 1793042113786},
   {"g": "LE SSERAFIM"   , "n": "Chaewon"               , "t": 1793042118857},
   {"g": "LE SSERAFIM"   , "n": "Chaewon"               , "t": 1793042126337},
@@ -9363,5 +9365,6 @@
   {"g": "NewJeans"      , "n": "Haerin"                , "t": 1793375807873},
   {"g": "NewJeans"      , "n": "Haerin"                , "t": 1793375818589},
   {"g": "tripleS"       , "n": "Nakyoung"              , "t": 1793378056284},
-  {"g": "tripleS"       , "n": "Nakyoung"              , "t": 1793378064299}
+  {"g": "tripleS"       , "n": "Nakyoung"              , "t": 1793378064299},
+  {"g": "celeb"         , "n": "Rhed Bustamante"       , "t": 1793381103208}
 ]
