@@ -4089,6 +4089,23 @@
         "t": "Instagram",
         "n": "claudinetayco"
       }
+    ],
+    "member::sns::Xuaner1339": [
+      {
+        "u": "mailto:candice_1010@qq.com",
+        "t": "Email",
+        "n": "candice_1010@qq.com"
+      },
+      {
+        "u": "https://www.instagram.com/xuaner1339",
+        "t": "Instagram",
+        "n": "xuaner1339"
+      },
+      {
+        "u": "https://www.douyin.com/user/MS4wLjABAAAAyTO5xW-J4p58S6dvhRXlFxXIXPhVV4oyfK57xlbyluw",
+        "t": "Douyin",
+        "n": ""
+      }
     ]
   },
   "_xiv_comments": {
@@ -4129,6 +4146,7 @@
     "member::celeb::Andrea Brillantes": "Blythe",
     "member::sns::sahairenthill": "Myles Santiago\n2008",
     "member::celeb::Reich Alim": "Ray",
-    "member::celeb::Go Malsook": "Stage Name: Go Malsook (고말숙)\nLegal Name: Jang Inseo (장인서)\nBirth Name: Jang Haneul (장하늘)\nApril 21, 1995"
+    "member::celeb::Go Malsook": "Stage Name: Go Malsook (고말숙)\nLegal Name: Jang Inseo (장인서)\nBirth Name: Jang Haneul (장하늘)\nApril 21, 1995",
+    "member::sns::Xuaner1339": "Doris"
   }
 }
