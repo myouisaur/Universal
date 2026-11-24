@@ -2,7 +2,7 @@
 // @name         [Universal] Xiv Media Downloader
 // @namespace    https://github.com/myouisaur/Universal
 // @icon         data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23FF4081'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 11h3l-4 4-4-4h3V8h2v5z'/%3E%3C/svg%3E
-// @version      33.2
+// @version      34.0
 // @description  Organizes, tracks, and saves categorized media files through a centralized overlay.
 // @author       Xiv
 // @match        *://*/*
@@ -134,16 +134,6 @@
         // was already in flight can't land with pre-edit data and silently
         // revert what the user just saved. Manual "Force Sync" bypasses this.
         DB_LOCAL_WRITE_GUARD_MS: 15000,
-        // Same idea as DB_LOCAL_WRITE_GUARD_MS, but for the history cache
-        // (Storage module) that backs Recent/Trending. Renaming a member
-        // rewrites entries in place without changing their timestamp; the
-        // cloud copy of those entries still shows the old name until the
-        // quiet-window push finishes uploading. Without this guard, a
-        // background/cross-tab cloud fetch landing in that gap merges the
-        // stale cloud entry (old name) alongside the renamed local entry
-        // (new name) under the old dedupe key, doubling the row in Recent
-        // and Trending. Manual "Force Sync" bypasses this.
-        HISTORY_LOCAL_WRITE_GUARD_MS: 15000,
 
         // Cross-Tab Ticket Lock (TicketLock / HistoryLock / DialogBroker)
         // Bakery-algorithm-style mutual exclusion: a tab only proceeds once
@@ -169,6 +159,18 @@
 
         // Cross-Tab History Mutex (Storage / HistoryLock)
         HISTORY_TICKET_KEY: 'xiv_media_dl_history_tickets',
+
+        // Cross-Device History Sync (Storage / HistoryMerge)
+        // The history as of the last successful sync. The three-way merge
+        // needs it to tell "deleted somewhere" from "saved somewhere".
+        HISTORY_BASE_KEY: 'xiv_media_dl_history_base',
+        HISTORY_SYNC_MAX_CONFLICT_RETRIES: 3,   // re-merge attempts when another device writes mid-sync
+        HISTORY_SYNC_MAX_PASSES: 5,             // cap on back-to-back sync passes triggered by edits made during a sync
+        // Circuit breaker: a sync that would remove at least this many
+        // entries AND at least this share of one side is paused instead
+        // of applied (e.g. a truncated cloud file or a wiped local store).
+        HISTORY_SYNC_MASS_REMOVAL_MIN: 500,
+        HISTORY_SYNC_MASS_REMOVAL_RATIO: 0.5,
 
         // Pending Save Ledger (Downloader / SaveLedger)
         // A record is written the instant a save is queued and cleared
@@ -794,14 +796,22 @@
             return Date.now() < this.rateLimitResetTime;
         },
 
-        handleRateLimit(status) {
-            if (status === 403 || status === 429) {
-                Logger.warn("GitHub API Rate Limit Hit. Pausing network sync for 1 hour to protect credentials.");
-                this.rateLimitResetTime = Date.now() + (60 * 60 * 1000);
-                if (UI.toastContainer) UI.showToast('Cloud API Rate Limit exceeded. Pausing sync.', 'error');
-                return true;
-            }
-            return false;
+        // A 403 can also mean a bad token or missing permission, which is
+        // not a rate limit and must not silence sync for an hour.
+        handleRateLimit(res) {
+            if (res.status !== 403 && res.status !== 429) return false;
+            if (res.status === 403 && !JSON.stringify(res.response || '').toLowerCase().includes('rate limit')) return false;
+            Logger.warn("GitHub API Rate Limit Hit. Pausing network sync for 1 hour to protect credentials.");
+            this.rateLimitResetTime = Date.now() + (60 * 60 * 1000);
+            if (UI.toastContainer) UI.showToast('Cloud API Rate Limit exceeded. Pausing sync.', 'error');
+            return true;
+        },
+
+        // The worker reports each file's version in a response header;
+        // an older worker simply omits it (version stays null).
+        parseVersionHeader(headersText) {
+            const match = /^x-cloud-version:\s*(\S+)/im.exec(headersText || '');
+            return match ? match[1] : null;
         },
 
         getHeaders(targetPath) {
@@ -815,6 +825,11 @@
         },
 
         fetch(targetPath) {
+            return this.fetchVersioned(targetPath).then(result => result.data);
+        },
+
+        // Resolves { data, version }. A missing file (404) is { data: null }.
+        fetchVersioned(targetPath) {
             return new Promise((resolve, reject) => {
                 if (this.isRateLimited()) return reject(new Error('API is currently rate limited.'));
 
@@ -825,16 +840,16 @@
                     responseType: 'json',
                     timeout: 15000,
                     onload: (res) => {
-                        if (this.handleRateLimit(res.status)) return reject(new Error('Rate Limit Hit'));
+                        if (this.handleRateLimit(res)) return reject(new Error('Rate Limit Hit'));
 
                         if (res.status === 200) {
                             let data = res.response;
                             if (typeof data === 'string') {
                                 try { data = JSON.parse(data); } catch (e) { return reject(new Error('Invalid JSON format from proxy.')); }
                             }
-                            resolve(Utils.repairDeep(data));
+                            resolve({ data: Utils.repairDeep(data), version: this.parseVersionHeader(res.responseHeaders) });
                         } else if (res.status === 404) {
-                            resolve(null);
+                            resolve({ data: null, version: null });
                         } else {
                             reject(new Error(`Proxy fetch failed with status ${res.status}`));
                         }
@@ -845,29 +860,34 @@
             });
         },
 
-        put(targetPath, payloadData) {
+        // expectedVersion (optional) makes the worker refuse the write if the
+        // file changed since it was read; that rejection carries
+        // isConflict = true so the caller can merge again and retry.
+        put(targetPath, payloadData, expectedVersion = null) {
             return new Promise((resolve, reject) => {
                 if (this.isRateLimited()) return reject(new Error('API is currently rate limited.'));
+
+                const headers = { ...this.getHeaders(targetPath), 'Content-Type': 'application/json' };
+                if (expectedVersion) headers['X-Expected-Version'] = expectedVersion;
 
                 GM_xmlhttpRequest({
                     method: 'PUT',
                     url: this.config.url,
-                    headers: {
-                        ...this.getHeaders(targetPath),
-                        'Content-Type': 'application/json'
-                    },
+                    headers,
                     data: JSON.stringify(payloadData),
                     responseType: 'json',
                     timeout: 15000,
                     onload: (res) => {
-                        if (this.handleRateLimit(res.status)) return reject(new Error('Rate Limit Hit'));
+                        if (this.handleRateLimit(res)) return reject(new Error('Rate Limit Hit'));
 
                         if (res.status === 200) {
-                            resolve();
+                            resolve({ version: this.parseVersionHeader(res.responseHeaders) });
                         } else {
                             let msg = `HTTP ${res.status}`;
                             if (res.response && res.response.error) msg += `: ${res.response.error}`;
-                            reject(new Error(msg));
+                            const error = new Error(msg);
+                            error.isConflict = res.status === 409;
+                            reject(error);
                         }
                     },
                     onerror: (err) => reject(err),
@@ -1766,6 +1786,83 @@
     const DialogBroker = createTicketLock(CONFIG.DIALOG_TICKET_KEY, 'DialogBroker');
 
     // =========================================================
+    // HISTORY MERGE MODULE (pure logic — no storage, network or DOM)
+    // =========================================================
+    // Three-way merge between this device's history, the cloud copy and
+    // the snapshot ("base") taken at the last successful sync. The base is
+    // what separates "added somewhere" from "deleted somewhere":
+    //   in base, still on both sides   -> keep
+    //   in base, gone from either side -> deleted/renamed there, drop it everywhere
+    //   not in base, on either side    -> a new save, keep it
+    // With no base (first sync on a device) nothing can be called a
+    // deletion, so the result is the union and no data is lost.
+    const HistoryMerge = {
+        // Rows are identified by what they ARE (time + group + name), the
+        // same way the cloud file stores them. No per-row id is needed.
+        keyOf(entry) {
+            return `${entry.t}|${entry.g}|${entry.n}`;
+        },
+
+        // Valid, de-duplicated rows as Map(key -> { g, n, t }). Anything
+        // malformed is skipped and a legacy `id` field is dropped.
+        toMap(list) {
+            const map = new Map();
+            if (!Array.isArray(list)) return map;
+            for (const raw of list) {
+                if (!raw || typeof raw.g !== 'string' || typeof raw.n !== 'string' || !Number.isFinite(raw.t)) continue;
+                const entry = { g: raw.g, n: raw.n, t: raw.t };
+                map.set(this.keyOf(entry), entry);
+            }
+            return map;
+        },
+
+        // Array.sort is stable, so rows sharing a timestamp (one batch
+        // save) keep the order they arrived in.
+        toSortedArray(map) {
+            return Array.from(map.values()).sort((a, b) => a.t - b.t);
+        },
+
+        sameKeys(mapA, mapB) {
+            if (mapA.size !== mapB.size) return false;
+            for (const key of mapA.keys()) {
+                if (!mapB.has(key)) return false;
+            }
+            return true;
+        },
+
+        // Whether a stored key snapshot (Set) matches a Map's keys.
+        sameKeysAsSet(keySet, map) {
+            if (!keySet || keySet.size !== map.size) return false;
+            for (const key of map.keys()) {
+                if (!keySet.has(key)) return false;
+            }
+            return true;
+        },
+
+        merge(localMap, cloudMap, baseKeys) {
+            const result = new Map();
+            const consider = (entry, key) => {
+                if (result.has(key)) return;
+                const wasSynced = !!baseKeys && baseKeys.has(key);
+                if (wasSynced && !(localMap.has(key) && cloudMap.has(key))) return;
+                result.set(key, entry);
+            };
+            cloudMap.forEach(consider);
+            localMap.forEach(consider);
+            return result;
+        },
+
+        // How many rows of `fromMap` are missing from `mergedMap`.
+        countMissing(fromMap, mergedMap) {
+            let missing = 0;
+            fromMap.forEach((entry, key) => {
+                if (!mergedMap.has(key)) missing++;
+            });
+            return missing;
+        }
+    };
+
+    // =========================================================
     // STORAGE & TRACKING MODULE
     // =========================================================
     const Storage = {
@@ -1774,21 +1871,14 @@
         _quietPushTimer: null,
         _lastCloudFetch: 0,
         _taskQueue: Promise.resolve(),
-        _lastLocalWriteAt: 0,
-
-        // Marks that a local edit (rename/delete) just touched _cache, so
-        // incoming cloud merges know to hold off. See HISTORY_LOCAL_WRITE_GUARD_MS.
-        _markLocalWrite() {
-            this._lastLocalWriteAt = Date.now();
-        },
-
-        _isWithinLocalWriteGuard() {
-            return (Date.now() - this._lastLocalWriteAt) < CONFIG.HISTORY_LOCAL_WRITE_GUARD_MS;
-        },
+        _syncInFlight: null,
+        _syncRerunRequested: false,
+        _lastSyncError: '',
 
         init(isSilentMode = false) {
             this.cleanupDeprecatedConfig();
             this.syncFromStorage();
+            this._stripLegacyIds();
 
             this._saveLocalDebounced = Utils.debounce(() => {
                 GM_setValue(CONFIG.STORAGE_KEY, JSON.stringify(this._cache));
@@ -1829,53 +1919,86 @@
             return this._taskQueue;
         },
 
-        syncFromStorage() {
+        // ── Local copy ───────────────────────────────────────────────
+        // Always reads the shared GM value, never trusting this tab's
+        // in-memory copy: another tab may have written since.
+        _readFreshStorage() {
             try {
-                this._cache = Utils.repairDeep(JSON.parse(GM_getValue(CONFIG.STORAGE_KEY, '[]')));
+                const parsed = Utils.repairDeep(JSON.parse(GM_getValue(CONFIG.STORAGE_KEY, '[]')));
+                return HistoryMerge.toSortedArray(HistoryMerge.toMap(parsed));
             } catch (e) {
-                Logger.warn('Corrupted storage data, resetting.');
-                this._cache = [];
+                Logger.warn('Saved history looked corrupted, so this tab kept its in-memory copy.');
+                return this._cache || [];
             }
         },
 
-        setupCrossTabSync() {
-            if (typeof GM_addValueChangeListener === 'function') {
-                GM_addValueChangeListener(CONFIG.STORAGE_KEY, (key, oldValue, newValue, remote) => {
-                    if (remote) {
-                        if (this._isWithinLocalWriteGuard()) {
-                            Logger.info('Skipped cross-tab history sync — recent local edit still settling.');
-                            return;
-                        }
-                        try {
-                            this._cache = Utils.repairDeep(JSON.parse(newValue || '[]'));
-                            if (UI.overlay) {
-                                UI.refreshSidePanels();
-                                UI.updateSyncTimeUI();
-                            }
-                        } catch (e) {
-                            Logger.warn('Failed to sync cross-tab storage change.', e);
-                        }
-                    }
-                });
+        syncFromStorage() {
+            this._cache = this._readFreshStorage();
+        },
+
+        // Older versions stamped a per-device `id` on every row. Rows are
+        // matched on time+group+name now, so rewrite the stored copy once
+        // without them instead of carrying dead fields around forever.
+        _stripLegacyIds() {
+            const stored = GM_getValue(CONFIG.STORAGE_KEY, '[]');
+            if (typeof stored === 'string' && stored.includes('"id"')) {
+                GM_setValue(CONFIG.STORAGE_KEY, JSON.stringify(this._cache));
             }
+        },
+
+        _readBase() {
+            try {
+                const raw = GM_getValue(CONFIG.HISTORY_BASE_KEY, null);
+                if (!raw) return null;
+                const parsed = JSON.parse(raw);
+                return Array.isArray(parsed) ? new Set(parsed.filter(key => typeof key === 'string')) : null;
+            } catch (e) {
+                Logger.warn('The history sync snapshot was unreadable and will be rebuilt on the next sync.');
+                return null;
+            }
+        },
+
+        _writeBase(mergedMap) {
+            GM_setValue(CONFIG.HISTORY_BASE_KEY, JSON.stringify(Array.from(mergedMap.keys())));
+        },
+
+        _setDirty(isDirty) {
+            const dirtyKey = `${CONFIG.UI_PREFIX}_sync_dirty`;
+            if (GM_getValue(dirtyKey, false) !== isDirty) GM_setValue(dirtyKey, isDirty);
+        },
+
+        setupCrossTabSync() {
+            if (typeof GM_addValueChangeListener !== 'function') return;
+            GM_addValueChangeListener(CONFIG.STORAGE_KEY, (key, oldValue, newValue, remote) => {
+                if (!remote) return;
+                try {
+                    const parsed = Utils.repairDeep(JSON.parse(newValue || '[]'));
+                    this._cache = HistoryMerge.toSortedArray(HistoryMerge.toMap(parsed));
+                    if (UI.overlay) {
+                        UI.refreshSidePanels();
+                        UI.updateSyncTimeUI();
+                    }
+                } catch (e) {
+                    Logger.warn('Another tab updated the history but this tab could not read it. It will catch up on the next sync.');
+                }
+            });
         },
 
         setupDirtyListener() {
             if (typeof GM_addValueChangeListener === 'function') {
                 GM_addValueChangeListener(`${CONFIG.UI_PREFIX}_sync_dirty`, (key, oldValue, newValue, remote) => {
-                    // Only react to the flag changing in ANOTHER tab. The tab that
-                    // sets the flag itself already triggers its own saveCloud()
-                    // call at the point of the edit — reacting here too would fire
-                    // a second, redundant push racing the first.
+                    // Only react to the flag changing in ANOTHER tab. The tab
+                    // that sets the flag already triggers its own sync at the
+                    // point of the edit.
                     if (remote && newValue === true && document.visibilityState === 'visible') {
-                        setTimeout(() => this.saveCloud(), 200);
+                        setTimeout(() => this.saveCloud().catch(e => Logger.warn(`History sync did not finish: ${e.message}`)), 200);
                     }
                 });
             }
 
             document.addEventListener('visibilitychange', () => {
                 if (document.visibilityState === 'visible' && GM_getValue(`${CONFIG.UI_PREFIX}_sync_dirty`, false)) {
-                    setTimeout(() => this.saveCloud(), 200);
+                    setTimeout(() => this.saveCloud().catch(e => Logger.warn(`History sync did not finish: ${e.message}`)), 200);
                 }
             });
         },
@@ -1903,7 +2026,7 @@
                 const elapsed = Date.now() - lastActivity;
 
                 if (elapsed >= CONFIG.CLOUD_SAVE_QUIET_WINDOW_MS) {
-                    this.saveCloud();
+                    this.saveCloud().catch(e => Logger.warn(`History sync did not finish: ${e.message}`));
                 } else {
                     this._quietPushTimer = setTimeout(checkQuiet, CONFIG.CLOUD_SAVE_QUIET_WINDOW_MS - elapsed);
                 }
@@ -1912,92 +2035,29 @@
             this._quietPushTimer = setTimeout(checkQuiet, CONFIG.CLOUD_SAVE_QUIET_WINDOW_MS);
         },
 
+        // Also forgets the sync snapshot, so the next sync adopts the cloud
+        // copy as-is instead of treating this device's missing rows as
+        // deletions. This is how a device accepts a big cloud-side change.
         clearLocalHistory() {
             this._cache = [];
             GM_setValue(CONFIG.STORAGE_KEY, '[]');
+            GM_deleteValue(CONFIG.HISTORY_BASE_KEY);
+            this._setDirty(false);
+            this.fetchCloudBackground(true).catch(e => Logger.warn(`History sync did not finish: ${e.message}`));
         },
 
+        // ── Cloud sync ───────────────────────────────────────────────
+        // Every sync is pull -> merge -> (push if anything differs), so a
+        // device can never overwrite another device's saves or a manual
+        // edit of history.json. The push carries the version it was merged
+        // against; if the cloud copy changed in the meantime the worker
+        // rejects it and the whole cycle runs again on fresh data.
         async fetchCloudBackground(force = false) {
             if (!CloudAPI.isValid() || CloudAPI.isRateLimited()) return;
             if (!force && Date.now() - this._lastCloudFetch < CONFIG.CLOUD_HISTORY_THROTTLE_MS) return;
             this._lastCloudFetch = Date.now();
             try {
-                const cloudData = await CloudAPI.fetch(CONFIG.GITHUB_HISTORY_PATH);
-                if (cloudData && Array.isArray(cloudData)) {
-                    GM_setValue(`${CONFIG.UI_PREFIX}_last_sync_time`, Date.now());
-                    if (UI.overlay) UI.updateSyncTimeUI();
-
-                    if (this._isWithinLocalWriteGuard()) {
-                        Logger.info('Skipped background history merge — recent local edit still settling.');
-                        return;
-                    }
-
-                    await this._queueTask(() => HistoryLock.withLock(async () => {
-                        // Re-check inside the lock: a rename/delete may have landed
-                        // while this fetch was in flight.
-                        if (this._isWithinLocalWriteGuard()) {
-                            Logger.info('Skipped background history merge — recent local edit still settling.');
-                            return;
-                        }
-
-                        // Dedupe by a stable per-entry id, NOT by timestamp+group
-                        // and NOT by name. Name is mutable (renames rewrite it
-                        // in place while keeping the original timestamp), so
-                        // keying on it let a stale cloud copy of a renamed
-                        // entry survive as a duplicate row. Keying on
-                        // timestamp+group alone is worse: every member in a
-                        // same-group multi-select batch shares the exact same
-                        // timestamp AND group, so they collided and collapsed
-                        // to a single surviving entry. An independent id
-                        // avoids both failure modes. Legacy entries saved
-                        // before this field existed are backfilled here with a
-                        // fresh id (using their own t-g-n as a one-time merge
-                        // key so pre-existing duplicates don't get created by
-                        // the backfill itself) — this mutates this._cache
-                        // in place, so it persists via the GM_setValue below
-                        // and only needs to happen once per entry.
-                        const backfillId = (item) => {
-                            if (!item.id) item.id = `legacy-${item.t}-${item.g}-${item.n}`;
-                            return item.id;
-                        };
-                        const mergedMap = new Map();
-                        [...this._cache, ...cloudData].forEach(item => {
-                            mergedMap.set(backfillId(item), item);
-                        });
-
-                        // Second pass: collapse entries that are the same real
-                        // event (same timestamp+group+name) but ended up with
-                        // two different ids — e.g. a legacy entry that got
-                        // independently backfilled on two different devices
-                        // before either had synced the other's generated id.
-                        // The id-based Map above can't catch this since the
-                        // ids genuinely differ; this pass catches it by
-                        // content instead. Two truly separate saves of the
-                        // same idol always carry different timestamps, so
-                        // this can't falsely merge legitimate re-saves.
-                        const byContent = new Map();
-                        mergedMap.forEach(item => {
-                            const contentKey = `${item.t}|${item.g}|${item.n}`;
-                            const existing = byContent.get(contentKey);
-                            // Keep whichever copy has a non-legacy id, preferring
-                            // the first one seen if both (or neither) qualify.
-                            if (!existing || (String(existing.id).startsWith('legacy-') && !String(item.id).startsWith('legacy-'))) {
-                                byContent.set(contentKey, item);
-                            }
-                        });
-
-                        const newCache = Array.from(byContent.values()).sort((a, b) => a.t - b.t);
-                        const isChanged = newCache.length !== this._cache.length ||
-                            (newCache.length > 0 && this._cache.length > 0 && newCache[newCache.length - 1].t !== this._cache[this._cache.length - 1].t);
-
-                        if (isChanged || force) {
-                            this._cache = newCache;
-                            this.clean();
-                            this._saveLocalDebounced();
-                            if (UI.overlay) UI.refreshSidePanels();
-                        }
-                    }));
-                }
+                await this._sync();
             } catch (e) {
                 if (force) throw e;
             }
@@ -2005,68 +2065,147 @@
 
         async saveCloud() {
             if (!CloudAPI.isValid() || CloudAPI.isRateLimited()) return 'skipped';
-            const syncLockKey = `${CONFIG.UI_PREFIX}_cloud_sync_lock`;
-            let shouldUpload = false;
+            await this._sync();
+            return 'synced';
+        },
 
-            await HistoryLock.withLock(async () => {
-                if (Date.now() - GM_getValue(syncLockKey, 0) < 5000) {
-                    GM_setValue(`${CONFIG.UI_PREFIX}_sync_dirty`, true);
-                    shouldUpload = false;
-                } else {
-                    GM_setValue(syncLockKey, Date.now());
-                    GM_setValue(`${CONFIG.UI_PREFIX}_sync_dirty`, false);
-                    shouldUpload = true;
-                }
+        // Overlapping requests share one run. A request that arrives while
+        // a run is in flight asks for one more pass, because the run may
+        // already have read the local history before the new edit landed.
+        _sync() {
+            if (this._syncInFlight) {
+                this._syncRerunRequested = true;
+                return this._syncInFlight;
+            }
+            this._syncInFlight = this._runSyncPasses().finally(() => {
+                this._syncInFlight = null;
             });
-            if (!shouldUpload) return 'queued';
+            return this._syncInFlight;
+        },
 
+        async _runSyncPasses() {
+            let passes = 0;
             try {
-                let pushing = true;
-                let loops = 0;
-
-                while (pushing && loops < 3) {
-                    loops++;
-                    await this._queueTask(() => HistoryLock.withLock(async () => {
-                        this.syncFromStorage();
-                    }));
-                    await HistoryLock.withLock(async () => {
-                        GM_setValue(`${CONFIG.UI_PREFIX}_sync_dirty`, false);
-                    });
-                    await CloudAPI.put(CONFIG.GITHUB_HISTORY_PATH, this._cache);
-                    Logger.info('History cache successfully pushed to remote branch.');
-
-                    GM_setValue(`${CONFIG.UI_PREFIX}_last_sync_time`, Date.now());
-                    if (UI.overlay) UI.updateSyncTimeUI();
-                    await HistoryLock.withLock(async () => {
-                        if (!GM_getValue(`${CONFIG.UI_PREFIX}_sync_dirty`, false)) {
-                            pushing = false;
-                        } else {
-                            GM_setValue(syncLockKey, Date.now());
-                        }
-                    });
-                }
-
-                await HistoryLock.withLock(async () => { GM_setValue(syncLockKey, 0); });
-                return 'synced';
+                do {
+                    this._syncRerunRequested = false;
+                    passes++;
+                    await this._syncOnce();
+                } while (this._syncRerunRequested && passes < CONFIG.HISTORY_SYNC_MAX_PASSES);
+                this._lastSyncError = '';
             } catch (e) {
-                await HistoryLock.withLock(async () => {
-                    GM_setValue(syncLockKey, 0);
-                    GM_setValue(`${CONFIG.UI_PREFIX}_sync_dirty`, true);
-                });
-                Logger.warn(`History cloud sync failure: ${e.message}`);
+                if (e.message !== this._lastSyncError) Logger.warn(`History sync did not finish: ${e.message}`);
+                this._lastSyncError = e.message;
                 throw e;
             }
         },
 
-        // Unique, stable, immutable per history entry — used as the cloud
-        // merge key (see fetchCloudBackground). Deliberately NOT derived
-        // from t/g/n: timestamp+group collide across a same-group multi-
-        // member batch (identical t, identical g), and name changes on
-        // rename. An independent id survives both.
-        _generateHistoryId() {
-            return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+        async _syncOnce() {
+            for (let attempt = 0; attempt <= CONFIG.HISTORY_SYNC_MAX_CONFLICT_RETRIES; attempt++) {
+                const cloud = await CloudAPI.fetchVersioned(CONFIG.GITHUB_HISTORY_PATH);
+                const cloudMap = HistoryMerge.toMap(cloud.data);
+                const cloudFileMissing = cloud.data === null;
+
+                if (!cloudFileMissing && (!Array.isArray(cloud.data) || (cloud.data.length > 0 && cloudMap.size === 0))) {
+                    throw new Error('The cloud history file is not in the expected format, so sync was skipped to protect your data.');
+                }
+
+                const plan = await this._planMerge(cloudMap, cloudFileMissing);
+                if (plan.blockedReason) throw new Error(plan.blockedReason);
+
+                if (plan.needsPush) {
+                    try {
+                        await CloudAPI.put(CONFIG.GITHUB_HISTORY_PATH, HistoryMerge.toSortedArray(plan.merged), cloud.version);
+                    } catch (e) {
+                        if (e && e.isConflict) {
+                            Logger.info('Cloud history changed while syncing — merging again with the newer copy.');
+                            continue;
+                        }
+                        this._setDirty(true);
+                        throw e;
+                    }
+                }
+
+                await this._commitMerge(plan);
+                GM_setValue(`${CONFIG.UI_PREFIX}_last_sync_time`, Date.now());
+                if (UI.overlay) UI.updateSyncTimeUI();
+                return;
+            }
+
+            this._setDirty(true);
+            throw new Error('The cloud history kept changing while syncing. It will retry automatically.');
         },
 
+        // Reads local + base and merges them with the cloud copy, under the
+        // cross-tab lock so no other tab edits the history mid-read.
+        async _planMerge(cloudMap, cloudFileMissing) {
+            let plan = null;
+            await this._queueTask(() => HistoryLock.withLock(async () => {
+                const localMap = HistoryMerge.toMap(this._readFreshStorage());
+                // A missing cloud file is not "everything was deleted".
+                const baseKeys = cloudFileMissing ? null : this._readBase();
+                const merged = HistoryMerge.merge(localMap, cloudMap, baseKeys);
+
+                plan = {
+                    localMap,
+                    baseKeys,
+                    merged,
+                    blockedReason: this._massRemovalReason(localMap, cloudMap, merged),
+                    needsPush: cloudFileMissing ? merged.size > 0 : !HistoryMerge.sameKeys(merged, cloudMap)
+                };
+            }));
+            if (!plan) throw new Error('Could not read the history saved on this device.');
+            return plan;
+        },
+
+        // Circuit breaker: a truncated cloud file or a wiped local store
+        // would otherwise look like "delete almost everything" and spread.
+        _massRemovalReason(localMap, cloudMap, merged) {
+            const isMass = (removed, total) =>
+                removed >= CONFIG.HISTORY_SYNC_MASS_REMOVAL_MIN &&
+                total > 0 && removed / total >= CONFIG.HISTORY_SYNC_MASS_REMOVAL_RATIO;
+            const advice = 'If this is intended, edit history.json on GitHub and press "Clear Local History" in Settings on each device.';
+
+            const removedHere = HistoryMerge.countMissing(localMap, merged);
+            if (isMass(removedHere, localMap.size)) {
+                return `Sync paused to protect your data: the cloud copy would remove ${removedHere} of ${localMap.size} history entries from this device. ${advice}`;
+            }
+            const removedFromCloud = HistoryMerge.countMissing(cloudMap, merged);
+            if (isMass(removedFromCloud, cloudMap.size)) {
+                return `Sync paused to protect your data: this device would remove ${removedFromCloud} of ${cloudMap.size} history entries from the cloud. ${advice}`;
+            }
+            return '';
+        },
+
+        // Applies the merge result locally and records it as the new base.
+        // Edits made on this device while the network call was running are
+        // layered back on top, then synced by one more pass.
+        async _commitMerge(plan) {
+            let hasPendingLocalChanges = false;
+            await this._queueTask(() => HistoryLock.withLock(async () => {
+                const currentMap = HistoryMerge.toMap(this._readFreshStorage());
+                const finalMap = new Map(plan.merged);
+                plan.localMap.forEach((entry, key) => {
+                    if (!currentMap.has(key)) finalMap.delete(key);
+                });
+                currentMap.forEach((entry, key) => {
+                    if (!plan.localMap.has(key)) finalMap.set(key, entry);
+                });
+
+                const storageChanged = !HistoryMerge.sameKeys(finalMap, currentMap);
+                const viewIsStale = !this._cache || this._cache.length !== finalMap.size;
+                this._cache = HistoryMerge.toSortedArray(finalMap);
+                if (storageChanged) GM_setValue(CONFIG.STORAGE_KEY, JSON.stringify(this._cache));
+                if ((storageChanged || viewIsStale) && UI.overlay) UI.refreshSidePanels();
+
+                if (!HistoryMerge.sameKeysAsSet(plan.baseKeys, plan.merged)) this._writeBase(plan.merged);
+
+                hasPendingLocalChanges = !HistoryMerge.sameKeys(finalMap, plan.merged);
+                this._setDirty(hasPendingLocalChanges);
+            }));
+            if (hasPendingLocalChanges) this._syncRerunRequested = true;
+        },
+
+        // ── Local edits ──────────────────────────────────────────────
         // Guards against the same click/event accidentally firing a record
         // call twice in immediate succession (e.g. a duplicate onload/onerror
         // callback for one download). Deliberately narrow — CONFIG.
@@ -2083,27 +2222,15 @@
         },
 
         // Both record* entry points funnel through this so a save can never
-        // interleave with a concurrent fetchCloudBackground()/saveCloud()
-        // cycle running on this same device (see _queueTask/HistoryLock).
-        // _markLocalWrite() is called INSIDE the lock, immediately after the
-        // cache write, so any merge that was waiting on the mutex sees the
-        // guard already active the instant it gets its turn — closing the
-        // race that previously let a fresh save get overwritten or
-        // re-written as a second, differently-id'd entry.
-        _readFreshStorage() {
-            try {
-                return Utils.repairDeep(JSON.parse(GM_getValue(CONFIG.STORAGE_KEY, '[]')));
-            } catch (e) {
-                Logger.warn('Corrupted storage data during merge read, falling back to in-memory cache.');
-                return this._cache;
-            }
-        },
-
+        // interleave with a concurrent sync on this device (see
+        // _queueTask/HistoryLock). The fresh read inside the lock means a
+        // save can never be lost just because another tab wrote last.
         _appendHistoryEntries(entries) {
             return this._queueTask(() => HistoryLock.withLock(async () => {
                 this.syncFromStorage();
+                const knownKeys = new Set(this._cache.map(item => HistoryMerge.keyOf(item)));
                 const newEntries = entries.filter(entry => {
-                    if (this._isDuplicateSaveAttempt(entry)) {
+                    if (this._isDuplicateSaveAttempt(entry) || knownKeys.has(HistoryMerge.keyOf(entry))) {
                         Logger.warn(`Rejected duplicate save attempt for ${entry.n} (${entry.g}) — same item recorded within the last ${CONFIG.DUPLICATE_SAVE_GUARD_MS}ms.`);
                         return false;
                     }
@@ -2111,22 +2238,10 @@
                 });
                 if (newEntries.length === 0) return;
 
-                // Defense-in-depth: re-read storage fresh right at write
-                // time and merge by id instead of writing whatever _cache
-                // happened to hold. Even though HistoryLock now provides a
-                // fair, event-driven mutex (see createTicketLock), this
-                // turns any edge-case overlap into a safe union instead of
-                // a silent overwrite — an entry can never vanish just
-                // because another tab wrote last.
-                const freshCache = this._readFreshStorage();
-                const knownIds = new Set(freshCache.map(e => e.id));
-                const toAppend = newEntries.filter(e => !knownIds.has(e.id));
-                this._cache = freshCache.concat(toAppend);
-
-                this._markLocalWrite();
+                this._cache = this._cache.concat(newEntries);
                 this.clean();
                 GM_setValue(CONFIG.STORAGE_KEY, JSON.stringify(this._cache));
-                GM_setValue(`${CONFIG.UI_PREFIX}_sync_dirty`, true);
+                this._setDirty(true);
 
                 if (UI.overlay) {
                     UI.refreshSidePanels();
@@ -2137,7 +2252,7 @@
 
         recordSuccess(group, name) {
             if (!group || !name) return;
-            this._appendHistoryEntries([{ g: group, n: name, t: Date.now(), id: this._generateHistoryId() }])
+            this._appendHistoryEntries([{ g: group, n: name, t: Date.now() }])
                 .then(() => setTimeout(() => this.saveCloud().catch(e => Logger.warn(`Post-save cloud sync failed: ${e.message}`)), 200))
                 .catch(e => Logger.error('Local history write failed', e));
         },
@@ -2145,12 +2260,15 @@
         recordBatchSuccess(cartArray) {
             if (!cartArray || cartArray.length === 0) return;
             const now = Date.now();
-            const entries = cartArray.map(item => ({ g: item.g, n: item.n, t: now, id: this._generateHistoryId() }));
+            const entries = cartArray.map(item => ({ g: item.g, n: item.n, t: now }));
             this._appendHistoryEntries(entries)
                 .then(() => setTimeout(() => this.saveCloud().catch(e => Logger.warn(`Post-batch-save cloud sync failed: ${e.message}`)), 200))
                 .catch(e => Logger.error('Local batch history write failed', e));
         },
 
+        // Renames rewrite rows in place; to the merge that is "old row
+        // deleted + new row added", which is exactly what other devices
+        // need to hear about.
         renameGroupHistory(oldName, newName) {
             this._queueTask(() => HistoryLock.withLock(async () => {
                 this.syncFromStorage();
@@ -2164,6 +2282,7 @@
 
                 if (changed) {
                     GM_setValue(CONFIG.STORAGE_KEY, JSON.stringify(this._cache));
+                    this._setDirty(true);
                     this._scheduleQuietPush();
                     if (UI.overlay) UI.refreshSidePanels();
                 }
@@ -2182,8 +2301,8 @@
                 });
 
                 if (changed) {
-                    this._markLocalWrite();
                     GM_setValue(CONFIG.STORAGE_KEY, JSON.stringify(this._cache));
+                    this._setDirty(true);
                     this._scheduleQuietPush();
                     if (UI.overlay) UI.refreshSidePanels();
                 }
@@ -2199,8 +2318,8 @@
                 this._cache = this._cache.filter(item => !idsClone.has(`${item.t}-${item.g}-${item.n}`));
 
                 if (this._cache.length !== originalLength) {
-                    this._markLocalWrite();
                     GM_setValue(CONFIG.STORAGE_KEY, JSON.stringify(this._cache));
+                    this._setDirty(true);
                     this._scheduleQuietPush();
                     if (UI.overlay) {
                         UI.refreshSidePanels();
@@ -5825,7 +5944,7 @@
                     const dot = this.configBtn.querySelector(`.${CONFIG.UI_PREFIX}-notification-dot`);
                     if (dot) dot.remove();
                 }
-                Storage.fetchCloudBackground(true);
+                Storage.fetchCloudBackground(true).catch(e => Logger.warn(`History sync did not finish: ${e.message}`));
                 Database.init().then(() => {
                     this.updateListData('');
                     this.updateVisibility();
@@ -7467,6 +7586,7 @@
             addRow('Database members', String(memberCount));
             addRow('History entries', String(historyCount));
             addRow('History size (local)', Utils.formatBytes(historySizeBytes));
+            addRow('History sync status', Storage._lastSyncError || 'OK');
 
             addSectionTitle('Recent Issues');
             if (Logger._recentIssues.length === 0) {
@@ -8155,7 +8275,7 @@
         async showMenu() {
             if (this.overlay) return;
             if (CloudAPI.isValid() && !CloudAPI.isRateLimited()) {
-                Storage.fetchCloudBackground(true);
+                Storage.fetchCloudBackground(true).catch(e => Logger.warn(`History sync did not finish: ${e.message}`));
                 Database.fetchCloudBackground(true);
             }
 
@@ -8249,7 +8369,7 @@
             Shortcuts.init();
 
             if (this.isSilentMode) {
-                Logger.info('Initialized Silent Cloud Worker v33.0');
+                Logger.info('Initialized Silent Cloud Worker v34.0');
                 return;
             }
 
@@ -8267,7 +8387,7 @@
                     Database.fetchCloudBackground();
                 }
             }, CONFIG.CLOUD_HISTORY_THROTTLE_MS);
-            Logger.info('Initialized Xiv Media Downloader v33.0');
+            Logger.info('Initialized Xiv Media Downloader v34.0');
         },
 
         isDirectMediaPage() {
