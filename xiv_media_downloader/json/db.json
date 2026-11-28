@@ -4358,11 +4358,6 @@
         "u": "https://www.facebook.com/61583645653895",
         "t": "Facebook",
         "n": "Jill Ramos"
-      },
-      {
-        "u": "https://www.threads.com/@hell0_j1lly",
-        "t": "Threads",
-        "n": "@hell0_j1lly"
       }
     ]
   },
@@ -4412,6 +4407,7 @@
     "member::sns::Oyasu Mitsuki": "みつき",
     "member::sns::itsnotdatsrs": "Liz",
     "member::sns::Jane Yu": "Jane Yu Cosplay",
-    "member::sns::Van Shoaf": "King Van"
+    "member::sns::Van Shoaf": "King Van",
+    "member::sns::Jill Ramos": "Hello Jilly"
   }
 }
